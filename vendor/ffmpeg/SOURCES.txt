@@ -1,0 +1,23 @@
+Perfect Loop uses the unmodified single-thread @ffmpeg/core 0.12.10.
+Its JavaScript and WebAssembly assets are copied directly from that pinned npm package.
+
+Package source/build project:
+https://github.com/ffmpegwasm/ffmpeg.wasm
+https://github.com/ffmpegwasm/ffmpeg.wasm/tree/main/packages/core
+https://github.com/ffmpegwasm/ffmpeg.wasm/tree/main/src
+https://github.com/ffmpegwasm/ffmpeg.wasm/tree/main/build
+https://github.com/ffmpegwasm/ffmpeg.wasm/blob/main/Dockerfile
+https://ffmpegwasm.netlify.app/docs/contribution/
+
+The bundled core package declares version 0.12.10 and
+GPL-2.0-or-later. Its Dockerfile and build scripts identify and fetch the
+FFmpeg and codec/library sources used to build the core. The core includes
+GPL components such as x264; its license is separate from the MIT JavaScript wrapper.
+
+Original FFmpeg source:
+https://ffmpeg.org/download.html
+https://git.ffmpeg.org/ffmpeg.git
+
+No modifications were made to the core JavaScript or WebAssembly binary.
+The WebAssembly binary is stored losslessly as gzip and decoded in the browser.
+Component licenses: see GPL-2.txt and the application THIRD-PARTY-NOTICES.txt.

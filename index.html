@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en" prefix="og: https://ogp.me/ns#">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1b1c1e">
+  <meta name="description" content="Create seamless video loops for Spotify Canvas and music visuals. Find loop candidates, choose a method, and export MP4, WebM, or GIF on your device.">
+  <meta name="robots" content="index, follow">
+  <title>PerfectLoop — Seamless Video Loop Editor</title>
+  <link rel="canonical" href="https://espmaniac.github.io/PerfectLoop/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PerfectLoop">
+  <meta property="og:title" content="PerfectLoop — Seamless Video Loop Editor">
+  <meta property="og:description" content="Create seamless video loops for Spotify Canvas and music visuals. Find loop candidates, choose a method, and export MP4, WebM, or GIF on your device.">
+  <meta property="og:url" content="https://espmaniac.github.io/PerfectLoop/">
+  <meta property="og:image" content="https://espmaniac.github.io/PerfectLoop/icon-512.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="512">
+  <meta property="og:image:height" content="512">
+  <meta property="og:image:alt" content="PerfectLoop PL monogram">
+  <link rel="icon" type="image/x-icon" href="./favicon.ico?v=2.1.2" sizes="16x16 32x32 48x48">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=2.1.2" sizes="any">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=2.1.2" sizes="180x180">
+  <link rel="manifest" href="./site.webmanifest?v=2.1.2">
+  <link rel="stylesheet" href="./style.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://espmaniac.github.io/PerfectLoop/#website",
+        "url": "https://espmaniac.github.io/PerfectLoop/",
+        "name": "PerfectLoop",
+        "alternateName": "Perfect Loop",
+        "description": "Create seamless video loops for Spotify Canvas and music visuals. Find loop candidates, choose a method, and export MP4, WebM, or GIF on your device.",
+        "inLanguage": "en"
+      },
+      {
+        "@type": "WebPage",
+        "@id": "https://espmaniac.github.io/PerfectLoop/#webpage",
+        "url": "https://espmaniac.github.io/PerfectLoop/",
+        "name": "PerfectLoop — Seamless Video Loop Editor",
+        "description": "Create seamless video loops for Spotify Canvas and music visuals. Find loop candidates, choose a method, and export MP4, WebM, or GIF on your device.",
+        "inLanguage": "en",
+        "isPartOf": {
+          "@id": "https://espmaniac.github.io/PerfectLoop/#website"
+        },
+        "mainEntity": {
+          "@id": "https://espmaniac.github.io/PerfectLoop/#application"
+        }
+      },
+      {
+        "@type": "WebApplication",
+        "@id": "https://espmaniac.github.io/PerfectLoop/#application",
+        "url": "https://espmaniac.github.io/PerfectLoop/",
+        "name": "PerfectLoop",
+        "description": "Create seamless video loops for Spotify Canvas and music visuals. Find loop candidates, choose a method, and export MP4, WebM, or GIF on your device.",
+        "applicationCategory": "MultimediaApplication",
+        "applicationSubCategory": "Video loop editor",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires JavaScript, WebAssembly, and support for module workers.",
+        "inLanguage": "en",
+        "isAccessibleForFree": true,
+        "image": "https://espmaniac.github.io/PerfectLoop/icon-512.png",
+        "sameAs": "https://github.com/espmaniac/PerfectLoop",
+        "license": "https://github.com/espmaniac/PerfectLoop/blob/main/LICENSE",
+        "mainEntityOfPage": {
+          "@id": "https://espmaniac.github.io/PerfectLoop/#webpage"
+        },
+        "offers": {
+          "@type": "Offer",
+          "price": 0
+        },
+        "featureList": [
+          "Automatic loop discovery in a whole video or selected range",
+          "Natural cut, crossfade, offset dissolve, rebound, eased rebound, and fade through black",
+          "Portrait, landscape, square, and custom output dimensions",
+          "MP4, WebM, and animated GIF exports",
+          "Export without an audio track",
+          "Video processing on your device with FFmpeg WebAssembly"
+        ]
+      }
+    ]
+  }
+  </script>
+  <script type="module" src="./js/app.js"></script>
+</head>
+<body>
+  <noscript>This video editor needs JavaScript enabled.</noscript>
+  <div class="app-shell" id="app">
+    <header class="app-header">
+      <div class="header-brand">
+        <a class="brand" href="./" aria-label="PerfectLoop home"><span class="brand-icon"><img src="./favicon.svg?v=2.1.2" width="44" height="44" alt=""></span><span>PerfectLoop</span></a>
+        <span class="privacy"><span class="privacy-dot" aria-hidden="true"></span>On your device</span>
+      </div>
+      <div class="header-actions">
+        <button class="btn secondary sample-btn" data-action="sample" aria-label="Load sample" title="Load sample"><span class="sample-icon" data-icon="RotateCcw" data-size="17"></span><span class="sample-label">Load sample</span></button>
+        <button class="btn secondary" data-action="open" aria-label="Open video"><span data-icon="FolderOpen" data-size="19"></span><span class="open-label">Open video</span></button>
+      </div>
+    </header>
+    <input id="file-input" class="sr-only" type="file" accept="video/*,.mkv,.mov,.avi,.m4v,.webm,.mp4" aria-label="Choose source video">
+    <main>
+      <h1 class="sr-only">Video loop editor</h1>
+      <div class="alert error" id="proxy-alert" role="alert" hidden><div><b>Compatible preview needed</b><p id="proxy-message"></p></div><button class="btn secondary" data-action="proxy">Create proxy</button></div>
+      <div class="alert error" id="error-alert" role="alert" hidden><span id="error-message"></span><button class="icon-btn" data-action="dismiss-error" aria-label="Dismiss error"><span data-icon="X" data-size="16"></span></button></div>
+      <div class="notice" id="notice" role="status" hidden><span data-icon="CheckCircle2" data-size="15"></span><span id="notice-message"></span><button class="icon-btn" data-action="dismiss-notice" aria-label="Dismiss notice"><span data-icon="X" data-size="14"></span></button></div>
+      <div class="workbench">
+        <section class="controls-panel panel" aria-label="Loop tools">
+          <h2 class="panel-title" id="tool-title">Loop method</h2>
+          <div class="tool-body" role="tabpanel" id="panel-edit" aria-labelledby="tab-edit">
+            <fieldset data-disable>
+              <div class="method-grid" id="methods"></div>
+              <div class="fields method-fields" id="method-fields"></div>
+              <details class="disclosure method-about"><summary>Loop settings &amp; tips</summary><div class="disclosure-content" id="loop-settings"><p class="method-detail" id="method-detail"></p><p class="micro" id="overlap-note"></p></div></details>
+            </fieldset>
+          </div>
+          <div class="tool-body" role="tabpanel" id="panel-find" aria-labelledby="tab-find" hidden>
+            <fieldset data-disable>
+              <p class="panel-copy">Find matching moments in the whole video or a selected range.</p>
+              <div class="fields two" id="search-range-fields"></div>
+              <div id="search-options"></div>
+              <button class="btn primary full" data-action="search"><span data-icon="Search" data-size="16"></span>Find loop candidates</button>
+              <details class="disclosure"><summary>How search works</summary><p class="micro">Lengths refer to the source range. Long videos use adaptive sampling, up to 1,601 frames. The best five matches are refined around individual frames. Scores estimate visual fit; watch the motion at the seam.</p></details>
+              <div class="candidate-section" id="candidate-section" hidden><div class="candidate-head"><b id="candidate-count"></b><button class="text-btn" data-action="select-top" id="select-top">Select top 5</button></div><div class="candidates" id="candidates"></div><button class="btn secondary full" data-action="batch" id="batch-button" hidden></button></div>
+            </fieldset>
+          </div>
+          <div class="tool-body" role="tabpanel" id="panel-inspect" aria-labelledby="tab-inspect" hidden>
+            <fieldset data-disable>
+              <p class="panel-copy"><span id="inspection-mode">Selected source range</span>. Compare the last frame with the first, then watch several repeats.</p>
+              <button class="btn secondary full" data-action="inspect"><span data-icon="ScanLine" data-size="16"></span>Compare boundary frames</button>
+              <div id="seam-result"></div>
+              <details class="disclosure inspection-tips"><summary>What to look for</summary><p>Check the direction and speed of motion at the join. A matching still frame can hide a change in velocity. Bright areas in the difference map show change, including normal motion.</p><p>Rebound reverses direction; dissolves can show ghosting. A rendered preview uses the export's loop logic at a smaller resolution. Check the downloaded file at full size too.</p></details>
+            </fieldset>
+          </div>
+        </section>
+        <section class="preview-panel panel" aria-label="Video preview">
+          <div class="preview-top">
+            <div class="tabs" role="tablist" aria-label="Loop tools">
+              <button role="tab" id="tab-edit" data-tab="edit" aria-controls="panel-edit" aria-selected="true" class="active"><span data-icon="SlidersHorizontal" data-size="17"></span>Edit loop</button>
+              <button role="tab" id="tab-find" data-tab="find" aria-controls="panel-find" aria-selected="false"><span data-icon="LocateFixed" data-size="18"></span>Auto find</button>
+              <button role="tab" id="tab-inspect" data-tab="inspect" aria-controls="panel-inspect" aria-selected="false"><span data-icon="Search" data-size="18"></span>Inspect seam</button>
+            </div>
+          </div>
+          <div class="preview-stage" id="preview-stage">
+            <span class="preview-tag" id="preview-tag">SOURCE RANGE</span>
+            <canvas id="preview-canvas" aria-label="Video frame preview"></canvas>
+            <div class="safe-guides" id="safe-guides" hidden><span>COMPOSITION SAFE AREA</span></div>
+            <video id="source-video" class="decoder" playsinline muted preload="auto"></video>
+            <video id="loop-video" class="decoder" playsinline muted loop preload="auto"></video>
+          </div>
+          <div class="transport">
+            <div class="segmented preview-mode"><button data-mode="source" class="active" aria-pressed="true">Source</button><button data-mode="loop" aria-pressed="false" disabled>Loop preview</button></div>
+            <div class="playback-controls">
+              <button class="icon-btn" data-action="previous-frame" aria-label="Previous frame"><span data-icon="SkipBack" data-size="20"></span></button>
+              <button class="play-btn" data-action="play" aria-label="Play preview"><span data-icon="Play" data-size="23"></span></button>
+              <button class="icon-btn" data-action="next-frame" aria-label="Next frame"><span data-icon="SkipForward" data-size="20"></span></button>
+            </div>
+            <span class="transport-time" id="transport-time">00:00.000 / 00:06.000</span>
+            <div class="transport-options">
+              <button class="icon-btn" data-action="mute" aria-label="Unmute preview" title="Preview sound does not change export audio"><span data-icon="VolumeX" data-size="19"></span></button>
+              <button class="icon-btn" data-action="fullscreen" aria-label="Fullscreen preview"><span data-icon="Expand" data-size="19"></span></button>
+            </div>
+          </div>
+          <div class="preview-foot"><span><span data-icon="Repeat2" data-size="13"></span><span id="preview-foot-message">Render to check the finished seam</span></span><div><button class="icon-btn" data-action="guides" aria-label="Toggle safe-area guides" aria-pressed="false"><span data-icon="Crop" data-size="16"></span></button><button class="icon-btn" data-action="frame-png" aria-label="Save preview frame"><span data-icon="ImageDown" data-size="16"></span></button></div></div>
+        </section>
+        <aside class="export-panel panel" aria-label="Output settings">
+          <div class="export-title"><h2 class="panel-title">Output</h2><span class="format-badge" id="format-badge">MP4</span></div>
+          <fieldset data-disable>
+            <div class="output-aspect">
+              <div class="control-label">Aspect ratio (output)<span data-icon="Info" data-size="14" title="The source preview keeps its original proportions. Render preview to see the finished output."></span></div>
+              <div class="segmented aspect-options" role="group" aria-label="Output aspect ratio">
+                <button data-aspect="original" aria-pressed="false">Original</button><button data-aspect="16:9" aria-pressed="false">16:9</button><button data-aspect="9:16" aria-pressed="true">9:16</button><button data-aspect="1:1" aria-pressed="false">1:1</button><button data-aspect="custom" aria-pressed="false">Custom</button>
+              </div>
+              <div class="fields two" id="dimension-fields" hidden></div>
+              <p class="dimension-note" id="dimension-note" hidden>Even values · 16–3840 px</p>
+              <div class="dimension-caption"><span id="dimension-caption">576 × 1024</span><span id="destination-label">Spotify Canvas</span></div>
+            </div>
+            <div class="output-framing">
+              <div class="control-label">Framing</div>
+              <div class="segmented fit-options" role="group" aria-label="Video framing"><button data-fit="contain" aria-pressed="false">Fit</button><button data-fit="cover" aria-pressed="true">Fill &amp; crop</button></div>
+            </div>
+            <div class="fields format-fields" id="format-fields"></div>
+            <div class="audio-box" id="audio-fields"></div>
+            <details class="disclosure output-settings" id="output-settings"><summary>Output settings</summary><div class="disclosure-content">
+              <div id="preset-field"></div><p class="preset-hint" id="preset-hint"></p>
+              <div id="quality-field"></div>
+              <details class="disclosure"><summary><span data-icon="Crop" data-size="15"></span>Framing &amp; motion</summary><div class="disclosure-content" id="framing-fields"></div></details>
+              <details class="disclosure"><summary>More export options</summary><div class="disclosure-content" id="extra-export-fields"></div></details>
+            </div></details>
+          </fieldset>
+          <div class="output-summary"><div><span>Finished loop</span><b><span id="finished-duration">5.500</span><small>s</small></b></div><span id="output-meta"></span></div>
+          <div class="validation" id="validation" role="status" hidden></div>
+          <div class="export-valid" id="export-valid" hidden></div>
+          <p class="micro" id="long-loop-warning" hidden>Long loops take more time and memory to encode in a browser.</p>
+          <button class="btn secondary full render-btn" data-action="render" aria-label="Render loop preview"><span data-icon="Play" data-size="17"></span><span id="render-label">Render preview</span></button>
+          <button class="btn primary full export-btn" data-action="export"><span data-icon="Upload" data-size="19"></span><span id="export-label">Export MP4</span></button>
+          <div class="download-result" id="download-result" hidden><span data-icon="CheckCircle2" data-size="16"></span><div><b>Your loop is ready</b><span id="download-meta"></span><button class="text-btn" data-action="download-again">Download again</button></div></div>
+          <div class="alternate-format">
+            <p>Other format (from same section)</p>
+            <button class="alternate-button" data-action="alternate" aria-label="Use alternate output format">
+              <canvas id="alternate-canvas" width="72" height="128" aria-label="Alternate framing preview"></canvas>
+              <span><b id="alternate-label">16:9</b><small id="alternate-dimensions">1920 × 1080</small></span><span class="alternate-icon" data-icon="Crop" data-size="19"></span>
+            </button>
+          </div>
+        </aside>
+        <fieldset class="timeline-fieldset" id="timeline-fieldset" hidden>
+          <section class="timeline-panel panel" aria-label="Video timeline">
+            <div class="timeline-head"><div class="source-meta" id="source-meta"><span>Loading the sample…</span></div><div class="timeline-actions">
+              <span id="range-duration"></span>
+              <div class="history-controls"><button class="icon-btn" data-action="undo" aria-label="Undo settings"><span data-icon="Undo2" data-size="16"></span></button><button class="icon-btn" data-action="redo" aria-label="Redo settings"><span data-icon="Redo2" data-size="16"></span></button><button class="icon-btn" data-action="reset" aria-label="Reset settings"><span data-icon="RotateCcw" data-size="16"></span></button></div>
+              <button class="text-btn" data-action="mark-in">Set in<kbd>I</kbd></button><button class="text-btn" data-action="mark-out">Set out<kbd>O</kbd></button><button class="icon-btn" data-action="zoom" aria-label="Zoom to selection"><span data-icon="ZoomIn" data-size="18"></span></button>
+            </div></div>
+            <div class="ruler-labels" id="ruler-labels"></div>
+            <div class="filmstrip" id="filmstrip">
+              <div class="filmstrip-images" id="filmstrip-images" aria-hidden="true"></div>
+              <div class="selection-shade left" id="shade-left"></div><div class="selection-shade right" id="shade-right"></div>
+              <div class="selection-outline" id="selection-outline"></div>
+              <button class="trim-handle start" data-edge="start" aria-label="Drag start trim handle"><span></span></button><button class="trim-handle end" data-edge="end" aria-label="Drag end trim handle"><span></span></button>
+              <div class="playhead" id="playhead"></div>
+            </div>
+            <div class="trim-fields" id="trim-fields"></div>
+          </section>
+        </fieldset>
+      </div>
+      <div class="job-panel" id="job-panel" role="status" aria-live="polite" hidden><span data-icon="LoaderCircle" data-size="20" class="spin"></span><div><div class="job-label"><b id="job-message"></b><span id="job-percent"></span></div><progress id="job-progress" max="1" value="0" aria-label="Processing progress"></progress></div><button class="btn secondary" data-action="cancel">Cancel</button></div>
+    </main>
+    <footer><span><span data-icon="LockKeyhole" data-size="13"></span>Video files stay on your device.</span><div><a href="https://support.spotify.com/us/artists/article/canvas-guidelines/" target="_blank" rel="noreferrer">Canvas guidelines</a><button class="text-btn" data-action="help" aria-label="Help and keyboard shortcuts"><span data-icon="HelpCircle" data-size="15"></span>Help &amp; shortcuts</button></div></footer>
+    <div class="drop-overlay" id="drop-overlay" hidden><span data-icon="Upload" data-size="38"></span><b>Drop a video to open it</b><span>Your file stays on your device</span></div>
+    <dialog class="help-dialog" id="help-dialog">
+      <div class="help-head"><h2>Make a better loop</h2><button class="icon-btn" data-action="close-help" aria-label="Close help"><span data-icon="X" data-size="20"></span></button></div>
+      <p>Open a video, select a range, choose a method, then render the loop preview. Watch it repeat before exporting.</p>
+      <ul><li><b>Auto find</b> compares color, local image structure, and movement. The best five matches receive frame refinement. Sampling can miss very brief moments.</li><li><b>Crossfade</b> overlaps the tail and head; the output is shorter than the selection. Offset dissolve places that transition inside the clip.</li><li><b>Rebound</b> nearly doubles the duration and removes duplicate end frames. Eased rebound slows down into the turns.</li><li><b>Remove audio track</b> strips the audio stream. Muting the player only changes the preview.</li><li><b>Spotify Canvas</b> uses 3–8 seconds, exact 9:16, and 720–1080px height. The default 576×1024 is inside these limits.</li><li><b>Long videos</b> are sampled from the local file. Unsupported browser codecs can be converted to a playable proxy.</li></ul>
+      <div class="shortcut-grid"><span>Play / pause<kbd>Space</kbd></span><span>Set in / out<kbd>I / O</kbd></span><span>Step frames<kbd>← / →</kbd></span><span>Undo / redo<kbd>Ctrl+Z / Shift+Z</kbd></span></div>
+      <p class="micro">No algorithm can guarantee an invisible join for every scene. Natural cuts need repeating motion; dissolves can ghost; rebound changes direction. This studio gives you controls and diagnostics to choose the best result.</p>
+      <button class="btn primary full" data-action="close-help">Back to the studio</button>
+    </dialog>
+  </div>
+</body>
+</html>
