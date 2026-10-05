@@ -36,6 +36,7 @@ class FakeCanvas extends FakeElement {
         this._width = this._height = 16;
         this.pixel = null;
         this.context = {
+            canvas: this,
             fillStyle: '#000000',
             fillRect: () => { this.pixel = this.context.fillStyle; },
             clearRect: () => { this.pixel = null; },
@@ -82,7 +83,7 @@ function fixture(t) {
     });
     preview.refresh();
     return {
-        preview, state, source, output, canvas, alternate, times,
+        preview, state, source, output, canvas, alternate, times, transport: elements.get('#transport-time'),
         tick() {
             const [id, callback] = frames.entries().next().value;
             frames.delete(id);
@@ -192,4 +193,23 @@ test('Timeline seeking preserves Loop mode while source selection still seeks So
     assert.equal(f.source.currentTime, 2);
     assert.equal(f.output.currentTime, 2.999);
     assert.deepEqual(f.times.at(-1), { time: 2, mode: 'source' });
+});
+
+test('Composition animation completes its processed cycle without resetting when the source repeats', t => {
+    const f = fixture(t);
+    f.preview.setMode('composition');
+    f.source.paused = false;
+    f.tick();
+    const initial = f.preview.compositionTime;
+    f.source.currentTime = f.state.s.end;
+    f.tick();
+    assert.equal(f.source.currentTime, f.state.s.start);
+    assert.ok(f.preview.compositionTime > initial, 'layer movement continues through the source boundary');
+    f.preview.seek(1.5, 'composition');
+    assert.equal(f.preview.compositionTime, 1.5);
+    f.preview.step(1);
+    assert.equal(f.preview.compositionTime, 1.5 + 1 / f.state.s.fps);
+    f.preview.setMode('source');
+    f.tick();
+    assert.equal(f.canvas.pixel, f.source.color, 'Source still shows the original video');
 });

@@ -1,6 +1,8 @@
 import { FFmpeg, FFFSType } from '../vendor/ffmpeg/index.js';
 import { gunzipSync } from '../vendor/fflate.js';
 import { audioGraph, framePlan, geometry, validate, videoGraph } from './logic.js';
+import { rasterizeLayers, validateLayers } from './layers.js';
+import { layerOverlayGraph } from './layer-export.js';
 const even = (n) => Math.max(16, Math.round(n / 2) * 2);
 const numberRate = (rate) => { const [a, b = '1'] = (rate || '0').split('/'); return Number(a) / Number(b) || 30; };
 export class VideoEngine {
@@ -133,7 +135,7 @@ export class VideoEngine {
         }
         try {
             for (const item of await this.ff.listDir('/'))
-                if (!item.isDir && /^(clip|cyclic|audio|result|proxy|probe)\./.test(item.name))
+                if (!item.isDir && (/^(clip|cyclic|audio|result|proxy|probe)\./.test(item.name) || /^layer-\d+\.png$/.test(item.name)))
                     await this.ff.deleteFile(item.name);
         }
         catch { /* terminated workers have no filesystem */ }
@@ -143,17 +145,29 @@ export class VideoEngine {
         this.resetWorker();
     }
     async render(file, original, info, onProgress, preview = false) {
-        const issues = validate(original, info);
+        const issues = [...validate(original, info), ...validateLayers(original.layers || [], original)];
         if (issues.length)
             throw new Error(issues[0]);
         this.cancelled = false;
+        const requestedWorker = this.ff;
+        const checkCancelled = () => {
+            if (this.cancelled || requestedWorker !== this.ff)
+                throw new DOMException('Cancelled', 'AbortError');
+        };
         const ratio = preview ? Math.min(1, 360 / original.width, 640 / original.height) : 1;
         const s = preview ? { ...original, width: even(original.width * ratio), height: even(original.height * ratio), quality: 'small', format: 'mp4', audio: original.format === 'gif' ? 'strip' : original.audio, repeats: 1, targetMB: 0, interpolate: original.interpolate } : { ...original };
         const plan = framePlan(s);
         try {
+            if (original.layers?.some(layer => layer.visible))
+                onProgress(0, 'Preparing text and image layers…');
+            const sprites = await rasterizeLayers(original.layers || [], s, original);
+            checkCancelled();
             await this.load(onProgress);
+            checkCancelled();
             const source = await this.mount(file);
+            checkCancelled();
             const probe = await this.probe(source);
+            checkCancelled();
             const hasAudio = probe.streams.some(st => st.codec_type === 'audio') && s.audio !== 'strip' && s.format !== 'gif';
             const rawDuration = s.end - s.start;
             const motion = s.interpolate ? `minterpolate=fps=${s.fps}:mi_mode=mci:mc_mode=aobmc:vsbmc=1` : `fps=${s.fps}:start_time=0`;
@@ -169,7 +183,15 @@ export class VideoEngine {
                 const bitrate = Math.max(48_000, Math.floor(s.targetMB * 1024 ** 2 * 8 * 0.93 / plan.totalDuration) - (hasAudio ? 128_000 : 0));
                 codec.push('-b:v', String(bitrate), '-maxrate', String(Math.round(bitrate * 1.25)), '-bufsize', String(bitrate * 2));
             }
-            await this.exec(['-i', 'clip.mp4', '-filter_complex', videoGraph(s), '-map', '[outv]', '-an', ...codec, '-threads', '1', '-pix_fmt', 'yuv420p', '-frames:v', String(plan.outputFrames), '-r', String(s.fps), '-map_metadata', '-1', `cyclic.${ext}`], plan.duration, 0.35, 0.75, 'Building the loop and smoothing the transition…', onProgress);
+            for (const [index, sprite] of sprites.entries()) {
+                checkCancelled();
+                // The worker transfers this buffer; keep the cached sprite reusable.
+                await this.ff.writeFile(`layer-${index}.png`, sprite.png.slice());
+            }
+            checkCancelled();
+            const overlay = layerOverlayGraph(s, sprites);
+            const graph = [videoGraph(s), overlay.graph].filter(Boolean).join(';');
+            await this.exec(['-i', 'clip.mp4', ...overlay.inputs, '-filter_complex', graph, '-map', `[${overlay.outputLabel}]`, '-an', ...codec, '-threads', '1', '-pix_fmt', 'yuv420p', '-frames:v', String(plan.outputFrames), '-r', String(s.fps), '-map_metadata', '-1', `cyclic.${ext}`], plan.duration, 0.35, 0.75, 'Building the loop and smoothing the transition…', onProgress);
             if (hasAudio)
                 await this.exec(['-ss', String(s.start), '-t', String(rawDuration), '-i', source, '-filter_complex', audioGraph(s), '-map', '[aout]', '-vn', '-ar', '48000', '-c:a', 'pcm_s16le', '-t', String(plan.duration), 'audio.wav'], plan.duration, 0.75, 0.84, 'Preparing the audio timeline…', onProgress);
             const result = `result.${s.format}`;
