@@ -56,9 +56,10 @@ export function initializeFields() {
   $('#quality-field').innerHTML = selectField('quality', 'Quality', [['high', 'High quality'], ['balanced', 'Balanced'], ['small', 'Smaller file']]);
   $('#audio-fields').innerHTML = toggleField('strip', 'Remove audio track', { scope: 'audio', detail: 'The exported video contains no audio stream.' })
     + toggleField('smooth', 'Smooth audio boundary', { scope: 'audio', detail: 'Fade the audio at natural cuts. Dissolves blend it automatically.' })
-    + '<p class="micro" id="rebound-audio-note">Rebound also reverses audio. Eased video uses a linear audio timeline. Silent output is recommended for Canvas.</p>'
+    + '<p class="micro" id="pingpong-audio-note">Ping-pong also reverses audio. Smooth ping-pong uses a linear audio timeline. Silent output is recommended for Canvas.</p>'
     + '<div id="gif-playback-settings" hidden>'
     + toggleField('gifLoop', 'Loop forever', { detail: 'The exported GIF repeats continuously when on; plays once when off.' })
+    + '<p class="micro" id="gif-pingpong-note" hidden>One GIF cycle includes both the forward and backward frames. Loop forever repeats that whole cycle.</p>'
     + '<p class="micro">GIFs have no audio. File size depends on dimensions, frame rate, and cycle duration.</p></div>';
   $('#extra-export-fields').innerHTML = numberField('repeats', 'Cycles in video', { min: 1, max: 50, step: 1 })
     + '<p class="micro">Adds full loop cycles to the exported video. Automatic playback looping depends on the player.</p>'

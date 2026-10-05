@@ -122,6 +122,9 @@ function refresh() {
   $$('[data-method]').forEach(button => { const active = button.dataset.method === s.method; button.classList.toggle('selected', active); button.setAttribute('aria-pressed', String(active)); });
   $('#method-detail').textContent = METHODS.find(method => method.id === s.method).detail;
   const blending = ['crossfade', 'offset'].includes(s.method);
+  const pingpong = s.method.includes('pingpong');
+  $('#method-summary').hidden = !pingpong;
+  $('#method-summary').textContent = `${s.method === 'smooth-pingpong' ? 'Forward, then backward with eased turns' : 'Forward, then backward'}: ${(plan.frames / s.fps).toFixed(3)}s one way → ${plan.duration.toFixed(3)}s per cycle.`;
   $('#field-setting-transition').hidden = !(blending || s.method === 'fade');
   const transitionLabel = s.method === 'fade' ? 'Fade length' : 'Overlap';
   $('#field-setting-transition > span').textContent = transitionLabel;
@@ -133,12 +136,13 @@ function refresh() {
   $('#field-setting-cropX').hidden = $('#field-setting-cropY').hidden = s.fit !== 'cover';
   $('#field-audio-strip').hidden = isGif;
   $('#gif-playback-settings').hidden = !isGif;
+  $('#gif-pingpong-note').hidden = !pingpong;
   $('#quality-field').hidden = $('#video-export-options').hidden = isGif;
   $('#output-settings').dataset.format = s.format;
   $('[data-audio="strip"]').checked = s.audio === 'strip' || s.format === 'gif';
   $('[data-audio="smooth"]').checked = s.audio === 'smooth';
   $('#field-audio-smooth').hidden = s.audio === 'strip' || s.format === 'gif';
-  $('#rebound-audio-note').hidden = !s.method.includes('pingpong') || s.audio === 'strip' || s.format === 'gif';
+  $('#pingpong-audio-note').hidden = !pingpong || s.audio === 'strip' || s.format === 'gif';
   $('#preset-hint').textContent = s.preset === 'spotify' ? '3–8s · 9:16 · 720–1080px tall' : s.preset === 'vertical' ? '9:16 · short loops up to 15s suggested' : 'Set your own dimensions and duration';
   $('#format-badge').textContent = s.format.toUpperCase();
   const aspect = selectedAspect(s);
@@ -241,7 +245,7 @@ async function runSearch() {
     if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     const result = await searchVideo(state.sourceURL, { ...state.opts }, rate, state.controller.signal, progress('search'));
     state.candidates = result.candidates; state.selected = new Set(); renderCandidates();
-    notice(result.candidates.length ? `${result.candidates.length} candidate loops found. Visual scores are estimates; inspect motion before exporting. Sampling spacing: ${result.step.toFixed(2)}s.` : 'No close natural loop found. Widen the search range, allow scene cuts, or use Crossfade / Rebound.');
+    notice(result.candidates.length ? `${result.candidates.length} candidate loops found. Visual scores are estimates; inspect motion before exporting. Sampling spacing: ${result.step.toFixed(2)}s.` : 'No close natural loop found. Widen the search range, allow scene cuts, or use Crossfade / Ping-pong.');
   } catch (error) { report(error); }
   finally { finishJob(); }
 }

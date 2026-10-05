@@ -14,7 +14,7 @@ Video processing happens on your device; your source videos are never uploaded.
 
 - **Automatic loop discovery** — search an entire video or a selected range, set preferred loop lengths, and compare ranked candidates with thumbnails.
 - **Precise timing** — edit in/out points, step through frames, drag timeline handles, zoom the filmstrip, and undo or redo settings.
-- **Six loop methods** — use a natural cut, dissolve, rebound, or fade depending on the footage.
+- **Six loop methods** — use a natural cut, dissolve, ping-pong, or fade depending on the footage.
 - **Flexible framing** — choose Original, 16:9, 9:16, 1:1, or Custom; adjust crop position, fit, rotation, mirroring, and background color.
 - **Motion controls** — change playback speed, overlap, dissolve curve, seam position, and optional motion interpolation.
 - **Seam inspection** — compare boundary frames, inspect their difference, use composition guides, and watch a rendered loop preview.
@@ -29,11 +29,13 @@ Video processing happens on your device; your source videos are never uploaded.
 | Natural cut | Joins the selected end directly to the start. Best when the source motion already repeats. |
 | Crossfade | Blends the end into the start using an adjustable overlap. |
 | Offset dissolve | Uses the dissolve cycle and moves the transition inside the clip. |
-| Rebound | Plays forward and backward without duplicating the turning-point frames. |
-| Eased rebound | Slows the video into each turn for a softer reversal. |
+| Ping-pong | Plays to the end, then backward to the start. Each cycle is nearly twice as long as a forward pass, without duplicate turning-point frames. |
+| Smooth ping-pong | Slows the forward and backward motion into each turn for a softer reversal. |
 | Fade through black | Hides the boundary with matching black frames and a visible fade. |
 
-Dissolves can introduce ghosting, and rebound methods reverse motion. Choose the method that suits the footage, then check the join in motion.
+Dissolves can introduce ghosting, and ping-pong methods reverse motion. Choose the method that suits the footage, then check the join in motion.
+
+Both ping-pong methods work with MP4, WebM, and GIF. GIF has no playback-direction flag, so one cycle stores the forward and backward frames. **Loop forever** repeats that entire cycle; turning it off plays the forward-and-backward cycle once.
 
 ## Make a loop
 
@@ -45,7 +47,7 @@ Dissolves can introduce ghosting, and rebound methods reverse motion. Choose the
 
 The **Source** preview keeps the original video's proportions. **Loop preview** shows the rendered output, including its framing, at a smaller resolution. Render again after changing settings.
 
-The displayed **Finished loop** duration includes the loop method, speed, overlap, and repeats. In/out points describe the source range; a dissolve shortens it, while a rebound extends it.
+The displayed **Finished loop** duration includes the loop method, speed, overlap, and repeats. In/out points describe the source range; a dissolve shortens it, while ping-pong extends it.
 
 ## Output presets
 
@@ -67,7 +69,7 @@ Review [Spotify's Canvas guidelines](https://support.spotify.com/us/artists/arti
 
 Search scores estimate visual similarity; they do not guarantee a smooth transition. Review candidates and the rendered preview before exporting.
 
-Processing speed and available memory depend on the browser and device. Large resolutions, long clips, rebound buffers, and motion interpolation take more resources. Short clips at moderate resolutions work best.
+Processing speed and available memory depend on the browser and device. Large resolutions, long clips, ping-pong buffers, and motion interpolation take more resources. Short clips at moderate resolutions work best.
 
 Source playback depends on browser codec support. If a file cannot play, use **Create proxy**. Exports still read the original file; retained audio is taken from the original source.
 
