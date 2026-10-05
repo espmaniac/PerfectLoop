@@ -20,7 +20,7 @@ Video processing happens on your device; your source videos are never uploaded.
 - **Seam inspection** — compare boundary frames, inspect their difference, use composition guides, and watch a rendered loop preview.
 - **Audio control** — mute playback independently, export without an audio track, or retain audio with smoothing options.
 - **Export options** — download MP4, WebM, or a GIF that loops forever or plays once. Adjust frame rate and dimensions for all formats; set quality, cycles in the file, and an approximate file-size target for video. Export selected loop candidates together as a ZIP.
-- **Included sample** — try the editor with a repeating animation and audio before opening your own video.
+- **Included sample** — a repeating animation with audio loads automatically once when the page opens.
 
 ## Loop methods
 
@@ -37,7 +37,7 @@ Dissolves can introduce ghosting, and rebound methods reverse motion. Choose the
 
 ## Make a loop
 
-1. Choose **Open video**, drop a file into the editor, or select **Load sample**.
+1. Start with the automatically loaded sample, choose **Open video**, or drop your own file into the editor.
 2. Set the in/out points manually, or use **Auto find** to discover candidate ranges.
 3. Choose a loop method and configure dimensions, framing, and audio in **Video settings**.
 4. Select **Render preview** and use **Inspect seam** to check the join.

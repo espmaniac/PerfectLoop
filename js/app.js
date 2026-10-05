@@ -72,7 +72,7 @@ function syncDisabled() {
   const rendered = state.mode === 'loop' && Boolean(state.render);
   $$('[data-disable]').forEach(el => { el.disabled = disabled; });
   $('#timeline-fieldset').disabled = disabled;
-  $$('[data-action="open"], [data-action="sample"], [data-action="reset"], [data-action="proxy"]').forEach(el => { el.disabled = busy(); });
+  $$('[data-action="open"], [data-action="reset"], [data-action="proxy"]').forEach(el => { el.disabled = busy(); });
   $('[data-action="undo"]').disabled = busy() || !history.past.length;
   $('[data-action="redo"]').disabled = busy() || !history.future.length;
   $$('[data-action="play"], [data-action="previous-frame"], [data-action="next-frame"]').forEach(el => { el.disabled = disabled; });
@@ -106,7 +106,7 @@ function refresh() {
   const rendered = state.mode === 'loop' && state.render;
   const timelineInfo = rendered || info;
   refreshStatus(); refreshBindings(); syncDisabled();
-  $('#source-meta').innerHTML = `<span class="file-name" title="${escapeHTML(info.name)}">${rendered ? 'Loop preview' : escapeHTML(info.name || 'Open a video or try the sample')}</span>`
+  $('#source-meta').innerHTML = `<span class="file-name" title="${escapeHTML(info.name)}">${rendered ? 'Loop preview' : escapeHTML(info.name || 'Open a video to begin')}</span>`
     + (timelineInfo.duration ? `<span>${timecode(timelineInfo.duration)}</span><span>${timelineInfo.width} × ${timelineInfo.height}</span><span>${humanSize(rendered ? rendered.blob.size : info.size)}</span>` : '');
   $('#timeline-panel').setAttribute('aria-label', rendered ? 'Rendered loop timeline' : 'Source video timeline');
   $('#timeline-caption').hidden = !rendered;
@@ -199,7 +199,7 @@ async function loadFile(file, sample = false) {
     thumbnails(state.sourceURL, 10, controller.signal).then(frames => { if (!controller.signal.aborted) { state.filmstrip = frames; timeline.render(); } }).catch(() => {});
   } catch (error) { if (!controller.signal.aborted) { state.nativeError = error.message || String(error); refresh(); } }
 }
-async function loadSample() {
+async function loadInitialSample() {
   if (busy()) return;
   sampleController?.abort();
   const controller = new AbortController(); sampleController = controller;
@@ -378,7 +378,7 @@ document.addEventListener('focusout', event => { if (event.target.matches('[data
 $('#file-input').addEventListener('change', event => { const file = event.target.files[0]; if (file) void loadFile(file); event.target.value = ''; });
 
 const actions = {
-  open: () => $('#file-input').click(), sample: loadSample, help: () => $('#help-dialog').showModal(), 'close-help': () => $('#help-dialog').close(),
+  open: () => $('#file-input').click(), help: () => $('#help-dialog').showModal(), 'close-help': () => $('#help-dialog').close(),
   undo, redo, reset: () => update({ ...DEFAULTS, end: Math.min(state.info.duration || 6, 6) }),
   proxy: makeProxy, search: runSearch, render: () => runRender(true), export: () => runRender(false), inspect, batch: batchExport, cancel,
   'dismiss-error': () => { state.error = ''; refreshStatus(); }, 'dismiss-notice': () => notice(''),
@@ -425,4 +425,4 @@ window.addEventListener('beforeunload', () => {
   state.fileController?.abort(); state.controller?.abort(); engine.cancel(); preview.destroy();
   if (state.sourceURL) URL.revokeObjectURL(state.sourceURL); if (state.renderURL) URL.revokeObjectURL(state.renderURL);
 });
-decorateIcons(); renderCandidates(); refresh(); void loadSample();
+decorateIcons(); renderCandidates(); refresh(); void loadInitialSample();
