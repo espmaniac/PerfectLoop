@@ -56,10 +56,14 @@ export function initializeFields() {
   $('#quality-field').innerHTML = selectField('quality', 'Quality', [['high', 'High quality'], ['balanced', 'Balanced'], ['small', 'Smaller file']]);
   $('#audio-fields').innerHTML = toggleField('strip', 'Remove audio track', { scope: 'audio', detail: 'The exported video contains no audio stream.' })
     + toggleField('smooth', 'Smooth audio boundary', { scope: 'audio', detail: 'Fade the audio at natural cuts. Dissolves blend it automatically.' })
-    + '<p class="micro" id="rebound-audio-note">Rebound also reverses audio. Eased video uses a linear audio timeline. Silent output is recommended for Canvas.</p>';
-  $('#extra-export-fields').innerHTML = numberField('repeats', 'Repeat count', { min: 1, max: 50, step: 1 })
+    + '<p class="micro" id="rebound-audio-note">Rebound also reverses audio. Eased video uses a linear audio timeline. Silent output is recommended for Canvas.</p>'
+    + '<div id="gif-playback-settings" hidden>'
+    + toggleField('gifLoop', 'Loop forever', { detail: 'The exported GIF repeats continuously when on; plays once when off.' })
+    + '<p class="micro">GIFs have no audio. File size depends on dimensions, frame rate, and cycle duration.</p></div>';
+  $('#extra-export-fields').innerHTML = numberField('repeats', 'Cycles in video', { min: 1, max: 50, step: 1 })
+    + '<p class="micro">Adds full loop cycles to the exported video. Automatic playback looping depends on the player.</p>'
     + numberField('targetMB', 'Approx. target size', { min: 0, max: 2000, step: 0.5, suffix: 'MB' })
-    + '<p class="micro">0 uses the quality setting. A size target is approximate. GIF size is controlled by resolution and frame rate.</p>';
+    + '<p class="micro">0 MB uses the quality setting. The exported file may be larger or smaller than the target.</p>';
   $('#trim-fields').innerHTML = numberField('start', 'In point', { min: 0, step: 1 / 30, suffix: 's' })
     + numberField('end', 'Out point (exclusive)', { min: 0, step: 1 / 30, suffix: 's' })
     + '<div class="range-summary"><span>Duration (source)</span><b><span id="timeline-source-duration"></span><small> s</small></b></div>'

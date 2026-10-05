@@ -97,6 +97,7 @@ function refreshBindings() {
 }
 function refresh() {
   const { s, info } = state, plan = framePlan(s), issues = info.duration ? validate(s, info) : ['Open a playable video to begin.'];
+  const isGif = s.format === 'gif';
   refreshStatus(); refreshBindings(); syncDisabled();
   $('#source-meta').innerHTML = `<span class="file-name" title="${escapeHTML(info.name)}">${escapeHTML(info.name || 'Open a video or try the sample')}</span>`
     + (info.duration ? `<span>${timecode(info.duration)}</span><span>${info.width} × ${info.height}</span><span>${humanSize(info.size)}</span>` : '');
@@ -115,6 +116,10 @@ function refresh() {
   $('#overlap-note').hidden = !blending;
   $('#overlap-note').textContent = `Actual overlap: ${(plan.overlap / s.fps).toFixed(3)}s (${plan.overlap} frames). Overlap is limited to less than half the selected clip.`;
   $('#field-setting-cropX').hidden = $('#field-setting-cropY').hidden = s.fit !== 'cover';
+  $('#field-audio-strip').hidden = isGif;
+  $('#gif-playback-settings').hidden = !isGif;
+  $('#quality-field').hidden = $('#video-export-options').hidden = isGif;
+  $('#output-settings').dataset.format = s.format;
   $('[data-audio="strip"]').checked = s.audio === 'strip' || s.format === 'gif';
   $('[data-audio="smooth"]').checked = s.audio === 'smooth';
   $('#field-audio-smooth').hidden = s.audio === 'strip' || s.format === 'gif';
@@ -133,14 +138,15 @@ function refresh() {
   $('[data-action="alternate"]').setAttribute('aria-label', `Use ${alternate.aspect} alternate output format`);
   document.documentElement.style.setProperty('--source-aspect', String(state.mode === 'loop' && state.render ? state.render.width / state.render.height : info.width / info.height || 9 / 16));
   $('#finished-duration').textContent = plan.totalDuration.toFixed(3);
-  $('#output-meta').textContent = `${plan.outputFrames * s.repeats} frames · ${s.width} × ${s.height}`;
+  $('#output-meta').textContent = `${plan.totalFrames} frames · ${s.width} × ${s.height}`;
   $('#timeline-source-duration').textContent = (s.end - s.start).toFixed(3);
   $('#timeline-output-duration').textContent = plan.totalDuration.toFixed(3);
   $('#validation').hidden = !info.duration || !issues.length;
   $('#validation').innerHTML = issues.map(issue => `<p>${escapeHTML(issue)}</p>`).join('')
     + (issues.some(issue => issue.includes('3–8')) ? `<button class="text-btn" data-action="fit-duration" ${busy() ? 'disabled' : ''}>Fit range to 6-second output</button>` : '');
   $('#export-valid').hidden = !info.duration || Boolean(issues.length);
-  $('#export-valid').innerHTML = icon('Check', 14) + (s.preset === 'spotify' ? 'Canvas format checks passed' : 'Ready to export') + (s.audio === 'strip' || s.format === 'gif' ? ' · silent' : '');
+  $('#export-valid').innerHTML = icon('Check', 14) + (s.preset === 'spotify' ? 'Canvas format checks passed' : 'Ready to export')
+    + (isGif ? s.gifLoop ? ' · loops forever · silent' : ' · plays once · silent' : s.audio === 'strip' ? ' · silent' : '');
   $('#long-loop-warning').hidden = plan.totalDuration <= 30;
   $('#export-label').textContent = `Export ${s.format.toUpperCase()}`;
   $('#download-result').hidden = !state.lastExport;
@@ -255,7 +261,7 @@ async function runRender(isPreview) {
       if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
     } else {
       state.lastExport = result; download(result.blob, result.name);
-      notice(`Exported ${result.duration.toFixed(3)}s · ${result.width} × ${result.height} · ${result.hasAudio ? 'Audio included' : 'No audio track'}.${settings.targetMB && result.blob.size > settings.targetMB * 1024 ** 2 ? ' The result exceeds the approximate size target; lower the resolution or increase compression.' : ''}`);
+      notice(`Exported ${result.duration.toFixed(3)}s · ${result.width} × ${result.height} · ${result.hasAudio ? 'Audio included' : 'No audio track'}.${settings.format === 'gif' ? settings.gifLoop ? ' GIF loops forever.' : ' GIF plays once.' : settings.targetMB && result.blob.size > settings.targetMB * 1024 ** 2 ? ' The result exceeds the approximate size target; lower the resolution or increase compression.' : ''}`);
     }
   } catch (error) { report(error); }
   finally { finishJob(); }
@@ -330,6 +336,10 @@ function changeField(event) {
   if (typeof value === 'number' && !Number.isFinite(value)) return;
   if (input.dataset.search) { state.opts[input.dataset.search] = value; refresh(); }
   else if (input.dataset.setting === 'preset') setPreset(value);
+  else if (input.dataset.setting === 'format' && value !== 'mp4' && state.s.preset === 'spotify') {
+    update({ format: value, preset: 'custom' });
+    notice('Switched to Custom because Spotify Canvas requires MP4.');
+  }
   else if (['width', 'height'].includes(input.dataset.setting)) update({ [input.dataset.setting]: value, aspect: 'custom', preset: 'custom' });
   else update({ [input.dataset.setting]: value });
 }

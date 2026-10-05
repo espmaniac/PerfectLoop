@@ -20,6 +20,32 @@ test('Rebound omits repeated turning points; overlap is bounded', () => {
     assert.equal(framePlan({ ...DEFAULTS, method: 'crossfade' }).outputFrames, 165);
     assert.equal(framePlan({ ...DEFAULTS, method: 'crossfade', transition: 20 }).overlap, 89);
 });
+test('GIF stores one cycle while video formats encode the repeat count', () => {
+    const settings = { ...DEFAULTS, preset: 'custom', repeats: 4 };
+    for (const gifLoop of [true, false]) {
+        const gif = framePlan({ ...settings, format: 'gif', gifLoop });
+        assert.equal(gif.totalFrames, 165);
+        assert.equal(gif.totalDuration, 5.5);
+    }
+    for (const format of ['mp4', 'webm']) {
+        const video = framePlan({ ...settings, format });
+        assert.equal(video.totalFrames, 660);
+        assert.equal(video.totalDuration, 22);
+    }
+});
+test('GIF ignores inactive video size and repeat options; videos still validate them', () => {
+    const info = { duration: 30 };
+    for (const options of [{ repeats: NaN, targetMB: Infinity }, { repeats: 0, targetMB: 2001 }]) {
+        const settings = { ...DEFAULTS, preset: 'custom', ...options };
+        assert.deepEqual(validate({ ...settings, format: 'gif' }, info), []);
+        assert.equal(framePlan({ ...settings, format: 'gif' }).totalFrames, 165);
+        for (const format of ['mp4', 'webm']) {
+            const issues = validate({ ...settings, format }, info);
+            assert.ok(issues.some(issue => /repeat|cycle/i.test(issue)));
+            assert.ok(issues.some(issue => /target/i.test(issue)));
+        }
+    }
+});
 test('Motion mismatch ranks below matching images with compatible movement', () => {
     const a = new Float32Array(32 * 32 * 3).fill(0.5), next = new Float32Array(a.length).fill(0.55), previous = new Float32Array(a.length).fill(0.45);
     const wrong = new Float32Array(a.length).fill(0.55);
