@@ -14,12 +14,13 @@ const state = {
   s: { ...DEFAULTS }, info: { ...emptyInfo }, file: null,
   sourceURL: '', renderURL: '', render: null, renderSignature: '', lastExport: null,
   mode: 'source', tab: 'edit', playhead: 0, filmstrip: [],
+  renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
   opts: { from: 0, to: 18, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true },
   candidates: [], selected: new Set(), seam: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
-let preview, timeline, sampleController;
+let preview, timeline, sampleController, renderFilmstripController;
 const dirty = () => JSON.stringify(state.s) !== state.renderSignature;
 const busy = () => Boolean(state.job);
 
@@ -68,6 +69,7 @@ function refreshStatus() {
 }
 function syncDisabled() {
   const disabled = busy() || !state.info.duration;
+  const rendered = state.mode === 'loop' && Boolean(state.render);
   $$('[data-disable]').forEach(el => { el.disabled = disabled; });
   $('#timeline-fieldset').disabled = disabled;
   $$('[data-action="open"], [data-action="sample"], [data-action="reset"], [data-action="proxy"]').forEach(el => { el.disabled = busy(); });
@@ -75,6 +77,9 @@ function syncDisabled() {
   $('[data-action="redo"]').disabled = busy() || !history.future.length;
   $$('[data-action="play"], [data-action="previous-frame"], [data-action="next-frame"]').forEach(el => { el.disabled = disabled; });
   $('[data-action="alternate"]').disabled = disabled;
+  $$('[data-action="mark-in"], [data-action="mark-out"], [data-action="zoom"]').forEach(button => {
+    button.hidden = rendered; button.disabled = disabled || rendered;
+  });
   const invalid = !state.info.duration || validate(state.s, state.info).length > 0;
   $('.render-btn').disabled = $('.export-btn').disabled = busy() || invalid;
   $('[data-mode="loop"]').disabled = !state.renderURL;
@@ -98,9 +103,19 @@ function refreshBindings() {
 function refresh() {
   const { s, info } = state, plan = framePlan(s), issues = info.duration ? validate(s, info) : ['Open a playable video to begin.'];
   const isGif = s.format === 'gif';
+  const rendered = state.mode === 'loop' && state.render;
+  const timelineInfo = rendered || info;
   refreshStatus(); refreshBindings(); syncDisabled();
-  $('#source-meta').innerHTML = `<span class="file-name" title="${escapeHTML(info.name)}">${escapeHTML(info.name || 'Open a video or try the sample')}</span>`
-    + (info.duration ? `<span>${timecode(info.duration)}</span><span>${info.width} × ${info.height}</span><span>${humanSize(info.size)}</span>` : '');
+  $('#source-meta').innerHTML = `<span class="file-name" title="${escapeHTML(info.name)}">${rendered ? 'Loop preview' : escapeHTML(info.name || 'Open a video or try the sample')}</span>`
+    + (timelineInfo.duration ? `<span>${timecode(timelineInfo.duration)}</span><span>${timelineInfo.width} × ${timelineInfo.height}</span><span>${humanSize(rendered ? rendered.blob.size : info.size)}</span>` : '');
+  $('#timeline-panel').setAttribute('aria-label', rendered ? 'Rendered loop timeline' : 'Source video timeline');
+  $('#timeline-caption').hidden = !rendered;
+  if (rendered) {
+    const settings = state.renderSettings;
+    $('#timeline-caption').textContent = `Source: ${info.name} · ${timecode(settings.start)}–${timecode(settings.end)}${dirty() ? ' · Settings changed. Render again to update this preview.' : ''}`;
+  }
+  $('#trim-fields').hidden = Boolean(rendered);
+  $('#rendered-timeline-summary').hidden = !rendered;
   $$('[data-tab]').forEach(button => { const active = button.dataset.tab === state.tab; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
   ['edit', 'find', 'inspect'].forEach(tab => { $(`#panel-${tab}`).hidden = tab !== state.tab; });
   $('#tool-title').textContent = state.tab === 'find' ? 'Find loops' : state.tab === 'inspect' ? 'Inspect seam' : 'Loop method';
@@ -164,11 +179,13 @@ async function loadFile(file, sample = false) {
   // A delayed demo fetch must not replace a video the user has already chosen.
   if (!sample) { sampleController?.abort(); sampleController = undefined; }
   state.fileController?.abort(); state.controller?.abort(); preview.pause();
+  renderFilmstripController?.abort();
   const controller = new AbortController(); state.fileController = controller;
   if (state.sourceURL) URL.revokeObjectURL(state.sourceURL);
   if (state.renderURL) URL.revokeObjectURL(state.renderURL);
   Object.assign(state, { file, info: { ...emptyInfo, name: file.name, size: file.size }, sourceURL: URL.createObjectURL(file), renderURL: '',
-    render: null, lastExport: null, filmstrip: [], candidates: [], selected: new Set(), error: '', nativeError: '', mode: 'source',
+    render: null, renderSettings: null, renderPlayhead: 0, renderFilmstrip: [], playhead: 0,
+    lastExport: null, filmstrip: [], candidates: [], selected: new Set(), error: '', nativeError: '', mode: 'source',
     notice: '' });
   clearSeam(); renderCandidates(); preview.setSource(state.sourceURL); preview.setOutput(''); refresh();
   try {
@@ -254,9 +271,16 @@ async function runRender(isPreview) {
     const result = await engine.render(state.file, settings, state.info, progress(isPreview ? 'preview' : 'export'), isPreview);
     if (result.sourceFps) state.info.fps = result.sourceFps;
     if (isPreview) {
+      renderFilmstripController?.abort();
       if (state.renderURL) URL.revokeObjectURL(state.renderURL);
       state.renderURL = URL.createObjectURL(result.blob); state.render = result; state.renderSignature = JSON.stringify(settings);
+      state.renderSettings = settings; state.renderPlayhead = 0; state.renderFilmstrip = [];
       clearSeam(); preview.setOutput(state.renderURL); preview.setMode('loop');
+      const controller = new AbortController(), url = state.renderURL;
+      renderFilmstripController = controller;
+      thumbnails(url, 10, controller.signal).then(frames => {
+        if (!controller.signal.aborted && state.renderURL === url) { state.renderFilmstrip = frames; timeline.render(); }
+      }).catch(() => {});
       notice('Loop preview ready. Watch several repeats and inspect the seam.');
       if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
     } else {
@@ -315,14 +339,19 @@ function fitDuration() {
   const start = Math.max(0, Math.min(s.start, state.info.duration - duration)); update({ start, end: Math.min(state.info.duration, start + duration), repeats: 1 });
 }
 function mark(edge) {
+  if (busy() || state.mode !== 'source') return;
   const time = preview.source.currentTime;
   update(edge === 'start' ? { start: Math.min(time, state.s.end - 0.1) } : { end: Math.max(time, state.s.start + 0.1) });
 }
 
 initializeFields();
 $('#methods').innerHTML = METHODS.map((method, index) => `<button class="method-card" data-method="${method.id}" aria-pressed="false" title="${escapeHTML(method.short)}"><span class="method-icon">${icon(['Scissors', 'Blend', 'Layers', 'Play', 'SmoothWave', 'FadeCircle'][index], 25)}</span><span><b>${method.name}</b><small>${method.short}</small></span></button>`).join('');
-preview = new Preview(() => state, mode => { state.mode = mode; clearSeam(); refresh(); }, time => { state.playhead = time; timeline?.renderPlayhead(time); });
-timeline = new Timeline(() => state, update, time => { preview.seek(time); state.playhead = time; timeline.renderPlayhead(time); }, remember);
+preview = new Preview(() => state, mode => { state.mode = mode; clearSeam(); refresh(); }, (time, mode) => {
+  if (mode === 'loop') state.renderPlayhead = time;
+  else state.playhead = time;
+  timeline?.renderPlayhead(time);
+});
+timeline = new Timeline(() => state, update, time => { preview.seek(time, state.mode); }, remember);
 
 // Event delegation keeps native inputs and pointer-captured trim handles stable.
 function changeField(event) {
@@ -392,6 +421,7 @@ app.addEventListener('dragleave', event => { if (!app.contains(event.relatedTarg
 app.addEventListener('drop', event => { event.preventDefault(); $('#drop-overlay').hidden = true; if (!busy() && event.dataTransfer.files[0]) void loadFile(event.dataTransfer.files[0]); });
 window.addEventListener('beforeunload', () => {
   sampleController?.abort();
+  renderFilmstripController?.abort();
   state.fileController?.abort(); state.controller?.abort(); engine.cancel(); preview.destroy();
   if (state.sourceURL) URL.revokeObjectURL(state.sourceURL); if (state.renderURL) URL.revokeObjectURL(state.renderURL);
 });

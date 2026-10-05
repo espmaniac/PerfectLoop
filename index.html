@@ -167,12 +167,13 @@
           <div class="preview-foot"><span><span data-icon="Repeat2" data-size="13"></span><span id="preview-foot-message">Render to check the finished seam</span></span><div><button class="icon-btn" data-action="guides" aria-label="Toggle safe-area guides" aria-pressed="false"><span data-icon="Crop" data-size="16"></span></button><button class="icon-btn" data-action="frame-png" aria-label="Save preview frame"><span data-icon="ImageDown" data-size="16"></span></button></div></div>
         </section>
         <fieldset class="timeline-fieldset" id="timeline-fieldset" hidden>
-          <section class="timeline-panel panel" aria-label="Video timeline">
+          <section class="timeline-panel panel" id="timeline-panel" aria-label="Source video timeline">
             <div class="timeline-head"><div class="source-meta" id="source-meta"><span>Loading the sample…</span></div><div class="timeline-actions">
               <span id="range-duration"></span>
               <div class="history-controls"><button class="icon-btn" data-action="undo" aria-label="Undo settings"><span data-icon="Undo2" data-size="16"></span></button><button class="icon-btn" data-action="redo" aria-label="Redo settings"><span data-icon="Redo2" data-size="16"></span></button><button class="icon-btn" data-action="reset" aria-label="Reset settings"><span data-icon="RotateCcw" data-size="16"></span></button></div>
               <button class="text-btn" data-action="mark-in">Set in<kbd>I</kbd></button><button class="text-btn" data-action="mark-out">Set out<kbd>O</kbd></button><button class="icon-btn" data-action="zoom" aria-label="Zoom to selection"><span data-icon="ZoomIn" data-size="18"></span></button>
             </div></div>
+            <p class="timeline-caption" id="timeline-caption" hidden></p>
             <div class="ruler-labels" id="ruler-labels"></div>
             <div class="filmstrip" id="filmstrip">
               <div class="filmstrip-images" id="filmstrip-images" aria-hidden="true"></div>
@@ -182,6 +183,11 @@
               <div class="playhead" id="playhead"></div>
             </div>
             <div class="trim-fields" id="trim-fields"></div>
+            <div class="timeline-result-summary" id="rendered-timeline-summary" hidden>
+              <span>Start <b>0.000<small>s</small></b></span>
+              <span>End <b><span id="timeline-preview-end">0.000</span><small>s</small></b></span>
+              <span>Duration <b><span id="timeline-preview-duration">0.000</span><small>s</small></b></span>
+            </div>
           </section>
         </fieldset>
         <aside class="export-panel panel" aria-label="Video settings">
