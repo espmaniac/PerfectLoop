@@ -19,7 +19,7 @@ Video processing happens on your device; your source videos are never uploaded.
 - **Motion controls** — change playback speed, overlap, dissolve curve, seam position, and optional motion interpolation.
 - **Seam inspection** — compare boundary frames, inspect their difference, use composition guides, and watch a rendered loop preview.
 - **Audio control** — mute playback independently, export without an audio track, or retain audio with smoothing options.
-- **Export options** — download MP4, WebM, or an infinitely repeating GIF; adjust quality, frame rate, repeats, and an approximate file-size target. Export selected loop candidates together as a ZIP.
+- **Export options** — download MP4, WebM, or a GIF that loops forever or plays once. Adjust frame rate and dimensions for all formats; set quality, cycles in the file, and an approximate file-size target for video. Export selected loop candidates together as a ZIP.
 - **Included sample** — try the editor with a repeating animation and audio before opening your own video.
 
 ## Loop methods
@@ -39,7 +39,7 @@ Dissolves can introduce ghosting, and rebound methods reverse motion. Choose the
 
 1. Choose **Open video**, drop a file into the editor, or select **Load sample**.
 2. Set the in/out points manually, or use **Auto find** to discover candidate ranges.
-3. Choose a loop method and configure the output dimensions, framing, and audio.
+3. Choose a loop method and configure dimensions, framing, and audio in **Video settings**.
 4. Select **Render preview** and use **Inspect seam** to check the join.
 5. Export the finished loop and review the downloaded file at full resolution.
 
@@ -57,9 +57,9 @@ The displayed **Finished loop** duration includes the loop method, speed, overla
 
 Select **Custom** under **Aspect ratio** to enter Width and Height directly. Use even dimensions from **16 to 3840 pixels**.
 
-MP4 uses H.264 with optional AAC audio. WebM uses VP8 with optional Opus audio. GIF exports are silent.
+MP4 uses H.264 with optional AAC audio. WebM uses VP8 with optional Opus audio. GIF exports are silent and contain one loop cycle; **Loop forever** controls whether playback repeats continuously or stops after that cycle. Video cycle counts and file-size targets do not apply to GIF.
 
-**Muting the preview does not remove export audio.** Choose the audio-removal option in Output to create a video with no audio stream.
+**Muting the preview does not remove export audio.** Choose the audio-removal option in **Video settings** to create a video with no audio stream.
 
 Review [Spotify's Canvas guidelines](https://support.spotify.com/us/artists/article/canvas-guidelines/) before submitting a Canvas.
 

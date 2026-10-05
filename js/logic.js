@@ -12,11 +12,16 @@ export function framePlan(s) {
     const blended = s.method === 'crossfade' || s.method === 'offset';
     const rebound = s.method === 'pingpong' || s.method === 'smooth-pingpong';
     const outputFrames = rebound ? 2 * frames - 2 : blended ? frames - overlap : frames;
-    return { frames, overlap, outputFrames, duration: outputFrames / s.fps, totalDuration: outputFrames / s.fps * s.repeats };
+    const repeats = s.format === 'gif' ? 1 : s.repeats;
+    const totalFrames = outputFrames * repeats;
+    return { frames, overlap, outputFrames, totalFrames, duration: outputFrames / s.fps, totalDuration: outputFrames / s.fps * repeats };
 }
 export function validate(s, info) {
     const issues = [];
-    for (const k of ['start', 'end', 'speed', 'transition', 'shift', 'width', 'height', 'fps', 'cropX', 'cropY', 'rotate', 'repeats', 'targetMB']) {
+    const numericOptions = ['start', 'end', 'speed', 'transition', 'shift', 'width', 'height', 'fps', 'cropX', 'cropY', 'rotate'];
+    if (s.format !== 'gif')
+        numericOptions.push('repeats', 'targetMB');
+    for (const k of numericOptions) {
         if (!Number.isFinite(s[k]))
             issues.push(`Invalid ${k} value.`);
     }
@@ -30,11 +35,11 @@ export function validate(s, info) {
         issues.push('Frame rate must be a whole number between 1 and 60.');
     if (s.width < 16 || s.height < 16 || s.width > 3840 || s.height > 3840 || s.width % 2 || s.height % 2)
         issues.push('Use even dimensions between 16 and 3840 pixels.');
-    if (s.repeats < 1 || s.repeats > 50 || !Number.isInteger(s.repeats))
-        issues.push('Repeat count must be between 1 and 50.');
+    if (s.format !== 'gif' && (s.repeats < 1 || s.repeats > 50 || !Number.isInteger(s.repeats)))
+        issues.push('Cycles in video must be a whole number between 1 and 50.');
     if (s.transition < 0.01 || s.transition > 30)
         issues.push('Transition must be between 0.01 and 30 seconds.');
-    if (s.targetMB < 0 || s.targetMB > 2000)
+    if (s.format !== 'gif' && (s.targetMB < 0 || s.targetMB > 2000))
         issues.push('Target size must be between 0 and 2000 MB.');
     if (s.cropX < 0 || s.cropX > 100 || s.cropY < 0 || s.cropY > 100 || s.shift < 0 || s.shift > 99)
         issues.push('Crop and seam positions are outside their allowed ranges.');

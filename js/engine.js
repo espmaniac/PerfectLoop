@@ -160,12 +160,12 @@ export class VideoEngine {
             const normalize = `${geometry(s)},setpts=(PTS-STARTPTS)/${s.speed},${motion},tpad=stop_mode=clone:stop_duration=${2 / s.fps},trim=end_frame=${plan.frames},setpts=PTS-STARTPTS,format=yuv420p`;
             await this.exec(['-ss', String(s.start), '-t', String(rawDuration), '-i', source, '-map', '0:v:0', '-an', '-vf', normalize, '-frames:v', String(plan.frames), '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-pix_fmt', 'yuv420p', '-map_metadata', '-1', 'clip.mp4'], plan.frames / s.fps, 0.04, 0.35, 'Preparing the selected frames…', onProgress);
             const ext = s.format === 'webm' ? 'webm' : 'mp4';
-            const crf = s.quality === 'high' ? 18 : s.quality === 'small' ? 28 : 22;
+            const crf = s.format === 'gif' || s.quality === 'high' ? 18 : s.quality === 'small' ? 28 : 22;
             const webmRate = Math.max(200_000, Math.round(s.width * s.height * s.fps * (s.quality === 'high' ? 0.18 : s.quality === 'small' ? 0.08 : 0.12)));
             // The bundled single-thread core can throw an unhandled longjmp in VP9.
             // VP8 is reliable on ordinary static hosts and needs no extra headers.
             const codec = ext === 'webm' ? ['-c:v', 'libvpx', '-deadline', 'realtime', '-cpu-used', '6', '-crf', String(crf + 8), '-b:v', String(webmRate), '-lag-in-frames', '0'] : ['-c:v', 'libx264', '-preset', preview ? 'ultrafast' : 'veryfast', '-crf', String(crf)];
-            if (s.targetMB > 0) {
+            if (s.format !== 'gif' && s.targetMB > 0) {
                 const bitrate = Math.max(48_000, Math.floor(s.targetMB * 1024 ** 2 * 8 * 0.93 / plan.totalDuration) - (hasAudio ? 128_000 : 0));
                 codec.push('-b:v', String(bitrate), '-maxrate', String(Math.round(bitrate * 1.25)), '-bufsize', String(bitrate * 2));
             }
@@ -174,7 +174,7 @@ export class VideoEngine {
                 await this.exec(['-ss', String(s.start), '-t', String(rawDuration), '-i', source, '-filter_complex', audioGraph(s), '-map', '[aout]', '-vn', '-ar', '48000', '-c:a', 'pcm_s16le', '-t', String(plan.duration), 'audio.wav'], plan.duration, 0.75, 0.84, 'Preparing the audio timeline…', onProgress);
             const result = `result.${s.format}`;
             if (s.format === 'gif') {
-                await this.exec(['-stream_loop', String(s.repeats - 1), '-i', `cyclic.${ext}`, '-filter_complex', '[0:v]split[g1][g2];[g1]palettegen=stats_mode=diff[pal];[g2][pal]paletteuse=dither=sierra2_4a', '-an', '-loop', '0', '-t', String(plan.totalDuration), result], plan.totalDuration, 0.84, 0.98, 'Encoding the animated GIF…', onProgress);
+                await this.exec(['-i', `cyclic.${ext}`, '-filter_complex', '[0:v]split[g1][g2];[g1]palettegen=stats_mode=diff[pal];[g2][pal]paletteuse=dither=sierra2_4a', '-an', '-loop', s.gifLoop === false ? '-1' : '0', '-frames:v', String(plan.totalFrames), '-t', String(plan.totalDuration), result], plan.totalDuration, 0.84, 0.98, 'Encoding the animated GIF…', onProgress);
             }
             else {
                 const args = ['-stream_loop', String(s.repeats - 1), '-i', `cyclic.${ext}`];
@@ -198,7 +198,7 @@ export class VideoEngine {
                 throw new Error('The export could not be read.');
             const blob = new Blob([bytes.slice().buffer], { type: s.format === 'gif' ? 'image/gif' : s.format === 'mp4' ? 'video/mp4' : 'video/webm' });
             onProgress(1, 'Ready');
-            return { blob, name: `${file.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]/gi, '-').slice(0, 60) || 'video'}-${s.method}-loop.${s.format}`, duration: Number(output.format?.duration || video.duration || plan.totalDuration), width: video.width || s.width, height: video.height || s.height, fps: numberRate(video.avg_frame_rate), frames: Number(video.nb_frames || plan.outputFrames * s.repeats), hasAudio: output.streams.some(st => st.codec_type === 'audio'), sourceFps: numberRate(probe.streams.find(st => st.codec_type === 'video')?.avg_frame_rate) };
+            return { blob, name: `${file.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]/gi, '-').slice(0, 60) || 'video'}-${s.method}-loop.${s.format}`, duration: Number(output.format?.duration || video.duration || plan.totalDuration), width: video.width || s.width, height: video.height || s.height, fps: numberRate(video.avg_frame_rate), frames: Number(video.nb_frames || plan.totalFrames), hasAudio: output.streams.some(st => st.codec_type === 'audio'), sourceFps: numberRate(probe.streams.find(st => st.codec_type === 'video')?.avg_frame_rate) };
         }
         catch (e) {
             if (this.cancelled)
