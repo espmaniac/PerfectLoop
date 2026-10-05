@@ -71,7 +71,8 @@ function fixture(t) {
         info: { width: 640, height: 360, duration: 3, fps: 30 },
         s: { ...DEFAULTS, start: 0, end: 3 },
     };
-    const preview = new Preview(() => state, mode => { state.mode = mode; }, () => {});
+    const times = [];
+    const preview = new Preview(() => state, mode => { state.mode = mode; }, (time, mode) => times.push({ time, mode }));
     t.after(() => {
         preview.destroy();
         for (const [key, descriptor] of previous) {
@@ -81,7 +82,7 @@ function fixture(t) {
     });
     preview.refresh();
     return {
-        preview, state, source, output, canvas, alternate,
+        preview, state, source, output, canvas, alternate, times,
         tick() {
             const [id, callback] = frames.entries().next().value;
             frames.delete(id);
@@ -158,4 +159,37 @@ test('Refreshing unchanged dimensions preserves the source framing preview', t =
     assert.equal(f.alternate.pixel, '#2468ac');
     f.preview.refresh();
     assert.equal(f.alternate.pixel, '#2468ac');
+});
+
+test('Playback publishes the active media time on every animation frame', t => {
+    const f = fixture(t);
+    f.source.currentTime = 2;
+    f.output.currentTime = 0.25;
+    f.tick();
+    f.output.currentTime = 0.5;
+    f.tick();
+    f.preview.setMode('source');
+    f.tick();
+    assert.deepEqual(f.times, [
+        { time: 0.25, mode: 'loop' },
+        { time: 0.5, mode: 'loop' },
+        { time: 2, mode: 'source' },
+    ]);
+});
+
+test('Timeline seeking preserves Loop mode while source selection still seeks Source', t => {
+    const f = fixture(t);
+    f.preview.seek(1.5, 'loop');
+    assert.equal(f.state.mode, 'loop');
+    assert.equal(f.output.currentTime, 1.5);
+    assert.equal(f.source.currentTime, 1);
+    assert.deepEqual(f.times.at(-1), { time: 1.5, mode: 'loop' });
+    f.preview.seek(10, 'loop');
+    assert.equal(f.output.currentTime, 2.999, 'output seeking stops before the rendered end');
+
+    f.preview.seek(2);
+    assert.equal(f.state.mode, 'source');
+    assert.equal(f.source.currentTime, 2);
+    assert.equal(f.output.currentTime, 2.999);
+    assert.deepEqual(f.times.at(-1), { time: 2, mode: 'source' });
 });

@@ -109,8 +109,12 @@ export class Preview {
       st.mode === 'loop' ? Math.max(0, video.duration - 1 / rate) : Math.max(st.s.start, st.s.end - 1 / rate));
     this.syncPlayButton(); this.dirtyFrame = true;
   }
-  seek(time) {
-    this.setMode('source'); this.source.currentTime = time; this.dirtyFrame = true;
+  seek(time, mode = 'source') {
+    this.setMode(mode);
+    const st = this.getState(), video = this.active();
+    const duration = mode === 'loop' ? st.render?.duration || video.duration : st.info.duration;
+    video.currentTime = clamp(time, 0, Math.max(0, duration - 0.001));
+    this.dirtyFrame = true; this.onTime(video.currentTime, mode);
   }
   toggleMute() {
     this.muted = !this.muted; this.source.muted = this.output.muted = this.muted;
@@ -136,9 +140,9 @@ export class Preview {
       const duration = st.mode === 'loop' ? st.render?.duration || video.duration || 0 : st.info.duration;
       $('#transport-time').textContent = `${timecode(video.currentTime)} / ${timecode(duration)}`;
       drawFrame(this.alternate, this.source, { ...st.s, ...alternateFormat(st.s) }, false);
-      if (st.mode === 'source') this.onTime(video.currentTime);
       this.lastTick = now; this.syncPlayButton();
     }
+    this.onTime(video.currentTime, st.mode);
     this.raf = requestAnimationFrame(this.frame);
   }
   destroy() { cancelAnimationFrame(this.raf); this.pause(); }
