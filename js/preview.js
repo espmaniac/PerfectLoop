@@ -3,10 +3,11 @@ import { $, icon } from './ui.js';
 import { alternateFormat } from './aspect.js';
 
 function drawFrame(canvas, video, settings, rendered) {
+  // Keep the last frame while the decoder seeks across the loop boundary.
+  if (!video.videoWidth || !video.videoHeight || video.readyState < 2 || video.seeking) return false;
   const ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
   ctx.fillStyle = settings.background; ctx.fillRect(0, 0, w, h);
-  if (!video.videoWidth || video.readyState < 2) return;
-  if (rendered) { ctx.drawImage(video, 0, 0, w, h); return; }
+  if (rendered) { ctx.drawImage(video, 0, 0, w, h); return true; }
   const sw = video.videoWidth, sh = video.videoHeight;
   const quarter = settings.rotate % 180 !== 0, rw = quarter ? sh : sw, rh = quarter ? sw : sh;
   let sx, sy;
@@ -16,6 +17,11 @@ function drawFrame(canvas, video, settings, rendered) {
   const oy = settings.fit === 'cover' ? (rh * sy - h) * (0.5 - settings.cropY / 100) : 0;
   ctx.save(); ctx.translate(w / 2 + ox, h / 2 + oy); ctx.scale(settings.mirror ? -sx : sx, sy);
   ctx.rotate(settings.rotate * Math.PI / 180); ctx.drawImage(video, -sw / 2, -sh / 2); ctx.restore();
+  return true;
+}
+
+function clearFrame(canvas) {
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
 }
 
 export class Preview {
@@ -35,16 +41,21 @@ export class Preview {
     });
     this.source.addEventListener('loadeddata', () => { this.dirtyFrame = true; });
     this.output.addEventListener('loadeddata', () => { this.dirtyFrame = true; });
+    this.source.addEventListener('seeked', () => { this.dirtyFrame = true; });
+    this.output.addEventListener('seeked', () => { this.dirtyFrame = true; });
     this.frame = this.frame.bind(this); this.raf = requestAnimationFrame(this.frame);
   }
   active() { const st = this.getState(); return st.mode === 'loop' && st.renderURL ? this.output : this.source; }
   pause() { this.source.pause(); this.output.pause(); this.syncPlayButton(); }
   setSource(url) {
+    if (this.active() === this.source) clearFrame(this.canvas);
+    clearFrame(this.alternate);
     this.pause(); this.source.removeAttribute('src');
     if (url) this.source.src = url;
     this.source.muted = this.muted; this.source.load(); this.dirtyFrame = true;
   }
   setOutput(url) {
+    if (this.active() === this.output) clearFrame(this.canvas);
     this.pause(); this.output.removeAttribute('src');
     if (url) this.output.src = url;
     this.output.muted = this.muted; this.output.load(); this.dirtyFrame = true;
@@ -63,8 +74,9 @@ export class Preview {
     if (this.canvas.height !== h) this.canvas.height = h;
     this.canvas.style.setProperty('--preview-aspect', String(aspect));
     const alternate = alternateFormat(st.s), alternateRatio = alternate.width / alternate.height;
-    this.alternate.width = Math.round(Math.min(128, 128 * alternateRatio));
-    this.alternate.height = Math.round(this.alternate.width / alternateRatio);
+    const alternateWidth = Math.round(Math.min(128, 128 * alternateRatio)), alternateHeight = Math.round(alternateWidth / alternateRatio);
+    if (this.alternate.width !== alternateWidth) this.alternate.width = alternateWidth;
+    if (this.alternate.height !== alternateHeight) this.alternate.height = alternateHeight;
     this.source.playbackRate = clamp(st.s.speed || 1, 0.25, 4);
     this.dirtyFrame = true;
     this.syncPlayButton();
@@ -118,7 +130,7 @@ export class Preview {
     const key = `${st.mode}-${video.currentTime}-${video.readyState}`;
     if (this.dirtyFrame || key !== this.lastFrame) {
       // Source displays the original frame; encoded output already contains framing.
-      drawFrame(this.canvas, video, st.s, true); this.lastFrame = key; this.dirtyFrame = false;
+      if (drawFrame(this.canvas, video, st.s, true)) { this.lastFrame = key; this.dirtyFrame = false; }
     }
     if (now - this.lastTick > 100) {
       const duration = st.mode === 'loop' ? st.render?.duration || video.duration || 0 : st.info.duration;
