@@ -59,7 +59,7 @@ export function validate(s, info) {
             issues.push('Use MP4 for Spotify Canvas.');
     }
     if ((s.method === 'pingpong' || s.method === 'smooth-pingpong') && p.frames * s.width * s.height * 1.5 > 900 * 1024 ** 2)
-        issues.push('Rebound would use too much memory. Shorten the range or lower the resolution/frame rate.');
+        issues.push('Ping-pong would use too much memory. Shorten the range or lower the resolution/frame rate.');
     return [...new Set(issues)];
 }
 export function geometry(s) {
@@ -90,7 +90,9 @@ export function videoGraph(s) {
     const pieces = [];
     let input = '0:v';
     if (s.method === 'smooth-pingpong') {
-        pieces.push(`[${input}]setpts='acos(1-2*N/${n - 1})*${n - 1}/${s.fps}/PI/TB',fps=${s.fps},tpad=stop_mode=clone:stop_duration=${2 / s.fps},trim=end_frame=${n},setpts=PTS-STARTPTS[eased]`);
+        // FPS resampling can discard the final eased frame at EOF. Preserve the
+        // original turning point explicitly instead of cloning the previous frame.
+        pieces.push(`[${input}]split[ease-input][turn-input]`, `[ease-input]setpts='acos(1-2*N/${n - 1})*${n - 1}/${s.fps}/PI/TB',fps=${s.fps},tpad=stop_mode=clone:stop_duration=${2 / s.fps},trim=end_frame=${n - 1},setpts=PTS-STARTPTS[eased-body]`, `[turn-input]trim=start_frame=${n - 1}:end_frame=${n},setpts=PTS-STARTPTS[eased-turn]`, '[eased-body][eased-turn]concat=n=2:v=1:a=0[eased]');
         input = 'eased';
     }
     if (s.method === 'crossfade' || s.method === 'offset') {

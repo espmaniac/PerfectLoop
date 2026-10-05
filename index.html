@@ -75,7 +75,7 @@
         },
         "featureList": [
           "Automatic loop discovery in a whole video or selected range",
-          "Natural cut, crossfade, offset dissolve, rebound, eased rebound, and fade through black",
+          "Natural cut, crossfade, offset dissolve, ping-pong, smooth ping-pong, and fade through black",
           "Portrait, landscape, square, and custom output dimensions",
           "MP4, WebM, and animated GIF exports",
           "Export without an audio track",
@@ -112,6 +112,7 @@
           <div class="tool-body" role="tabpanel" id="panel-edit" aria-labelledby="tab-edit">
             <fieldset data-disable>
               <div class="method-grid" id="methods"></div>
+              <p class="method-summary" id="method-summary" hidden></p>
               <div class="fields method-fields" id="method-fields"></div>
               <details class="disclosure method-about"><summary>Loop settings &amp; tips</summary><div class="disclosure-content" id="loop-settings"><p class="method-detail" id="method-detail"></p><p class="micro" id="overlap-note"></p></div></details>
             </fieldset>
@@ -131,7 +132,7 @@
               <p class="panel-copy"><span id="inspection-mode">Selected source range</span>. Compare the last frame with the first, then watch several repeats.</p>
               <button class="btn secondary full" data-action="inspect"><span data-icon="ScanLine" data-size="16"></span>Compare boundary frames</button>
               <div id="seam-result"></div>
-              <details class="disclosure inspection-tips"><summary>What to look for</summary><p>Check the direction and speed of motion at the join. A matching still frame can hide a change in velocity. Bright areas in the difference map show change, including normal motion.</p><p>Rebound reverses direction; dissolves can show ghosting. A rendered preview uses the export's loop logic at a smaller resolution. Check the downloaded file at full size too.</p></details>
+              <details class="disclosure inspection-tips"><summary>What to look for</summary><p>Check the direction and speed of motion at the join. A matching still frame can hide a change in velocity. Bright areas in the difference map show change, including normal motion.</p><p>Ping-pong reverses direction; dissolves can show ghosting. A rendered preview uses the export's loop logic at a smaller resolution. Check the downloaded file at full size too.</p></details>
             </fieldset>
           </div>
         </section>
@@ -240,9 +241,9 @@
     <dialog class="help-dialog" id="help-dialog">
       <div class="help-head"><h2>Make a better loop</h2><button class="icon-btn" data-action="close-help" aria-label="Close help"><span data-icon="X" data-size="20"></span></button></div>
       <p>Open a video, select a range, choose a method, then render the loop preview. Watch it repeat before exporting.</p>
-      <ul><li><b>Auto find</b> compares color, local image structure, and movement. The best five matches receive frame refinement. Sampling can miss very brief moments.</li><li><b>Crossfade</b> overlaps the tail and head; the output is shorter than the selection. Offset dissolve places that transition inside the clip.</li><li><b>Rebound</b> nearly doubles the duration and removes duplicate end frames. Eased rebound slows down into the turns.</li><li><b>Remove audio track</b> strips the audio stream. Muting the player only changes the preview.</li><li><b>Spotify Canvas</b> uses 3–8 seconds, exact 9:16, and 720–1080px height. The default 576×1024 is inside these limits.</li><li><b>Long videos</b> are sampled from the local file. Unsupported browser codecs can be converted to a playable proxy.</li></ul>
+      <ul><li><b>Auto find</b> compares color, local image structure, and movement. The best five matches receive frame refinement. Sampling can miss very brief moments.</li><li><b>Crossfade</b> overlaps the tail and head; the output is shorter than the selection. Offset dissolve places that transition inside the clip.</li><li><b>Ping-pong</b> plays forward, then backward, nearly doubling the cycle duration without repeating turning-point frames. Smooth ping-pong slows down into the turns. GIF stores both directions in one cycle; Loop forever repeats that cycle.</li><li><b>Remove audio track</b> strips the audio stream. Muting the player only changes the preview.</li><li><b>Spotify Canvas</b> uses 3–8 seconds, exact 9:16, and 720–1080px height. The default 576×1024 is inside these limits.</li><li><b>Long videos</b> are sampled from the local file. Unsupported browser codecs can be converted to a playable proxy.</li></ul>
       <div class="shortcut-grid"><span>Play / pause<kbd>Space</kbd></span><span>Set in / out<kbd>I / O</kbd></span><span>Step frames<kbd>← / →</kbd></span><span>Undo / redo<kbd>Ctrl+Z / Shift+Z</kbd></span></div>
-      <p class="micro">No algorithm can guarantee an invisible join for every scene. Natural cuts need repeating motion; dissolves can ghost; rebound changes direction. This studio gives you controls and diagnostics to choose the best result.</p>
+      <p class="micro">No algorithm can guarantee an invisible join for every scene. Natural cuts need repeating motion; dissolves can ghost; ping-pong changes direction. This studio gives you controls and diagnostics to choose the best result.</p>
       <button class="btn primary full" data-action="close-help">Back to the studio</button>
     </dialog>
   </div>
