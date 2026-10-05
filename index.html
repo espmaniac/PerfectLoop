@@ -98,6 +98,7 @@
       <div class="header-actions">
         <button class="btn secondary sample-btn" data-action="sample" aria-label="Load sample" title="Load sample"><span class="sample-icon" data-icon="RotateCcw" data-size="17"></span><span class="sample-label">Load sample</span></button>
         <button class="btn secondary" data-action="open" aria-label="Open video"><span data-icon="FolderOpen" data-size="19"></span><span class="open-label">Open video</span></button>
+        <button class="btn secondary render-btn" data-action="render" title="Render the finished loop preview" disabled><span data-icon="Play" data-size="17"></span><span id="render-label">Render preview</span></button>
       </div>
     </header>
     <input id="file-input" class="sr-only" type="file" accept="video/*,.mkv,.mov,.avi,.m4v,.webm,.mp4" aria-label="Choose source video">
@@ -165,6 +166,24 @@
           </div>
           <div class="preview-foot"><span><span data-icon="Repeat2" data-size="13"></span><span id="preview-foot-message">Render to check the finished seam</span></span><div><button class="icon-btn" data-action="guides" aria-label="Toggle safe-area guides" aria-pressed="false"><span data-icon="Crop" data-size="16"></span></button><button class="icon-btn" data-action="frame-png" aria-label="Save preview frame"><span data-icon="ImageDown" data-size="16"></span></button></div></div>
         </section>
+        <fieldset class="timeline-fieldset" id="timeline-fieldset" hidden>
+          <section class="timeline-panel panel" aria-label="Video timeline">
+            <div class="timeline-head"><div class="source-meta" id="source-meta"><span>Loading the sample…</span></div><div class="timeline-actions">
+              <span id="range-duration"></span>
+              <div class="history-controls"><button class="icon-btn" data-action="undo" aria-label="Undo settings"><span data-icon="Undo2" data-size="16"></span></button><button class="icon-btn" data-action="redo" aria-label="Redo settings"><span data-icon="Redo2" data-size="16"></span></button><button class="icon-btn" data-action="reset" aria-label="Reset settings"><span data-icon="RotateCcw" data-size="16"></span></button></div>
+              <button class="text-btn" data-action="mark-in">Set in<kbd>I</kbd></button><button class="text-btn" data-action="mark-out">Set out<kbd>O</kbd></button><button class="icon-btn" data-action="zoom" aria-label="Zoom to selection"><span data-icon="ZoomIn" data-size="18"></span></button>
+            </div></div>
+            <div class="ruler-labels" id="ruler-labels"></div>
+            <div class="filmstrip" id="filmstrip">
+              <div class="filmstrip-images" id="filmstrip-images" aria-hidden="true"></div>
+              <div class="selection-shade left" id="shade-left"></div><div class="selection-shade right" id="shade-right"></div>
+              <div class="selection-outline" id="selection-outline"></div>
+              <button class="trim-handle start" data-edge="start" aria-label="Drag start trim handle"><span></span></button><button class="trim-handle end" data-edge="end" aria-label="Drag end trim handle"><span></span></button>
+              <div class="playhead" id="playhead"></div>
+            </div>
+            <div class="trim-fields" id="trim-fields"></div>
+          </section>
+        </fieldset>
         <aside class="export-panel panel" aria-label="Output settings">
           <div class="export-title"><h2 class="panel-title">Output</h2><span class="format-badge" id="format-badge">MP4</span></div>
           <fieldset data-disable>
@@ -190,39 +209,24 @@
               <details class="disclosure"><summary>More export options</summary><div class="disclosure-content" id="extra-export-fields"></div></details>
             </div></details>
           </fieldset>
-          <div class="output-summary"><div><span>Finished loop</span><b><span id="finished-duration">5.500</span><small>s</small></b></div><span id="output-meta"></span></div>
-          <div class="validation" id="validation" role="status" hidden></div>
-          <div class="export-valid" id="export-valid" hidden></div>
-          <p class="micro" id="long-loop-warning" hidden>Long loops take more time and memory to encode in a browser.</p>
-          <button class="btn secondary full render-btn" data-action="render" aria-label="Render loop preview"><span data-icon="Play" data-size="17"></span><span id="render-label">Render preview</span></button>
-          <button class="btn primary full export-btn" data-action="export"><span data-icon="Upload" data-size="19"></span><span id="export-label">Export MP4</span></button>
-          <div class="download-result" id="download-result" hidden><span data-icon="CheckCircle2" data-size="16"></span><div><b>Your loop is ready</b><span id="download-meta"></span><button class="text-btn" data-action="download-again">Download again</button></div></div>
-          <div class="alternate-format">
-            <p>Other format (from same section)</p>
-            <button class="alternate-button" data-action="alternate" aria-label="Use alternate output format">
-              <canvas id="alternate-canvas" width="72" height="128" aria-label="Alternate framing preview"></canvas>
-              <span><b id="alternate-label">16:9</b><small id="alternate-dimensions">1920 × 1080</small></span><span class="alternate-icon" data-icon="Crop" data-size="19"></span>
-            </button>
+          <div class="export-footer">
+            <div class="alternate-format">
+              <p>Other format (from same section)</p>
+              <button class="alternate-button" data-action="alternate" aria-label="Use alternate output format">
+                <canvas id="alternate-canvas" width="72" height="128" aria-label="Alternate framing preview"></canvas>
+                <span><b id="alternate-label">16:9</b><small id="alternate-dimensions">1920 × 1080</small></span><span class="alternate-icon" data-icon="Crop" data-size="19"></span>
+              </button>
+            </div>
+            <div class="export-actions">
+              <div class="output-summary"><div><span>Finished loop</span><b><span id="finished-duration">5.500</span><small>s</small></b></div><span id="output-meta"></span></div>
+              <div class="validation" id="validation" role="status" hidden></div>
+              <div class="export-valid" id="export-valid" hidden></div>
+              <p class="micro" id="long-loop-warning" hidden>Long loops take more time and memory to encode in a browser.</p>
+              <button class="btn primary full export-btn" data-action="export"><span data-icon="Upload" data-size="19"></span><span id="export-label">Export MP4</span></button>
+              <div class="download-result" id="download-result" hidden><span data-icon="CheckCircle2" data-size="16"></span><div><b>Your loop is ready</b><span id="download-meta"></span><button class="text-btn" data-action="download-again">Download again</button></div></div>
+            </div>
           </div>
         </aside>
-        <fieldset class="timeline-fieldset" id="timeline-fieldset" hidden>
-          <section class="timeline-panel panel" aria-label="Video timeline">
-            <div class="timeline-head"><div class="source-meta" id="source-meta"><span>Loading the sample…</span></div><div class="timeline-actions">
-              <span id="range-duration"></span>
-              <div class="history-controls"><button class="icon-btn" data-action="undo" aria-label="Undo settings"><span data-icon="Undo2" data-size="16"></span></button><button class="icon-btn" data-action="redo" aria-label="Redo settings"><span data-icon="Redo2" data-size="16"></span></button><button class="icon-btn" data-action="reset" aria-label="Reset settings"><span data-icon="RotateCcw" data-size="16"></span></button></div>
-              <button class="text-btn" data-action="mark-in">Set in<kbd>I</kbd></button><button class="text-btn" data-action="mark-out">Set out<kbd>O</kbd></button><button class="icon-btn" data-action="zoom" aria-label="Zoom to selection"><span data-icon="ZoomIn" data-size="18"></span></button>
-            </div></div>
-            <div class="ruler-labels" id="ruler-labels"></div>
-            <div class="filmstrip" id="filmstrip">
-              <div class="filmstrip-images" id="filmstrip-images" aria-hidden="true"></div>
-              <div class="selection-shade left" id="shade-left"></div><div class="selection-shade right" id="shade-right"></div>
-              <div class="selection-outline" id="selection-outline"></div>
-              <button class="trim-handle start" data-edge="start" aria-label="Drag start trim handle"><span></span></button><button class="trim-handle end" data-edge="end" aria-label="Drag end trim handle"><span></span></button>
-              <div class="playhead" id="playhead"></div>
-            </div>
-            <div class="trim-fields" id="trim-fields"></div>
-          </section>
-        </fieldset>
       </div>
       <div class="job-panel" id="job-panel" role="status" aria-live="polite" hidden><span data-icon="LoaderCircle" data-size="20" class="spin"></span><div><div class="job-label"><b id="job-message"></b><span id="job-percent"></span></div><progress id="job-progress" max="1" value="0" aria-label="Processing progress"></progress></div><button class="btn secondary" data-action="cancel">Cancel</button></div>
     </main>

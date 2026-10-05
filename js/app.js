@@ -57,6 +57,10 @@ function refreshStatus() {
   $('#error-alert').hidden = !state.error; $('#error-message').textContent = state.error;
   $('#notice').hidden = !state.notice; $('#notice-message').textContent = state.notice;
   $('#job-panel').hidden = !state.job;
+  const rendering = state.job?.kind === 'preview';
+  $('.render-btn').setAttribute('aria-busy', String(rendering));
+  $('#render-label').textContent = rendering ? `Rendering… ${Math.round(state.job.progress * 100)}%`
+    : state.render ? dirty() ? 'Update preview' : 'Render again' : 'Render preview';
   if (state.job) {
     $('#job-message').textContent = state.job.message; $('#job-percent').textContent = `${Math.round(state.job.progress * 100)}%`;
     $('#job-progress').value = state.job.progress;
@@ -138,7 +142,6 @@ function refresh() {
   $('#export-valid').hidden = !info.duration || Boolean(issues.length);
   $('#export-valid').innerHTML = icon('Check', 14) + (s.preset === 'spotify' ? 'Canvas format checks passed' : 'Ready to export') + (s.audio === 'strip' || s.format === 'gif' ? ' · silent' : '');
   $('#long-loop-warning').hidden = plan.totalDuration <= 30;
-  $('#render-label').textContent = state.render && !dirty() ? 'Render again' : 'Render preview';
   $('#export-label').textContent = `Export ${s.format.toUpperCase()}`;
   $('#download-result').hidden = !state.lastExport;
   if (state.lastExport) $('#download-meta').textContent = `${humanSize(state.lastExport.blob.size)} · ${state.lastExport.hasAudio ? 'With audio' : 'No audio track'}`;
