@@ -19,13 +19,13 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
-button, input, select { font: inherit; }
-button, a, input, select, summary { -webkit-tap-highlight-color: transparent; }
+button, input, select, textarea { font: inherit; }
+button, a, input, select, textarea, summary { -webkit-tap-highlight-color: transparent; }
 button, summary { cursor: pointer; }
 button { color: inherit; border: 0; }
 button:disabled { cursor: default; opacity: .4; }
 a { color: inherit; text-decoration: none; }
-button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible {
+button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 3px;
 }
 fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
@@ -87,6 +87,32 @@ main { padding-top: 0; }
 .method-about { margin: 0 8px !important; }
 .method-detail { font-size: 12px; line-height: 1.65; color: var(--muted); }
 .method-summary { margin: 12px 8px 0; color: var(--muted); font-size: 12px; line-height: 1.65; font-variant-numeric: tabular-nums; }
+.layer-image-hint { margin: 10px 8px 14px; }
+.layer-add-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-bottom: 14px; }
+.layer-add-actions .btn { padding-inline: 8px; min-height: 38px; font-size: 12px; }
+.layer-list { display: grid; gap: 7px; max-height: 360px; overflow-y: auto; padding: 3px; margin: -3px; }
+.layer-item { padding: 8px; min-width: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--glass); }
+.layer-item.selected { background: var(--glass-selected); border-color: rgba(255,255,255,.24); }
+.layer-item.muted .layer-select { opacity: .5; }
+.layer-item-head { display: flex; align-items: center; gap: 5px; }
+.layer-select { display: flex; align-items: center; gap: 9px; padding: 5px 2px; min-width: 0; flex: 1; color: #eeeef0; background: transparent; text-align: left; border-radius: 8px; }
+.layer-select > span:last-child { min-width: 0; }
+.layer-select b { display: block; font-size: 12px; font-weight: 450; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+.layer-select small { display: block; margin-top: 3px; color: var(--dim); font-size: 10px; }
+.layer-type { display: grid; place-items: center; width: 23px; flex-shrink: 0; font-size: 17px; }
+.layer-visibility { flex-shrink: 0; font-size: 11px; }
+.layer-item-actions { display: flex; align-items: center; gap: 6px; padding-top: 3px; }
+.layer-item-actions .icon-btn { min-width: 27px; width: 27px; height: 27px; padding: 2px; font-size: 17px; }
+.layer-item-actions .text-btn { margin-left: auto; font-size: 11px; }
+.layer-item-actions .text-btn + .text-btn { margin-left: 4px; }
+.layer-controls { border-top: 1px solid var(--line); margin: 18px 3px 0; padding-top: 17px; }
+.layer-controls .fields.two { gap: 10px; }
+.layer-controls .field { margin-bottom: 13px; }
+.layer-controls .fields.two .field > span { font-size: 11px; }
+.layer-controls .input-unit input { padding-inline: 10px 27px; }
+.layer-controls .input-unit > span { right: 9px; }
+.layer-controls textarea { width: 100%; min-height: 76px; resize: vertical; padding: 9px 11px; color: #eeeef0; background: rgba(0,0,0,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 13px; font-size: 13px; line-height: 1.5; }
+.layer-motion-help { margin: 14px 3px 0; }
 .preview-panel { grid-column: 2; grid-row: 1; padding: 13px 15px 8px; overflow: hidden; }
 .preview-top { display: flex; align-items: center; gap: 10px; margin-bottom: 13px; min-height: 42px; }
 .tabs { display: flex; align-items: center; gap: 8px; }
@@ -367,6 +393,11 @@ footer a:hover { color: #f0f0f2; }
   .preview-mode button { font-size: 12px; padding-inline: 10px; }
   .playback-controls { gap: 6px; }
   .play-btn { width: 47px; height: 47px; }
+  .transport:has([data-mode=composition]:not([hidden])) { grid-template-columns: minmax(0,1fr) auto; }
+  .transport:has([data-mode=composition]:not([hidden])) .preview-mode { grid-column: 1/-1; grid-row: 1; justify-self: center; }
+  .transport:has([data-mode=composition]:not([hidden])) .playback-controls { grid-column: 1; grid-row: 2; }
+  .transport:has([data-mode=composition]:not([hidden])) .transport-options { grid-column: 2; grid-row: 2; }
+  .transport:has([data-mode=composition]:not([hidden])) .transport-time { grid-column: 1/-1; grid-row: 3; }
   .timeline-head { flex-wrap: wrap; }
   .source-meta > span:nth-child(n+3) { display: block; }
   .timeline-actions { gap: 14px; }
@@ -392,8 +423,9 @@ footer a:hover { color: #f0f0f2; }
   .controls-panel { grid-column: 1; grid-row: 3; padding: 20px 14px; }
   .export-panel { grid-column: 1; grid-row: 4; padding: 22px 19px; }
   .preview-top { margin-bottom: 10px; }
-  .tabs button { font-size: 12px; gap: 6px; padding: 11px 8px; }
-  .tabs button svg { width: 16px; }
+  .tabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); }
+  .tabs button { font-size: 11px; gap: 4px; padding: 10px 3px; line-height: 1.25; min-height: 38px; white-space: normal; }
+  .tabs button [data-icon] { display: none; }
   .preview-stage { height: min(106vw,490px); border-radius: 17px; }
   .transport { gap: 6px; padding-top: 12px; }
   .preview-mode button { padding: 9px 11px; font-size: 12px; }
@@ -413,6 +445,7 @@ footer a:hover { color: #f0f0f2; }
   .range-number-field { grid-template-columns: 1fr 105px; }
   .field { font-size: 13px; }
   .field input, .field select { font-size: 16px; min-height: 42px; }
+  .layer-controls textarea { font-size: 16px; }
   .range-number-field .input-unit input { min-height: 40px; }
   .method-fields #field-setting-curve { display: grid; grid-template-columns: 1fr 150px; align-items: center; }
   .method-fields #field-setting-curve > span { margin: 0; }
@@ -466,8 +499,7 @@ footer a:hover { color: #f0f0f2; }
 @media (max-width: 379px) {
   .brand { font-size: 22px; gap: 8px; }
   .brand-icon img { width: 31px; height: 31px; }
-  .tabs button { font-size: 11px; gap: 4px; padding-inline: 5px; }
-  .tabs button svg { width: 14px; }
+  .tabs button { font-size: 10px; padding-inline: 2px; }
   .preview-mode button { font-size: 11px; padding-inline: 8px; }
   .playback-controls { gap: 0; }
   .play-btn { width: 39px; height: 39px; }

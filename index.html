@@ -135,6 +135,20 @@
               <details class="disclosure inspection-tips"><summary>What to look for</summary><p>Check the direction and speed of motion at the join. A matching still frame can hide a change in velocity. Bright areas in the difference map show change, including normal motion.</p><p>Ping-pong reverses direction; dissolves can show ghosting. A rendered preview uses the export's loop logic at a smaller resolution. Check the downloaded file at full size too.</p></details>
             </fieldset>
           </div>
+          <div class="tool-body" role="tabpanel" id="panel-layers" aria-labelledby="tab-layers" hidden>
+            <fieldset data-disable>
+              <div class="layer-add-actions">
+                <button class="btn secondary" data-action="layer-add-text">Add text</button>
+                <button class="btn secondary" data-action="layer-add-image">Add image</button>
+              </div>
+              <input id="layer-image-input" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" aria-label="Choose layer image">
+              <p class="micro layer-image-hint">PNG, JPEG, WebP, or GIF. Animated images use the first frame. Up to 8 layers.</p>
+              <p class="micro" id="layer-empty">Add text or an image to your loop.</p>
+              <div class="layer-list" id="layer-list" role="list" aria-label="Layers, top to bottom"></div>
+              <div class="layer-controls" id="layer-controls" hidden></div>
+              <p class="micro layer-motion-help">Movement repeats once per finished loop. Rotation changes the element's angle; movement follows the selected screen direction.</p>
+            </fieldset>
+          </div>
         </section>
         <section class="preview-panel panel" aria-label="Video preview">
           <div class="preview-top">
@@ -142,6 +156,7 @@
               <button role="tab" id="tab-edit" data-tab="edit" aria-controls="panel-edit" aria-selected="true" class="active"><span data-icon="SlidersHorizontal" data-size="17"></span>Edit loop</button>
               <button role="tab" id="tab-find" data-tab="find" aria-controls="panel-find" aria-selected="false"><span data-icon="LocateFixed" data-size="18"></span>Auto find</button>
               <button role="tab" id="tab-inspect" data-tab="inspect" aria-controls="panel-inspect" aria-selected="false"><span data-icon="Search" data-size="18"></span>Inspect seam</button>
+              <button role="tab" id="tab-layers" data-tab="layers" aria-controls="panel-layers" aria-selected="false"><span data-icon="Layers" data-size="18"></span>Layers</button>
             </div>
           </div>
           <div class="preview-stage" id="preview-stage">
@@ -152,7 +167,7 @@
             <video id="loop-video" class="decoder" playsinline muted loop preload="auto"></video>
           </div>
           <div class="transport">
-            <div class="segmented preview-mode"><button data-mode="source" class="active" aria-pressed="true">Source</button><button data-mode="loop" aria-pressed="false" disabled>Loop preview</button></div>
+            <div class="segmented preview-mode"><button data-mode="source" class="active" aria-pressed="true">Source</button><button data-mode="composition" aria-pressed="false" hidden>Composition</button><button data-mode="loop" aria-pressed="false" disabled>Loop preview</button></div>
             <div class="playback-controls">
               <button class="icon-btn" data-action="previous-frame" aria-label="Previous frame"><span data-icon="SkipBack" data-size="20"></span></button>
               <button class="play-btn" data-action="play" aria-label="Play preview"><span data-icon="Play" data-size="23"></span></button>

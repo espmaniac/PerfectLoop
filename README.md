@@ -21,6 +21,7 @@ Video processing happens on your device; your source videos are never uploaded.
 - **Audio control** — mute playback independently, export without an audio track, or retain audio with smoothing options.
 - **Export options** — download MP4, WebM, or a GIF that loops forever or plays once. Adjust frame rate and dimensions for all formats; set quality, cycles in the file, and an approximate file-size target for video. Export selected loop candidates together as a ZIP.
 - **Included sample** — a repeating animation with audio loads automatically once when the page opens.
+- **Text and image layers** — add text or a local image in **Layers**, set its position, size, angle, and opacity, and reorder, hide, or duplicate it. Move either type left to right, right to left, top to bottom, or bottom to top while preserving its angle.
 
 ## Loop methods
 
@@ -46,6 +47,10 @@ Both ping-pong methods work with MP4, WebM, and GIF. GIF has no playback-directi
 5. Export the finished loop and review the downloaded file at full resolution.
 
 The **Source** preview keeps the original video's proportions. **Loop preview** shows the rendered output, including its framing, at a smaller resolution. Render again after changing settings.
+
+The **Layers** tab opens a live **Composition** draft with output framing. Each moving layer completes one pass per processed loop cycle and wraps across the frame edges. Direction follows the frame axes regardless of layer rotation. **Render preview** and exports include the same layers and motion; video repeats repeat the entire composed cycle, and GIF **Loop forever** repeats that cycle automatically.
+
+Images are read locally as PNG, JPEG, WebP, or GIF; animated images use their first frame. Layers and image assets remain in this page session and support Undo/Redo. Up to eight layers are supported.
 
 The displayed **Finished loop** duration includes the loop method, speed, overlap, and repeats. In/out points describe the source range; a dissolve shortens it, while ping-pong extends it.
 

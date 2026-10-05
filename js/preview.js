@@ -1,4 +1,5 @@
-import { clamp, download, timecode } from './logic.js';
+import { clamp, download, timecode, framePlan } from './logic.js';
+import { drawLayers } from './layers.js';
 import { $, icon } from './ui.js';
 import { alternateFormat } from './aspect.js';
 
@@ -30,11 +31,12 @@ export class Preview {
     this.source = $('#source-video'); this.output = $('#loop-video'); this.canvas = $('#preview-canvas');
     this.alternate = $('#alternate-canvas');
     this.muted = true; this.guides = false; this.dirtyFrame = true; this.lastFrame = ''; this.lastTick = 0; this.playing = null;
+    this.compositionTime = 0; this.compositionTick = null;
     this.source.addEventListener('pause', () => this.syncPlayButton());
     this.output.addEventListener('pause', () => this.syncPlayButton());
     this.source.addEventListener('ended', () => {
       const st = this.getState();
-      if (st.mode === 'source' && !st.job && st.s.end > st.s.start) {
+      if (st.mode !== 'loop' && !st.job && st.s.end > st.s.start) {
         this.source.currentTime = st.s.start;
         this.source.play().catch(() => {});
       }
@@ -62,11 +64,17 @@ export class Preview {
   }
   setMode(mode) {
     if (mode === 'loop' && !this.getState().renderURL) return;
+    const st = this.getState();
+    if (mode === 'composition' && st.mode !== mode) {
+      if (this.source.currentTime < st.s.start || this.source.currentTime >= st.s.end) this.source.currentTime = st.s.start;
+      this.compositionTime = Math.max(0, (this.source.currentTime - st.s.start) / st.s.speed);
+      this.compositionTick = null;
+    }
     this.pause(); this.onMode(mode); this.dirtyFrame = true;
   }
   refresh() {
     const st = this.getState();
-    const dims = st.mode === 'loop' && st.render ? st.render : st.info.width ? st.info : st.s;
+    const dims = st.mode === 'loop' && st.render ? st.render : st.mode === 'composition' ? st.s : st.info.width ? st.info : st.s;
     const ratio = dims.width / dims.height;
     const aspect = Number.isFinite(ratio) && ratio > 0 ? ratio : 9 / 16;
     const w = Math.max(1, Math.round(Math.min(960, 960 * aspect))), h = Math.max(1, Math.round(w / aspect));
@@ -95,7 +103,7 @@ export class Preview {
     if (st.job || !st.info.duration) return;
     if (!video.paused) video.pause();
     else {
-      if (st.mode === 'source' && (video.currentTime < st.s.start || video.currentTime >= st.s.end)) video.currentTime = st.s.start;
+      if (st.mode !== 'loop' && (video.currentTime < st.s.start || video.currentTime >= st.s.end)) video.currentTime = st.s.start;
       await video.play().catch(() => {});
     }
     this.syncPlayButton();
@@ -104,9 +112,11 @@ export class Preview {
     const st = this.getState(), video = this.active();
     if (st.job || !st.info.duration) return;
     video.pause();
-    const rate = st.mode === 'loop' ? st.render?.fps || st.s.fps : st.info.fps || 30;
-    video.currentTime = clamp(video.currentTime + direction / rate, st.mode === 'loop' ? 0 : st.s.start,
-      st.mode === 'loop' ? Math.max(0, video.duration - 1 / rate) : Math.max(st.s.start, st.s.end - 1 / rate));
+    const rate = st.mode === 'loop' ? st.render?.fps || st.s.fps : st.mode === 'composition' ? st.s.fps : st.info.fps || 30;
+    const delta = st.mode === 'composition' ? st.s.speed / rate : 1 / rate;
+    video.currentTime = clamp(video.currentTime + direction * delta, st.mode === 'loop' ? 0 : st.s.start,
+      st.mode === 'loop' ? Math.max(0, video.duration - delta) : Math.max(st.s.start, st.s.end - delta));
+    if (st.mode === 'composition') this.compositionTime = Math.max(0, this.compositionTime + direction / st.s.fps);
     this.syncPlayButton(); this.dirtyFrame = true;
   }
   seek(time, mode = 'source') {
@@ -114,6 +124,7 @@ export class Preview {
     const st = this.getState(), video = this.active();
     const duration = mode === 'loop' ? st.render?.duration || video.duration : st.info.duration;
     video.currentTime = clamp(time, 0, Math.max(0, duration - 0.001));
+    if (mode === 'composition') this.compositionTime = Math.max(0, (video.currentTime - st.s.start) / st.s.speed);
     this.dirtyFrame = true; this.onTime(video.currentTime, mode);
   }
   toggleMute() {
@@ -130,15 +141,25 @@ export class Preview {
   saveFrame() { this.canvas.toBlob(blob => { if (blob) download(blob, 'loop-preview-frame.png'); }, 'image/png'); }
   frame(now) {
     const st = this.getState(), video = this.active();
-    if (st.mode === 'source' && !video.paused && st.s.end > st.s.start && (video.currentTime >= st.s.end - 0.005 || video.currentTime < st.s.start - 0.05)) video.currentTime = st.s.start;
-    const key = `${st.mode}-${video.currentTime}-${video.readyState}`;
+    if (st.mode === 'composition') {
+      const period = framePlan(st.s).duration;
+      if (!video.paused && this.compositionTick !== null)
+        this.compositionTime = (this.compositionTime + Math.max(0, now - this.compositionTick) / 1000) % period;
+      this.compositionTick = now;
+    } else this.compositionTick = null;
+    if (st.mode !== 'loop' && !video.paused && st.s.end > st.s.start && (video.currentTime >= st.s.end - 0.005 || video.currentTime < st.s.start - 0.05)) video.currentTime = st.s.start;
+    const key = `${st.mode}-${video.currentTime}-${video.readyState}-${st.mode === 'composition' ? this.compositionTime : ''}`;
     if (this.dirtyFrame || key !== this.lastFrame) {
-      // Source displays the original frame; encoded output already contains framing.
-      if (drawFrame(this.canvas, video, st.s, true)) { this.lastFrame = key; this.dirtyFrame = false; }
+      // Composition uses live framing; encoded output already includes its layers.
+      if (drawFrame(this.canvas, video, st.s, st.mode !== 'composition')) {
+        if (st.mode === 'composition') drawLayers(this.canvas.getContext('2d'), st.s.layers || [], st.s,
+          this.compositionTime, framePlan(st.s).duration);
+        this.lastFrame = key; this.dirtyFrame = false;
+      }
     }
     if (now - this.lastTick > 100) {
-      const duration = st.mode === 'loop' ? st.render?.duration || video.duration || 0 : st.info.duration;
-      $('#transport-time').textContent = `${timecode(video.currentTime)} / ${timecode(duration)}`;
+      const duration = st.mode === 'loop' ? st.render?.duration || video.duration || 0 : st.mode === 'composition' ? framePlan(st.s).duration : st.info.duration;
+      $('#transport-time').textContent = `${timecode(st.mode === 'composition' ? this.compositionTime % duration : video.currentTime)} / ${timecode(duration)}`;
       drawFrame(this.alternate, this.source, { ...st.s, ...alternateFormat(st.s) }, false);
       this.lastTick = now; this.syncPlayButton();
     }

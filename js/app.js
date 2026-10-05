@@ -6,6 +6,8 @@ import { VideoEngine } from './engine.js';
 import { inspectSeam, openVideo, releaseVideo, searchVideo, thumbnails } from './media.js';
 import { Preview } from './preview.js';
 import { Timeline } from './timeline.js';
+import { createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, MAX_LAYERS } from './layers.js';
+import { LayerPanel } from './layer-panel.js';
 import { $, $$, decorateIcons, escapeHTML, icon, initializeFields } from './ui.js';
 
 // All application state is local to this page. No file is uploaded or persisted.
@@ -13,14 +15,14 @@ const emptyInfo = { name: '', duration: 0, width: 0, height: 0, fps: 0, hasAudio
 const state = {
   s: { ...DEFAULTS }, info: { ...emptyInfo }, file: null,
   sourceURL: '', renderURL: '', render: null, renderSignature: '', lastExport: null,
-  mode: 'source', tab: 'edit', playhead: 0, filmstrip: [],
+  mode: 'source', tab: 'edit', playhead: 0, filmstrip: [], activeLayerId: '',
   renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
   opts: { from: 0, to: 18, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true },
   candidates: [], selected: new Set(), seam: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
-let preview, timeline, sampleController, renderFilmstripController;
+let preview, timeline, layerPanel, sampleController, renderFilmstripController;
 const dirty = () => JSON.stringify(state.s) !== state.renderSignature;
 const busy = () => Boolean(state.job);
 
@@ -80,7 +82,7 @@ function syncDisabled() {
   $$('[data-action="mark-in"], [data-action="mark-out"], [data-action="zoom"]').forEach(button => {
     button.hidden = rendered; button.disabled = disabled || rendered;
   });
-  const invalid = !state.info.duration || validate(state.s, state.info).length > 0;
+  const invalid = !state.info.duration || validate(state.s, state.info).length > 0 || validateLayers(state.s.layers, state.s).length > 0;
   $('.render-btn').disabled = $('.export-btn').disabled = busy() || invalid;
   $('[data-mode="loop"]').disabled = !state.renderURL;
   $('[data-audio="strip"]').disabled = state.s.format === 'gif';
@@ -101,7 +103,7 @@ function refreshBindings() {
   $('[data-search="to"]').min = state.opts.from; $('[data-search="max"]').min = state.opts.min;
 }
 function refresh() {
-  const { s, info } = state, plan = framePlan(s), issues = info.duration ? validate(s, info) : ['Open a playable video to begin.'];
+  const { s, info } = state, plan = framePlan(s), issues = info.duration ? [...validate(s, info), ...validateLayers(s.layers, s)] : ['Open a playable video to begin.'];
   const isGif = s.format === 'gif';
   const rendered = state.mode === 'loop' && state.render;
   const timelineInfo = rendered || info;
@@ -117,8 +119,11 @@ function refresh() {
   $('#trim-fields').hidden = Boolean(rendered);
   $('#rendered-timeline-summary').hidden = !rendered;
   $$('[data-tab]').forEach(button => { const active = button.dataset.tab === state.tab; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
-  ['edit', 'find', 'inspect'].forEach(tab => { $(`#panel-${tab}`).hidden = tab !== state.tab; });
-  $('#tool-title').textContent = state.tab === 'find' ? 'Find loops' : state.tab === 'inspect' ? 'Inspect seam' : 'Loop method';
+  ['edit', 'find', 'inspect', 'layers'].forEach(tab => { $(`#panel-${tab}`).hidden = tab !== state.tab; });
+  $('#tool-title').textContent = state.tab === 'layers' ? 'Layers' : state.tab === 'find' ? 'Find loops' : state.tab === 'inspect' ? 'Inspect seam' : 'Loop method';
+  $('[data-mode="composition"]').hidden = state.tab !== 'layers';
+  if (!s.layers.some(layer => layer.id === state.activeLayerId)) state.activeLayerId = s.layers.at(-1)?.id || '';
+  layerPanel?.render();
   $$('[data-method]').forEach(button => { const active = button.dataset.method === s.method; button.classList.toggle('selected', active); button.setAttribute('aria-pressed', String(active)); });
   $('#method-detail').textContent = METHODS.find(method => method.id === s.method).detail;
   const blending = ['crossfade', 'offset'].includes(s.method);
@@ -155,7 +160,7 @@ function refresh() {
   $('#alternate-label').textContent = alternate.aspect;
   $('#alternate-dimensions').textContent = `${alternate.width} × ${alternate.height}`;
   $('[data-action="alternate"]').setAttribute('aria-label', `Use ${alternate.aspect} alternate output format`);
-  document.documentElement.style.setProperty('--source-aspect', String(state.mode === 'loop' && state.render ? state.render.width / state.render.height : info.width / info.height || 9 / 16));
+  document.documentElement.style.setProperty('--source-aspect', String(state.mode === 'loop' && state.render ? state.render.width / state.render.height : state.mode === 'composition' ? s.width / s.height : info.width / info.height || 9 / 16));
   $('#finished-duration').textContent = plan.totalDuration.toFixed(3);
   $('#output-meta').textContent = `${plan.totalFrames} frames · ${s.width} × ${s.height}`;
   $('#timeline-source-duration').textContent = (s.end - s.start).toFixed(3);
@@ -171,8 +176,8 @@ function refresh() {
   $('#download-result').hidden = !state.lastExport;
   if (state.lastExport) $('#download-meta').textContent = `${humanSize(state.lastExport.blob.size)} · ${state.lastExport.hasAudio ? 'With audio' : 'No audio track'}`;
   $$('[data-mode]').forEach(button => { const active = button.dataset.mode === state.mode; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
-  $('#preview-tag').textContent = state.mode === 'source' ? 'SOURCE RANGE' : dirty() ? 'LAST RENDER' : 'ENCODED LOOP';
-  $('#preview-foot-message').textContent = state.mode === 'source' ? 'Render to check the finished seam' : dirty() ? 'Settings changed. Render again.' : 'Playing the actual encoded loop';
+  $('#preview-tag').textContent = state.mode === 'composition' ? 'COMPOSITION DRAFT' : state.mode === 'source' ? 'SOURCE RANGE' : dirty() ? 'LAST RENDER' : 'ENCODED LOOP';
+  $('#preview-foot-message').textContent = state.mode === 'composition' ? 'Live layer draft. Render preview to check the finished loop.' : state.mode === 'source' ? 'Render to check the finished seam' : dirty() ? 'Settings changed. Render again.' : 'Playing the actual encoded loop';
   $('#inspection-mode').textContent = state.mode === 'loop' ? 'Rendered preview' : 'Selected source range';
   $('#timeline-fieldset').hidden = !info.duration;
   timeline?.render(); preview?.refresh();
@@ -269,7 +274,7 @@ function chooseCandidate(id) {
   if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
 }
 async function runRender(isPreview) {
-  if (!state.file || validate(state.s, state.info).length || !startJob(isPreview ? 'preview' : 'export', 'Preparing render…')) return;
+  if (!state.file || validate(state.s, state.info).length || validateLayers(state.s.layers, state.s).length || !startJob(isPreview ? 'preview' : 'export', 'Preparing render…')) return;
   preview.pause(); const settings = { ...state.s };
   try {
     const result = await engine.render(state.file, settings, state.info, progress(isPreview ? 'preview' : 'export'), isPreview);
@@ -343,9 +348,57 @@ function fitDuration() {
   const start = Math.max(0, Math.min(s.start, state.info.duration - duration)); update({ start, end: Math.min(state.info.duration, start + duration), repeats: 1 });
 }
 function mark(edge) {
-  if (busy() || state.mode !== 'source') return;
+  if (busy() || state.mode === 'loop') return;
   const time = preview.source.currentTime;
   update(edge === 'start' ? { start: Math.min(time, state.s.end - 0.1) } : { end: Math.max(time, state.s.start + 0.1) });
+}
+
+function editLayer(id, partial) {
+  const layer = state.s.layers.find(item => item.id === id);
+  if (!layer || busy() || Object.entries(partial).every(([key, value]) => layer[key] === value)) return;
+  update({ layers: state.s.layers.map(item => item.id === id ? { ...item, ...partial } : item) });
+  if (state.mode !== 'composition') preview.setMode('composition');
+}
+function addLayer(layer) {
+  if (busy()) return false;
+  const layers = [...state.s.layers, layer], issues = validateLayers(layers, state.s);
+  if (issues.length) { report(new Error(issues[0])); return false; }
+  state.activeLayerId = layer.id;
+  update({ layers });
+  preview.setMode('composition');
+  return true;
+}
+function layerAction(action, id) {
+  if (busy()) return;
+  const layers = state.s.layers, index = layers.findIndex(layer => layer.id === id), layer = layers[index];
+  if (!layer) return;
+  if (action === 'select') { state.activeLayerId = id; preview.setMode('composition'); return; }
+  if (action === 'toggle') { editLayer(id, { visible: !layer.visible }); return; }
+  if (action === 'duplicate') { addLayer(duplicateLayer(layer)); return; }
+  const next = [...layers];
+  if (action === 'delete') next.splice(index, 1);
+  else {
+    const target = index + (action === 'up' ? 1 : action === 'down' ? -1 : 0);
+    if (target === index || target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+  }
+  update({ layers: next });
+  preview.setMode('composition');
+}
+async function addImage(file) {
+  if (state.s.layers.length >= MAX_LAYERS) { report(new Error(`Use no more than ${MAX_LAYERS} layers.`)); return; }
+  if (!file || !startJob('image', 'Opening image…')) return;
+  const controller = state.controller;
+  let layer, added = false;
+  try {
+    layer = await importImageLayer(file, state.s);
+    if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    finishJob(); added = addLayer(layer);
+  } catch (error) { report(error); }
+  finally {
+    if (layer && !added) discardImportedImageLayer(layer);
+    if (state.job?.kind === 'image') finishJob();
+  }
 }
 
 initializeFields();
@@ -356,6 +409,10 @@ preview = new Preview(() => state, mode => { state.mode = mode; clearSeam(); ref
   timeline?.renderPlayhead(time);
 });
 timeline = new Timeline(() => state, update, time => { preview.seek(time, state.mode); }, remember);
+layerPanel = new LayerPanel(() => state, editLayer, layerAction);
+$('#layer-image-input').addEventListener('change', event => {
+  const file = event.target.files[0]; event.target.value = ''; void addImage(file);
+});
 
 // Event delegation keeps native inputs and pointer-captured trim handles stable.
 function changeField(event) {
@@ -382,6 +439,8 @@ document.addEventListener('focusout', event => { if (event.target.matches('[data
 $('#file-input').addEventListener('change', event => { const file = event.target.files[0]; if (file) void loadFile(file); event.target.value = ''; });
 
 const actions = {
+  'layer-add-text': () => addLayer(createTextLayer(state.s)),
+  'layer-add-image': () => $('#layer-image-input').click(),
   open: () => $('#file-input').click(), help: () => $('#help-dialog').showModal(), 'close-help': () => $('#help-dialog').close(),
   undo, redo, reset: () => update({ ...DEFAULTS, end: Math.min(state.info.duration || 6, 6) }),
   proxy: makeProxy, search: runSearch, render: () => runRender(true), export: () => runRender(false), inspect, batch: batchExport, cancel,
@@ -399,7 +458,10 @@ document.addEventListener('click', event => {
   else if (button.dataset.aspect) setAspect(button.dataset.aspect);
   else if (button.dataset.fit) update({ fit: button.dataset.fit });
   else if (button.dataset.tab) {
-    state.tab = button.dataset.tab; refresh();
+    state.tab = button.dataset.tab;
+    if (state.tab === 'layers') preview.setMode('composition');
+    else if (state.mode === 'composition') preview.setMode('source');
+    else refresh();
     if (matchMedia('(max-width: 739px)').matches) $('.controls-panel').scrollIntoView({ block: 'start' });
   }
   else if (button.dataset.mode) preview.setMode(button.dataset.mode);
@@ -422,10 +484,18 @@ document.addEventListener('keydown', event => {
 const app = $('#app');
 app.addEventListener('dragover', event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files') && !busy()) $('#drop-overlay').hidden = false; });
 app.addEventListener('dragleave', event => { if (!app.contains(event.relatedTarget)) $('#drop-overlay').hidden = true; });
-app.addEventListener('drop', event => { event.preventDefault(); $('#drop-overlay').hidden = true; if (!busy() && event.dataTransfer.files[0]) void loadFile(event.dataTransfer.files[0]); });
+app.addEventListener('drop', event => {
+  event.preventDefault(); $('#drop-overlay').hidden = true;
+  const file = event.dataTransfer.files[0];
+  if (busy() || !file) return;
+  if (/^image\//i.test(file.type) || /\.(png|jpe?g|webp|gif)$/i.test(file.name)) {
+    state.tab = 'layers'; refresh(); void addImage(file);
+  } else void loadFile(file);
+});
 window.addEventListener('beforeunload', () => {
   sampleController?.abort();
   renderFilmstripController?.abort();
+  clearLayerAssets();
   state.fileController?.abort(); state.controller?.abort(); engine.cancel(); preview.destroy();
   if (state.sourceURL) URL.revokeObjectURL(state.sourceURL); if (state.renderURL) URL.revokeObjectURL(state.renderURL);
 });
