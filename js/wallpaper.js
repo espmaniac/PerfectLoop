@@ -40,32 +40,45 @@ export function keyPhotoTime(duration, fps, percent = 50, frameCount = Math.floo
 }
 
 export function wallpaperInstructions({ kind, width, height, duration, stillTime }) {
-  return `PerfectLoop iPhone wallpaper files
+  return `PerfectLoop ${kind === 'live-photo' ? 'Live Photo' : 'iPhone wallpaper'} files
 
 Video: ${width} x ${height}, ${duration.toFixed(3)} seconds, silent H.264.
 Key photo: ${stillTime.toFixed(3)} seconds in the finished video.
 
-MP4 conversion (recommended for wallpaper installation)
-1. Transfer wallpaper.mp4 to your iPhone using Files, cloud storage, or AirDrop.
-2. Open it in an iOS converter that supports Live Photo wallpapers for your iOS version.
-3. Save the converted Live Photo to Photos.
-4. In Settings > Wallpaper > Add New Wallpaper > Photos, choose that Live Photo.
-5. Check that motion is available before setting it as your Lock Screen.
+Created on the PerfectLoop website
+The Live Photo is generated entirely in your browser, including its photo/video
+pairing and key-photo metadata. No third-party converter is part of this workflow.
+Saving that result as one asset in Apple Photos is a separate system import step.
 
-Static wallpaper
-Save wallpaper.jpg to Photos and use it as a still Lock Screen or Home Screen wallpaper.
+Experimental Live Photo import
+The live-photo.pvt package contains a matching photo.jpg and photo.mov, plus the
+package metadata.plist. Its identifiers and timed key-photo marker are already paired.
 
-${kind === 'kit' || kind === 'pair' ? `Experimental Live Photo pair
-The live-photo folder contains a matching photo.jpg and photo.mov. Their identifiers
-and timed key-photo marker are paired; the MOV contains real QuickTime metadata.
-On a Mac, import BOTH files together into Photos. Verify they appear as ONE Live Photo
-and that motion plays. Sync that Photos asset with iCloud Photos, or share the asset
-from Photos to the iPhone with AirDrop. Merely copying a ZIP to Files does not import
-a Live Photo. Windows/Linux users can use the MP4 conversion path instead.
+Try direct import on iPhone or iPad
+1. Save the ZIP to Files, including when transferring it from Windows or Linux.
+2. Touch and hold the ZIP and choose Uncompress.
+3. Open live-photo.pvt. If the system offers Save to Photos, use that action.
+4. Confirm that Photos shows ONE Live Photo and that its motion plays.
+The Files action depends on the device and iOS version; it may not be offered.
+This direct import route has not been verified on a physical iPhone by PerfectLoop.
+Merely copying a ZIP to Files does not import a Live Photo.
 
-Modern iOS may accept a Live Photo in Photos and still report Motion Not Available
-for wallpaper. The additional wallpaper eligibility rules are not reproduced by this
-export. Use a compatible iOS converter if motion is unavailable.
+Built-in Photos import on a Mac
+Unzip and import live-photo.pvt into Photos. If the package is not recognized, open
+its contents and import BOTH files, photo.jpg and photo.mov, together into Photos.
+Verify they appear as ONE Live Photo and that motion plays. Sync that Photos asset
+with iCloud Photos, or share the asset from Photos to the iPhone with AirDrop.
+
+Lock Screen wallpaper
+In Settings > Wallpaper > Add New Wallpaper > Photos, choose the imported Live Photo.
+Check that motion is available before setting it as your Lock Screen. Modern iOS may
+accept a Live Photo in Photos and still report Motion Not Available for wallpaper.
+Pairing and native packaging do not establish wallpaper eligibility; that must be
+verified on the target iPhone. PerfectLoop does not reproduce camera sensor metadata.
+
+${kind === 'kit' ? `Other files in this kit
+wallpaper.mp4 is the regular finished video.
+wallpaper.jpg is the selected plain still. Save it to Photos for a static wallpaper.
 
 ` : ''}The phone frame, clock, and app icons in PerfectLoop are approximate preview overlays.
 They are excluded from every exported file. Home Screen wallpaper is static; iOS
@@ -74,6 +87,7 @@ controls Lock Screen motion and does not play an endless wallpaper video.
 Format and import references:
 https://github.com/LimitPoint/LivePhoto
 https://github.com/RhetTbull/makelive
+https://github.com/Hronrad/livephoto-forge
 https://github.com/LimitPoint/LivePhoto/issues/10
 `;
 }

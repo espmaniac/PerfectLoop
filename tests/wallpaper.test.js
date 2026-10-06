@@ -17,6 +17,20 @@ try {
 const run = args => execFileSync('ffmpeg', ['-v', 'error', '-y', '-threads', '1', '-filter_threads', '1', ...args], { maxBuffer: 4 * 1024 ** 2 });
 const probe = (path, args = ['-show_streams', '-show_format']) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', ...args, '-of', 'json', path], { maxBuffer: 4 * 1024 ** 2 }));
 const blob = path => new Blob([readFileSync(path)]);
+const zipDirectoryAttributes = bytes => {
+    const end = bytes.length - 22;
+    assert.equal(bytes.readUInt32LE(end), 0x06054b50);
+    const entries = new Map();
+    let position = bytes.readUInt32LE(end + 16);
+    for (let count = bytes.readUInt16LE(end + 10); count > 0; count--) {
+        assert.equal(bytes.readUInt32LE(position), 0x02014b50);
+        const nameLength = bytes.readUInt16LE(position + 28);
+        const name = bytes.toString('utf8', position + 46, position + 46 + nameLength);
+        entries.set(name, { os: bytes[position + 5], attrs: bytes.readUInt32LE(position + 38) });
+        position += 46 + nameLength + bytes.readUInt16LE(position + 30) + bytes.readUInt16LE(position + 32);
+    }
+    return entries;
+};
 
 test('Wallpaper ranges produce a three-second cycle for every method, speed, and overlap size', () => {
     for (const method of METHODS.map(item => item.id)) {
@@ -96,44 +110,67 @@ test('The first, middle, and final key photos select actual frames before the ex
     }
 });
 
-test('Wallpaper ZIP contains a paired Live Photo, intact conversion files, and truthful import instructions', { skip: !native }, async t => {
+test('Live Photo and wallpaper ZIPs contain a native PVT bundle with matching metadata and intact media', { skip: !native }, async t => {
     const dir = mkdtempSync(join(tmpdir(), 'perfectloop-wallpaper-kit-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     const mp4 = join(dir, 'source.mp4'), mov = join(dir, 'source.mov'), jpg = join(dir, 'source.jpg');
     run(['-f', 'lavfi', '-i', 'testsrc2=s=96x144:r=30:d=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-an', mp4]);
     run(['-i', mp4, '-map', '0:v:0', '-c:v', 'copy', '-an', '-map_metadata', '-1', mov]);
     run(['-ss', '1.5', '-i', mp4, '-frames:v', '1', '-q:v', '2', jpg]);
-    const result = { blob: blob(mp4), name: 'flowers-loop.mp4', width: 96, height: 144, duration: 3, fps: 30,
-        hasAudio: false, wallpaper: { jpeg: blob(jpg), mov: blob(mov), stillTime: 1.5 } };
-    const output = await wallpaperDownload(result, 'kit');
-    assert.equal(output.name, 'flowers-wallpaper-kit.zip');
-    assert.equal(output.blob.type, 'application/zip');
-    const archive = join(dir, 'kit.zip');
-    writeFileSync(archive, new Uint8Array(await output.blob.arrayBuffer()));
-    const names = execFileSync('unzip', ['-Z1', archive]).toString().trim().split('\n').sort();
-    assert.deepEqual(names, ['README.txt', 'live-photo/photo.jpg', 'live-photo/photo.mov', 'wallpaper-info.json', 'wallpaper.jpg', 'wallpaper.mp4']);
-    const extracted = join(dir, 'kit');
-    execFileSync('unzip', ['-q', archive, '-d', extracted]);
-    assert.deepEqual(readFileSync(join(extracted, 'wallpaper.mp4')), readFileSync(mp4));
-    assert.deepEqual(readFileSync(join(extracted, 'wallpaper.jpg')), readFileSync(jpg));
-    const info = JSON.parse(readFileSync(join(extracted, 'wallpaper-info.json'), 'utf8'));
-    assert.equal(info.livePhotoImport, 'experimental');
-    assert.match(info.wallpaperEligibility, /verification.*iPhone/);
-    assert.equal(info.keyPhotoTime, 1.5);
-    const pairMov = join(extracted, 'live-photo/photo.mov'), pairJpg = join(extracted, 'live-photo/photo.jpg');
-    const media = probe(pairMov);
-    assert.equal(media.format.tags['com.apple.quicktime.content.identifier'], info.assetIdentifier);
-    assert.ok(readFileSync(pairJpg).includes(Buffer.from(info.assetIdentifier)), 'The paired JPEG contains the same identifier');
-    assert.equal(media.streams.find(stream => stream.codec_tag_string === 'mebx').start_time, '1.500000');
-    assert.equal(media.streams.find(stream => stream.codec_type === 'video').codec_name, 'h264');
-    assert.equal(media.streams.some(stream => stream.codec_type === 'audio'), false);
     const decoded = path => run(['-i', path, '-map', '0:v:0', '-f', 'md5', 'pipe:1']).toString();
-    assert.equal(decoded(pairMov), decoded(mp4));
-    assert.equal(decoded(pairJpg), decoded(jpg));
-    const instructions = readFileSync(join(extracted, 'README.txt'), 'utf8');
-    for (const phrase of ['Experimental Live Photo pair', 'import BOTH files', 'ONE Live Photo', 'Motion Not Available',
-        'Merely copying a ZIP to Files does not import', 'Home Screen wallpaper is static', 'excluded from every exported file'])
-        assert.ok(instructions.includes(phrase), phrase);
+    class TrackedBlob extends Blob {
+        reads = 0;
+        async arrayBuffer() { this.reads++; return super.arrayBuffer(); }
+    }
+    for (const kind of ['live-photo', 'kit']) {
+        const jpeg = new TrackedBlob([readFileSync(jpg)]), video = new TrackedBlob([readFileSync(mp4)]);
+        const result = { blob: video, name: 'flowers-loop.mp4', width: 96, height: 144, duration: 3, fps: 30,
+            hasAudio: false, wallpaper: { jpeg, mov: blob(mov), stillTime: 1.5 } };
+        const output = await wallpaperDownload(result, kind);
+        assert.equal(output.name, kind === 'live-photo' ? 'flowers-live-photo.pvt.zip' : 'flowers-wallpaper-kit.zip');
+        assert.equal(output.blob.type, 'application/zip');
+        assert.equal(video.reads, kind === 'kit' ? 1 : 0, 'The compact Live Photo does not read the MP4 fallback');
+        assert.equal(jpeg.reads, kind === 'kit' ? 2 : 1, 'The compact Live Photo only reads the JPEG for pairing');
+        const archive = join(dir, `${kind}.zip`);
+        writeFileSync(archive, new Uint8Array(await output.blob.arrayBuffer()));
+        const names = execFileSync('unzip', ['-Z1', archive]).toString().trim().split('\n').sort();
+        const expected = ['live-photo.pvt/', 'live-photo.pvt/metadata.plist',
+            'live-photo.pvt/photo.jpg', 'live-photo.pvt/photo.mov'];
+        if (kind === 'kit') expected.push('README.txt', 'wallpaper-info.json', 'wallpaper.jpg', 'wallpaper.mp4');
+        assert.deepEqual(names, expected.sort(), 'The archive includes an explicit PVT directory entry');
+        const attributes = zipDirectoryAttributes(readFileSync(archive));
+        assert.deepEqual(attributes.get('live-photo.pvt/'), { os: 0, attrs: 16 }, 'The bundle has a DOS directory attribute');
+        const extracted = join(dir, kind);
+        execFileSync('unzip', ['-q', archive, '-d', extracted]);
+        if (kind === 'kit') {
+            assert.deepEqual(readFileSync(join(extracted, 'wallpaper.mp4')), readFileSync(mp4));
+            assert.deepEqual(readFileSync(join(extracted, 'wallpaper.jpg')), readFileSync(jpg));
+        }
+        const plist = readFileSync(join(extracted, 'live-photo.pvt/metadata.plist'), 'utf8');
+        assert.match(plist, /<plist version="1\.0">\s*<dict>/);
+        assert.match(plist, /<key>PFVideoComplementMetadataVersionKey<\/key>\s*<string>1<\/string>/,
+            'The native PVT metadata version is a string');
+        const pairMov = join(extracted, 'live-photo.pvt/photo.mov'), pairJpg = join(extracted, 'live-photo.pvt/photo.jpg');
+        const media = probe(pairMov);
+        const identifier = media.format.tags['com.apple.quicktime.content.identifier'];
+        assert.match(identifier, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+        assert.ok(readFileSync(pairJpg).includes(Buffer.from(identifier)), 'The paired JPEG contains the same identifier');
+        assert.equal(media.streams.find(stream => stream.codec_tag_string === 'mebx').start_time, '1.500000');
+        assert.equal(media.streams.find(stream => stream.codec_type === 'video').codec_name, 'h264');
+        assert.equal(media.streams.some(stream => stream.codec_type === 'audio'), false);
+        assert.equal(decoded(pairMov), decoded(mp4));
+        assert.equal(decoded(pairJpg), decoded(jpg));
+        if (kind === 'kit') {
+            const info = JSON.parse(readFileSync(join(extracted, 'wallpaper-info.json'), 'utf8'));
+            assert.equal(info.assetIdentifier, identifier);
+            assert.equal(info.livePhotoImport, 'experimental');
+            assert.match(info.wallpaperEligibility, /verification.*iPhone/);
+            assert.equal(info.keyPhotoTime, 1.5);
+            const instructions = readFileSync(join(extracted, 'README.txt'), 'utf8');
+            for (const phrase of ['Live Photo', 'Motion Not Available', 'Home Screen wallpaper is static', 'excluded from every exported file'])
+                assert.ok(instructions.includes(phrase), phrase);
+        }
+    }
 });
 
 test('Video and image downloads retain their original bytes and use the correct filename and MIME type', async () => {
@@ -149,22 +186,25 @@ test('Video and image downloads retain their original bytes and use the correct 
     assert.equal(image.name, 'flowers-wallpaper.jpg');
     assert.equal(image.hasAudio, false);
     await assert.rejects(wallpaperDownload(result, 'unknown'), /download format/);
-    await assert.rejects(wallpaperDownload({ ...result, wallpaper: undefined }, 'kit'), /not ready/);
+    for (const kind of ['live-photo', 'kit'])
+        await assert.rejects(wallpaperDownload({ ...result, wallpaper: undefined }, kind), /not ready/);
 });
 
-test('Cancelling a wallpaper package rejects before packaging and after asynchronous image reads', async () => {
-    const before = new AbortController();
-    before.abort();
-    await assert.rejects(wallpaperDownload({ name: 'unused.mp4' }, 'kit', before.signal), { name: 'AbortError' });
-    const during = new AbortController();
-    // A minimal structurally readable JPEG lets the asynchronous pairing read
-    // complete while cancellation arrives, before any archive is returned.
-    const bytes = new Uint8Array([255, 216, 255, 218, 0, 2, 1, 255, 217]);
-    class CancelDuringRead extends Blob {
-        async arrayBuffer() { const value = await super.arrayBuffer(); during.abort(); return value; }
+test('Cancelling either wallpaper package rejects before packaging and after asynchronous image reads', async () => {
+    for (const kind of ['live-photo', 'kit']) {
+        const before = new AbortController();
+        before.abort();
+        await assert.rejects(wallpaperDownload({ name: 'unused.mp4' }, kind, before.signal), { name: 'AbortError' });
+        const during = new AbortController();
+        // A minimal structurally readable JPEG lets the asynchronous pairing read
+        // complete while cancellation arrives, before any archive is returned.
+        const bytes = new Uint8Array([255, 216, 255, 218, 0, 2, 1, 255, 217]);
+        class CancelDuringRead extends Blob {
+            async arrayBuffer() { const value = await super.arrayBuffer(); during.abort(); return value; }
+        }
+        const result = { name: 'cancel-loop.mp4', blob: new Blob([]), width: 96, height: 144, duration: 3, fps: 30,
+            wallpaper: { jpeg: new CancelDuringRead([bytes], { type: 'image/jpeg' }), mov: new Blob([]), stillTime: 1.5 } };
+        await assert.rejects(wallpaperDownload(result, kind, during.signal), { name: 'AbortError' });
+        assert.equal(result.blob.size, 0, 'The original result is not replaced by a partial package');
     }
-    const result = { name: 'cancel-loop.mp4', blob: new Blob([]), width: 96, height: 144, duration: 3, fps: 30,
-        wallpaper: { jpeg: new CancelDuringRead([bytes], { type: 'image/jpeg' }), mov: new Blob([]), stillTime: 1.5 } };
-    await assert.rejects(wallpaperDownload(result, 'kit', during.signal), { name: 'AbortError' });
-    assert.equal(result.blob.size, 0, 'The original result is not replaced by a partial package');
 });

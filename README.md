@@ -22,7 +22,7 @@ Media processing happens on your device; your source videos and photos are never
 - **Export options** — download MP4, WebM, or a GIF that loops forever or plays once. Adjust frame rate and dimensions for all formats; set quality, cycles in the file, and an approximate file-size target for video. Export selected loop candidates together as a ZIP.
 - **Included sample** — a repeating animation with audio loads automatically once when the page opens.
 - **Text and image layers** — add text or a local image in **Layers**, set its position, size, angle, and opacity, and reorder, hide, or duplicate it. Move either type left to right, right to left, top to bottom, or bottom to top while preserving its angle.
-- **iPhone wallpaper preparation** — open a video or photo, preview approximate Lock Screen and Home Screen layouts, choose a key photo, and download a silent MP4, still JPG, or wallpaper kit with an experimental paired Live Photo and installation instructions.
+- **iPhone wallpaper preparation** — open a video or photo, preview approximate Lock Screen and Home Screen layouts, choose a key photo, and create a paired Live Photo entirely in the browser. Download its native package, a still JPG, regular MP4, or full wallpaper kit with Photos import instructions.
 
 ## Loop methods
 
@@ -90,9 +90,11 @@ Select **iPhone wallpaper** in **Destination preset**. Choose a phone size or en
 
 Use **Lock Screen** to preview the motion behind approximate clock and phone controls. **Home Screen** shows a still image behind approximate app icons. Select **Render preview** to see the processed video, then use **Key photo** to choose its still frame. Phone frames, clocks, and icons are preview overlays and never appear in downloaded media.
 
-Choose **MP4 for an iOS converter**, **Still wallpaper · JPG**, or **Wallpaper kit · ZIP**. The kit includes both, a matching JPEG/MOV Live Photo pair, and transfer instructions. On a Mac, import the paired files together into Photos and verify one Live Photo before syncing with iCloud Photos or sharing that asset from Photos via AirDrop. On Windows/Linux, transfer the MP4 to a compatible iOS converter instead.
+**Live Photo · ZIP** is the default download. PerfectLoop creates the paired JPEG/MOV, key-photo metadata, and native `.pvt` package on this site, without a third-party converter. Creation and download work in a compatible browser on a phone or computer; saving the finished result into Apple Photos is a separate system import step.
 
-The pair is experimental: correct pairing metadata does not guarantee modern iOS will animate it as Lock Screen wallpaper. A compatible iOS converter may still be needed, and the finished asset must be checked on the target iPhone. Home Screen wallpaper stays still; iOS controls Lock Screen motion. Three seconds is a practical starting point, not an enforced universal iOS duration limit. See [format details, transfer steps, and research sources](./docs/iphone-wallpapers.md).
+On iPhone/iPad, try saving the ZIP to Files, choosing **Uncompress**, opening `live-photo.pvt`, and using **Save to Photos** if the system offers it. This action depends on iOS and is not guaranteed. On a Mac, import the package or its paired files together into the built-in Photos app, verify one Live Photo, then sync with iCloud Photos or share that asset from Photos via AirDrop. The full kit also includes an ordinary MP4 and still JPG.
+
+Import and wallpaper eligibility are experimental: native package support does not guarantee an import action is available in Files, and correct pairing metadata does not guarantee modern iOS will animate the result as Lock Screen wallpaper. These steps have not been verified on a physical iPhone by PerfectLoop. Home Screen wallpaper stays still; iOS controls Lock Screen motion. Three seconds is a practical starting point, not an enforced universal iOS duration limit. See [format details, import steps, and research sources](./docs/iphone-wallpapers.md).
 
 ## Browser and processing notes
 
