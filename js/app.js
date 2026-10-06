@@ -759,7 +759,10 @@ preview = new Preview(() => state, mode => { state.mode = mode; if (mode === 'so
     if (key !== wallpaperDraftFrame) { wallpaperDraftFrame = key; wallpaperPreview?.captureStill(); }
   }
 });
-timeline = new Timeline(() => state, updateActiveRange, time => { preview.seek(time, state.mode); }, remember);
+timeline = new Timeline(() => state, updateActiveRange, time => {
+  state.wallpaperScreen = 'editor';
+  preview.seek(time, state.mode === 'loop' ? 'loop' : state.tab === 'find' ? 'source' : state.mode);
+}, remember);
 layerPanel = new LayerPanel(() => state, editLayer, layerAction);
 wallpaperPreview = new WallpaperPreview($('#wallpaper-screen-controls'), $('#preview-stage'), setWallpaperScreen);
 $('#wallpaper-photo-input').addEventListener('change', event => {
@@ -783,8 +786,15 @@ function changeField(event) {
   if (input.type === 'number' && input.value === '') return;
   const value = input.type === 'checkbox' ? input.checked : input.hasAttribute('data-number') ? Number(input.value) : input.value;
   if (typeof value === 'number' && !Number.isFinite(value)) return;
-  if (input.dataset.search) updateSearch({ [input.dataset.search]: value });
-  else if (['start', 'end'].includes(input.dataset.setting)) updateActiveRange({ [input.dataset.setting]: value });
+  if (input.dataset.search) {
+    updateSearch({ [input.dataset.search]: value });
+    if (['from', 'to'].includes(input.dataset.search)) timeline.previewEdge(input.dataset.search === 'from' ? 'start' : 'end');
+  }
+  else if (['start', 'end'].includes(input.dataset.setting)) {
+    if (state.mode === 'loop') preview.setMode('source');
+    updateActiveRange({ [input.dataset.setting]: value });
+    timeline.previewEdge(input.dataset.setting);
+  }
   else if (input.dataset.setting === 'preset') setPreset(value);
   else if (input.dataset.setting === 'wallpaperDevice') {
     const profile = phoneProfile({ ...state.s, wallpaperDevice: value });

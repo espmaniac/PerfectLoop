@@ -128,6 +128,41 @@ test('Seeking on the Loop timeline uses output coordinates and clamps to the ren
     assert.deepEqual(f.updates, []);
 });
 
+test('Dragging the timeline continuously seeks source and rendered frames, then releases the gesture', t => {
+    const f = fixture(t), ruler = f.elements.get('#filmstrip');
+    for (const mode of ['source', 'loop']) {
+        f.state.mode = mode;
+        const duration = mode === 'loop' ? f.state.render.duration : f.state.info.duration;
+        ruler.dispatch('pointerdown', { pointerId: 9, clientX: 100 });
+        ruler.dispatch('pointermove', { pointerId: 9, clientX: 300 });
+        ruler.dispatch('pointermove', { pointerId: 9, clientX: 500 });
+        assert.deepEqual(f.seeks.slice(-3), [0, duration / 2, duration]);
+        ruler.dispatch('pointerup', { pointerId: 9 });
+        const count = f.seeks.length;
+        ruler.dispatch('pointermove', { pointerId: 9, clientX: 200 });
+        assert.equal(f.seeks.length, count);
+    }
+    assert.deepEqual(f.updates, [], 'scrubbing never changes trim settings');
+});
+
+test('Trim and search handles preview their updated start and final included end frame', t => {
+    const f = fixture(t);
+    for (const tab of ['edit', 'find']) {
+        f.state.tab = tab;
+        for (const handle of f.handles) {
+            const edge = handle.dataset.edge;
+            f.timeline.drag({ preventDefault() {}, stopPropagation() {}, pointerId: 10 }, handle);
+            handle.dispatch('pointermove', { pointerId: 10, clientX: edge === 'start' ? 200 : 450 });
+            const range = f.timeline.selection();
+            near(f.seeks.at(-1), edge === 'start' ? range.start : range.end - 0.001);
+            handle.dispatch('pointerup', { pointerId: 10 });
+        }
+    }
+    f.state.tab = 'edit'; f.state.s.start = 0; f.state.s.end = 1.01;
+    f.timeline.previewEdge('end');
+    near(f.seeks.at(-1), 1.009, 'a partial final frame must remain visible');
+});
+
 test('Loop preview cannot edit source trims or change the saved source zoom', t => {
     const f = fixture(t);
     f.timeline.toggleZoom();

@@ -8,9 +8,7 @@ export class Timeline {
     this.ruler.addEventListener('pointerdown', e => {
       const edge = e.target.closest('[data-edge]');
       if (edge) { this.drag(e, edge); return; }
-      const st = getState(); if (st.job || !(this.isRendered() ? st.render.duration : st.info.duration)) return;
-      const { from, span } = this.window(), box = this.ruler.getBoundingClientRect();
-      this.seek(from + clamp((e.clientX - box.left) / box.width, 0, 1) * span);
+      this.scrub(e);
     });
     $$('[data-edge]').forEach(button => button.addEventListener('keydown', e => {
       if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
@@ -18,6 +16,7 @@ export class Timeline {
       const edge = button.dataset.edge, delta = (e.key === 'ArrowRight' ? 1 : -1) / (st.info.fps || 30);
       const range = this.selection(), minimum = this.isSearch() ? 1 / (st.info.fps || 30) : 0.1;
       update(edge === 'start' ? { start: clamp(range.start + delta, 0, Math.max(0, range.end - minimum)) } : { end: clamp(range.end + delta, Math.min(st.info.duration, range.start + minimum), st.info.duration) });
+      this.previewEdge(edge);
     }));
   }
   isRendered() {
@@ -95,11 +94,48 @@ export class Timeline {
     button.setAttribute('aria-label', this.zoom ? 'Show full timeline' : 'Zoom to selection');
     button.innerHTML = icon(this.zoom ? 'ZoomOut' : 'ZoomIn', 17); this.render();
   }
+  previewEdge(edge) {
+    const range = this.selection();
+    // The decoder selects the final included frame, even for a partial frame
+    // interval or a source whose frame cadence is not yet known.
+    this.seek(edge === 'end' ? Math.max(range.start, range.end - 0.001) : range.start);
+  }
+  scrub(event) {
+    const st = this.getState();
+    if (st.job || !(this.isRendered() ? st.render.duration : st.info.duration)) return;
+    event.preventDefault();
+    this.finishScrub?.();
+    const window = this.window();
+    const seek = e => {
+      const box = this.ruler.getBoundingClientRect();
+      this.seek(window.from + clamp((e.clientX - box.left) / box.width, 0, 1) * window.span);
+    };
+    seek(event);
+    const current = this.getState(), mode = current.mode, tab = current.tab, file = current.file, render = current.render;
+    const move = e => {
+      const next = this.getState();
+      if (next.job || next.mode !== mode || next.tab !== tab || next.file !== file || next.render !== render) { finish(); return; }
+      seek(e);
+    };
+    const finish = () => {
+      this.ruler.removeEventListener('pointermove', move);
+      for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) this.ruler.removeEventListener(name, finish);
+      this.finishScrub = null;
+      if (this.ruler.hasPointerCapture?.(event.pointerId)) this.ruler.releasePointerCapture(event.pointerId);
+    };
+    this.finishScrub = finish;
+    this.ruler.setPointerCapture(event.pointerId);
+    this.ruler.addEventListener('pointermove', move);
+    for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) this.ruler.addEventListener(name, finish, { once: true });
+  }
   drag(event, button) {
-    event.preventDefault(); event.stopPropagation(); const st = this.getState();
+    event.preventDefault(); event.stopPropagation(); let st = this.getState();
     if (st.job || this.isRendered() || !st.info.duration) return;
     const edge = button.dataset.edge;
     if (this.dragging) this.finishDrag(false);
+    this.finishScrub?.();
+    this.previewEdge(edge);
+    st = this.getState();
     const window = this.window();
     this.dragging = { window, mode: st.mode, tab: st.tab, file: st.file, duration: st.info.duration };
     button.setPointerCapture(event.pointerId); this.remember();
@@ -110,6 +146,7 @@ export class Timeline {
       const time = Math.round((from + clamp((e.clientX - box.left) / box.width, 0, 1) * span) * rate) / rate;
       const range = this.selection(), minimum = this.isSearch() ? 1 / rate : 3 / current.s.fps * current.s.speed;
       this.update(edge === 'start' ? { start: clamp(time, 0, Math.max(0, range.end - minimum)) } : { end: clamp(time, Math.min(current.info.duration, range.start + minimum), current.info.duration) }, false);
+      this.previewEdge(edge);
     };
     const finish = (refresh = true) => {
       button.removeEventListener('pointermove', move); button.removeEventListener('pointerup', finish); button.removeEventListener('pointercancel', finish); button.removeEventListener('lostpointercapture', finish);
