@@ -58,6 +58,11 @@ export function validate(s, info) {
         if (s.format !== 'mp4')
             issues.push('Use MP4 for Spotify Canvas.');
     }
+    if (s.preset === 'iphone') {
+        if (s.format !== 'mp4') issues.push('Use MP4 for iPhone wallpaper preparation.');
+        if (s.audio !== 'strip' || s.repeats !== 1) issues.push('iPhone wallpaper preparation uses one silent cycle.');
+        if (!Number.isFinite(s.wallpaperPoster) || s.wallpaperPoster < 0 || s.wallpaperPoster > 100) issues.push('Choose a key photo position between 0% and 100%.');
+    }
     if ((s.method === 'pingpong' || s.method === 'smooth-pingpong') && p.frames * s.width * s.height * 1.5 > 900 * 1024 ** 2)
         issues.push('Ping-pong would use too much memory. Shorten the range or lower the resolution/frame rate.');
     return [...new Set(issues)];

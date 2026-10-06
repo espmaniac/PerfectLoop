@@ -96,11 +96,12 @@
       </div>
       <div class="header-hint" data-tone="tip" role="status" aria-live="polite" aria-atomic="true"><span data-icon="Info" data-size="16" aria-hidden="true"></span><span id="header-hint">Open a video to choose a range and build a loop.</span></div>
       <div class="header-actions">
-        <button class="btn secondary" data-action="open" aria-label="Open video"><span data-icon="FolderOpen" data-size="19"></span><span class="open-label">Open video</span></button>
+        <button class="btn secondary" data-action="open" aria-label="Open video or photo"><span data-icon="FolderOpen" data-size="19"></span><span class="open-label">Open media</span></button>
         <button class="btn secondary render-btn" data-action="render" title="Render the finished loop preview" disabled><span data-icon="Play" data-size="17"></span><span id="render-label">Render preview</span></button>
       </div>
     </header>
-    <input id="file-input" class="sr-only" type="file" accept="video/*,.mkv,.mov,.avi,.m4v,.webm,.mp4" aria-label="Choose source video">
+    <input id="file-input" class="sr-only" type="file" accept="video/*,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp,.mkv,.mov,.avi,.m4v,.webm,.mp4" aria-label="Choose source video or photo">
+    <input id="wallpaper-photo-input" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" aria-label="Choose wallpaper photo">
     <main>
       <h1 class="sr-only">Video loop editor</h1>
       <div class="alert error" id="proxy-alert" role="alert" hidden><div><b>Compatible preview needed</b><p id="proxy-message"></p></div><button class="btn secondary" data-action="proxy">Create proxy</button></div>
@@ -160,6 +161,7 @@
               <button role="tab" id="tab-layers" data-tab="layers" aria-controls="panel-layers" aria-selected="false"><span data-icon="Layers" data-size="18"></span>Layers</button>
             </div>
           </div>
+          <div id="wallpaper-screen-controls" hidden></div>
           <div class="preview-stage" id="preview-stage">
             <span class="preview-tag" id="preview-tag">SOURCE RANGE</span>
             <canvas id="preview-canvas" aria-label="Video frame preview"></canvas>
@@ -208,7 +210,16 @@
         </fieldset>
         <aside class="export-panel panel" aria-label="Video settings">
           <div class="export-title"><h2 class="panel-title">Video settings</h2><span class="format-badge" id="format-badge">MP4</span></div>
+          <div class="wallpaper-destination"><div id="preset-field"></div><p class="preset-hint" id="preset-hint"></p></div>
           <fieldset data-disable>
+            <div class="wallpaper-settings" id="wallpaper-settings" hidden>
+              <div id="wallpaper-device-field"></div>
+              <div class="wallpaper-photo-actions"><button class="btn secondary" data-action="open-photo"><span data-icon="ImagePlus" data-size="16"></span>Open photo</button><p class="micro">Turn a JPEG, PNG, or WebP photo into a gentle motion loop. You can add text and images in Layers.</p></div>
+              <label class="range-field"><span>Key photo <b id="wallpaper-key-time">1.500s</b></span><input type="range" min="0" max="100" step="1" data-setting="wallpaperPoster" data-number aria-label="Key photo position"></label>
+              <div id="wallpaper-download-field"></div>
+              <div class="wallpaper-duration-note"><p class="micro" id="wallpaper-range-note"></p><button class="text-btn" data-action="fit-duration">Fit to a 3-second cycle</button></div>
+              <details class="disclosure wallpaper-install-guide"><summary>Transfer &amp; install on iPhone</summary><div class="disclosure-content micro"><p>iPhone uses a Live Photo for Lock Screen motion. A downloaded video or ZIP must first be imported or converted in Photos.</p><p><b>MP4:</b> transfer the video to your iPhone and use a converter that supports Live Photo wallpapers for your iOS version.</p><p><b>Wallpaper kit:</b> unzip on your computer. On a Mac, import both files in <b>live-photo</b> together into Photos, verify one Live Photo, then sync with iCloud Photos or share that asset from Photos via AirDrop. Windows/Linux users can transfer the included MP4 for conversion instead.</p><p>The paired files are experimental: modern iOS can accept a Live Photo and still report <b>Motion Not Available</b> for wallpaper. A compatible converter may be needed. The kit includes installation instructions and the MP4 fallback.</p><p>Home Screen wallpaper stays still. The phone frame, clock, and icons are preview overlays and are excluded from downloads.</p></div></details>
+            </div>
             <div class="output-aspect">
               <div class="control-label">Aspect ratio (output)<span data-icon="Info" data-size="14" title="The source preview keeps its original proportions. Render preview to see the finished output."></span></div>
               <div class="segmented aspect-options" role="group" aria-label="Output aspect ratio">
@@ -225,7 +236,6 @@
             <div class="fields format-fields" id="format-fields"></div>
             <div class="audio-box" id="audio-fields"></div>
             <details class="disclosure output-settings" id="output-settings"><summary>Advanced settings</summary><div class="disclosure-content">
-              <div class="preset-settings"><div id="preset-field"></div><p class="preset-hint" id="preset-hint"></p></div>
               <div id="quality-field"></div>
               <details class="disclosure"><summary><span data-icon="Crop" data-size="15"></span>Framing &amp; motion</summary><div class="disclosure-content" id="framing-fields"></div></details>
               <details class="disclosure" id="video-export-options"><summary>More export options</summary><div class="disclosure-content" id="extra-export-fields"></div></details>
@@ -252,8 +262,8 @@
       </div>
       <div class="job-panel" id="job-panel" role="status" aria-live="polite" hidden><span data-icon="LoaderCircle" data-size="20" class="spin"></span><div><div class="job-label"><b id="job-message"></b><span id="job-percent"></span></div><progress id="job-progress" max="1" value="0" aria-label="Processing progress"></progress></div><button class="btn secondary" data-action="cancel">Cancel</button></div>
     </main>
-    <footer><span><span data-icon="LockKeyhole" data-size="13"></span>Video files stay on your device.</span><div><a href="https://support.spotify.com/us/artists/article/canvas-guidelines/" target="_blank" rel="noreferrer">Canvas guidelines</a><button class="text-btn" data-action="help" aria-label="Help and keyboard shortcuts"><span data-icon="HelpCircle" data-size="15"></span>Help &amp; shortcuts</button></div></footer>
-    <div class="drop-overlay" id="drop-overlay" hidden><span data-icon="Upload" data-size="38"></span><b>Drop a video to open it</b><span>Your file stays on your device</span></div>
+    <footer><span><span data-icon="LockKeyhole" data-size="13"></span>Your files stay on your device.</span><div><a href="https://support.spotify.com/us/artists/article/canvas-guidelines/" target="_blank" rel="noreferrer">Canvas guidelines</a><button class="text-btn" data-action="help" aria-label="Help and keyboard shortcuts"><span data-icon="HelpCircle" data-size="15"></span>Help &amp; shortcuts</button></div></footer>
+    <div class="drop-overlay" id="drop-overlay" hidden><span data-icon="Upload" data-size="38"></span><b>Drop media or fonts</b><span>Videos open as a source. Images become layers. Files stay on your device.</span></div>
     <dialog class="help-dialog" id="help-dialog">
       <div class="help-head"><h2>Make a better loop</h2><button class="icon-btn" data-action="close-help" aria-label="Close help"><span data-icon="X" data-size="20"></span></button></div>
       <p>Open a video, select a range, choose a method, then render the loop preview. Watch it repeat before exporting.</p>

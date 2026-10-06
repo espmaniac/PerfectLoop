@@ -1,4 +1,5 @@
 import { icons } from './icons.js';
+import { PHONE_PROFILES } from './wallpaper.js';
 
 export const $ = selector => document.querySelector(selector);
 export const $$ = selector => [...document.querySelectorAll(selector)];
@@ -49,7 +50,11 @@ export function initializeFields() {
   $('#search-options').innerHTML = selectField('precision', 'Search precision', [['fast', 'Quick · 0.5s samples'], ['balanced', 'Balanced · 0.25s samples'], ['detailed', 'Detailed · 0.1s samples']], { scope: 'search' })
     + toggleField('preferMotion', 'Prefer visible motion', { scope: 'search' })
     + toggleField('avoidCuts', 'Avoid scene cuts', { scope: 'search' });
-  $('#preset-field').innerHTML = selectField('preset', 'Destination preset', [['spotify', 'Spotify Canvas'], ['vertical', 'Vertical music visual'], ['custom', 'Custom']]);
+  $('#preset-field').innerHTML = selectField('preset', 'Destination preset', [['spotify', 'Spotify Canvas'], ['vertical', 'Vertical music visual'], ['iphone', 'iPhone wallpaper'], ['custom', 'Custom']]);
+  $('#wallpaper-device-field').innerHTML = selectField('wallpaperDevice', 'Phone screen size', [...PHONE_PROFILES.map(profile => [profile.id, `${profile.name} · ${profile.width} × ${profile.height}`]), ['custom', 'Custom phone size']])
+    + '<p class="micro">Representative phone sizes. Choose Custom for your display dimensions.</p>';
+  $('#wallpaper-download-field').innerHTML = selectField('kind', 'Wallpaper download', [['video', 'MP4 for an iOS converter'], ['image', 'Still wallpaper · JPG'], ['kit', 'Wallpaper kit · ZIP']], { scope: 'wallpaper' })
+    + '<p class="micro" id="wallpaper-download-note"></p>';
   $('#dimension-fields').innerHTML = numberField('width', 'Width', { min: 16, max: 3840, step: 2, suffix: 'px' }) + numberField('height', 'Height', { min: 16, max: 3840, step: 2, suffix: 'px' });
   $('#format-fields').innerHTML = selectField('fps', 'Frame rate', [12, 15, 24, 25, 30, 48, 50, 60].map(n => [n, `${n} fps`]), { numeric: true })
     + selectField('format', 'Format', [['mp4', 'MP4 · H.264'], ['webm', 'WebM · VP8'], ['gif', 'Animated GIF']]);
