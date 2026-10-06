@@ -50,6 +50,8 @@ The **Source** preview keeps the original video's proportions. **Loop preview** 
 
 The **Layers** tab opens a live **Composition** draft with output framing. Each moving layer completes one pass per processed loop cycle. The four screen directions follow the frame axes. Rotating a text or image layer adds **Along rotation** and **Against rotation** to **Movement**; these follow the element's angle in either direction. An angled path exits the frame before returning at the opposite end, so it repeats without a visible jump. Resetting Rotation to 0° (or a full turn) converts these choices to Left to right or Right to left. **Render preview** and exports include the same layers and motion; video repeats repeat the entire composed cycle, and GIF **Loop forever** repeats that cycle automatically.
 
+**Rotation animation** spins text or images clockwise or counterclockwise around their center, completing one full turn per processed loop. **Rotation** sets the starting angle. Spin can be combined with any **Movement** choice; Along rotation and Against rotation use the starting angle, so the travel path stays straight while the element spins.
+
 Images are read locally as PNG, JPEG, WebP, or GIF; animated images use their first frame. Layers and image assets remain in this page session and support Undo/Redo. Up to eight layers are supported.
 
 The displayed **Finished loop** duration includes the loop method, speed, overlap, and repeats. In/out points describe the source range; a dissolve shortens it, while ping-pong extends it.
