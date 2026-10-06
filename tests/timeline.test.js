@@ -51,19 +51,24 @@ function fixture(t) {
         else delete globalThis.document;
     });
     const state = {
-        mode: 'source', info: { duration: 60, fps: 30 },
+        mode: 'source', tab: 'edit', info: { duration: 60, fps: 30 },
         s: { ...DEFAULTS, start: 12, end: 18, repeats: 4 },
+        opts: { from: 40, to: 56 },
         filmstrip: Array.from({ length: 12 }, (_, i) => `source-${i}`),
         renderFilmstrip: Array.from({ length: 10 }, (_, i) => `render-${i}`),
         renderURL: 'finished-loop.mp4', render: { duration: 5.5, fps: 30 },
         playhead: 15, renderPlayhead: 1.375,
     };
-    const updates = [], seeks = [], remembers = [];
-    const timeline = new Timeline(() => state, change => {
+    const updates = [], saves = [], seeks = [], remembers = [];
+    const timeline = new Timeline(() => state, (change, saveHistory = true) => {
         updates.push(change);
-        Object.assign(state.s, change);
+        saves.push(saveHistory);
+        if (state.tab === 'find') {
+            if (change.start !== undefined) state.opts.from = change.start;
+            if (change.end !== undefined) state.opts.to = change.end;
+        } else Object.assign(state.s, change);
     }, time => seeks.push(time), () => remembers.push(true));
-    return { timeline, state, elements, handles, updates, seeks, remembers };
+    return { timeline, state, elements, handles, updates, saves, seeks, remembers };
 }
 
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} should equal ${expected}`); }
@@ -151,4 +156,146 @@ test('Loop preview cannot edit source trims or change the saved source zoom', t 
     f.state.mode = 'loop';
     f.handles[0].dispatch('pointermove', { clientX: 400 });
     assert.equal(f.updates.length, 1, 'switching to Loop preview cancels changes from an existing source drag');
+});
+
+test('Auto find displays the search range independently of the selected loop trim', t => {
+    const f = fixture(t);
+    f.state.tab = 'find';
+    f.timeline.render();
+    near(parseFloat(f.elements.get('#selection-outline').style.left), 40 / 60 * 100);
+    near(parseFloat(f.elements.get('#selection-outline').style.width), 16 / 60 * 100);
+    assert.equal(f.elements.get('#range-duration').textContent, '16.000s search range');
+    assert.equal(f.handles[0].getAttribute('aria-label'), 'Drag search start handle');
+    assert.equal(f.handles[1].getAttribute('aria-label'), 'Drag search end handle');
+
+    f.state.opts = { from: 0, to: 60 };
+    f.timeline.render();
+    assert.equal(f.elements.get('#selection-outline').style.left, '0%');
+    assert.equal(f.elements.get('#selection-outline').style.width, '100%');
+    assert.equal(f.elements.get('#range-duration').textContent, '60.000s search range');
+    assert.deepEqual({ start: f.state.s.start, end: f.state.s.end }, { start: 12, end: 18 });
+
+    f.state.mode = 'composition';
+    f.state.opts = { from: 20, to: 30 };
+    f.timeline.render();
+    assert.deepEqual(f.timeline.selection(), { start: 20, end: 30 });
+});
+
+test('Auto find zoom follows search fields and returning to editing restores trim zoom', t => {
+    const f = fixture(t);
+    f.timeline.toggleZoom();
+    const trimWindow = f.timeline.window();
+    f.state.tab = 'find';
+    f.timeline.render();
+    const searchWindow = f.timeline.window();
+    near(searchWindow.span, 28.8);
+    near(searchWindow.from, 31.2);
+    assert.ok(searchWindow.from > f.state.s.end, 'a late search area must not remain centered on the trim');
+    f.state.opts = { from: 2, to: 6 };
+    f.timeline.render();
+    near(f.timeline.window().from, 0.4);
+    near(f.timeline.window().span, 7.2);
+    f.state.tab = 'edit';
+    f.timeline.render();
+    near(f.timeline.window().from, trimWindow.from);
+    near(f.timeline.window().span, trimWindow.span);
+    assert.equal(f.handles[0].getAttribute('aria-label'), 'Drag trim start handle');
+});
+
+test('Auto find handle keys edit source-frame search bounds without changing the loop', t => {
+    const f = fixture(t);
+    f.state.tab = 'find';
+    f.state.s.fps = 1;
+    f.state.s.speed = 4;
+    f.handles[0].dispatch('keydown', { key: 'ArrowRight' });
+    f.handles[1].dispatch('keydown', { key: 'ArrowLeft' });
+    near(f.state.opts.from, 40 + 1 / 30);
+    near(f.state.opts.to, 56 - 1 / 30);
+    assert.deepEqual({ start: f.state.s.start, end: f.state.s.end }, { start: 12, end: 18 });
+    assert.deepEqual(f.saves, [true, true]);
+
+    f.state.opts = { from: 0, to: 1 / 30 };
+    f.handles[0].dispatch('keydown', { key: 'ArrowRight' });
+    f.handles[1].dispatch('keydown', { key: 'ArrowLeft' });
+    near(f.state.opts.from, 0);
+    near(f.state.opts.to, 1 / 30);
+});
+
+test('Search handle dragging keeps zoom coordinates stable and records one undo gesture', t => {
+    const f = fixture(t);
+    f.state.tab = 'find';
+    f.timeline.toggleZoom();
+    const original = f.timeline.window();
+    const clientX = 100 + (48 - original.from) / original.span * 400;
+    f.timeline.drag({ preventDefault() {}, stopPropagation() {}, pointerId: 3 }, f.handles[0]);
+    f.handles[0].dispatch('pointermove', { clientX });
+    f.timeline.render();
+    near(f.state.opts.from, 48);
+    near(f.timeline.window().from, original.from);
+    near(f.timeline.window().span, original.span);
+    f.handles[0].dispatch('pointermove', { clientX });
+    near(f.state.opts.from, 48, 'the same pointer coordinate cannot drift as the range changes');
+    f.handles[0].dispatch('pointerup');
+    near(f.timeline.window().span, 14.4);
+    near(f.timeline.window().from, 44.8);
+    assert.deepEqual(f.remembers, [true]);
+    assert.deepEqual(f.saves, [false, false]);
+    assert.deepEqual({ start: f.state.s.start, end: f.state.s.end }, { start: 12, end: 18 });
+});
+
+test('A search drag is cancelled when the tab, job, source, or preview mode changes', t => {
+    const f = fixture(t);
+    const changes = [
+        state => { state.tab = 'edit'; },
+        state => { state.job = 'search'; },
+        state => { state.file = {}; },
+        state => { state.info = { duration: 90, fps: 30 }; },
+        state => { state.mode = 'composition'; },
+        state => { state.mode = 'loop'; },
+    ];
+    for (const change of changes) {
+        Object.assign(f.state, { tab: 'find', mode: 'source', job: null, file: null, info: { duration: 60, fps: 30 }, opts: { from: 40, to: 56 } });
+        f.timeline.drag({ preventDefault() {}, stopPropagation() {}, pointerId: 5 }, f.handles[0]);
+        change(f.state);
+        f.handles[0].dispatch('pointermove', { clientX: 200 });
+        assert.equal(f.timeline.dragging, null);
+        f.state.tab = 'find';
+        f.state.mode = 'source';
+        f.state.job = null;
+        f.handles[0].dispatch('pointermove', { clientX: 300 });
+    }
+    assert.deepEqual(f.updates, [], 'a cancelled gesture cannot begin changing another range');
+});
+
+test('Rendered Loop remains read-only while Auto find is active', t => {
+    const f = fixture(t);
+    f.state.tab = 'find';
+    f.state.mode = 'loop';
+    f.timeline.render();
+    assert.equal(f.elements.get('#range-duration').textContent, '0.000–5.500s rendered');
+    assert.equal(f.elements.get('#selection-outline').style.width, '100%');
+    assert.ok(f.handles.every(handle => handle.hidden));
+    f.handles[0].dispatch('keydown', { key: 'ArrowRight' });
+    f.timeline.drag({ preventDefault() {}, stopPropagation() {}, pointerId: 7 }, f.handles[0]);
+    assert.deepEqual(f.updates, []);
+    assert.deepEqual(f.state.opts, { from: 40, to: 56 });
+});
+
+test('Unavailable and temporarily empty search bounds never create invalid timeline coordinates', t => {
+    const f = fixture(t);
+    f.state.tab = 'find';
+    f.state.info.duration = 0;
+    f.state.opts = { from: 0, to: 0 };
+    f.timeline.toggleZoom();
+    f.timeline.render();
+    assert.deepEqual(f.timeline.selection(), { start: 0, end: 0 });
+    assert.equal(f.elements.get('#range-duration').textContent, '0.000s search range');
+    assert.ok(Number.isFinite(f.timeline.window().span));
+    f.handles[0].dispatch('keydown', { key: 'ArrowRight' });
+    assert.deepEqual(f.updates, []);
+    f.state.info.duration = 60;
+    f.state.opts = { from: Number.NaN, to: Number.NaN };
+    f.timeline.render();
+    assert.deepEqual(f.timeline.selection(), { start: 0, end: 60 });
+    assert.equal(f.elements.get('#selection-outline').style.width, '100%');
 });

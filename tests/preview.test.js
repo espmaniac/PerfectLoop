@@ -26,6 +26,7 @@ class FakeVideo extends FakeElement {
             currentTime: 1, duration: 3, paused: true, seeking: false,
         });
     }
+    play() { this.paused = false; return Promise.resolve(); }
     pause() { this.paused = true; this.dispatch('pause'); }
     load() { this.readyState = 0; this.videoWidth = this.videoHeight = 0; }
 }
@@ -84,11 +85,11 @@ function fixture(t) {
     preview.refresh();
     return {
         preview, state, source, output, canvas, alternate, times, transport: elements.get('#transport-time'),
-        tick() {
+        tick(time = now) {
             const [id, callback] = frames.entries().next().value;
             frames.delete(id);
-            callback(now);
-            now += 16;
+            callback(time);
+            now = time + 16;
         },
     };
 }
@@ -212,4 +213,114 @@ test('Composition animation completes its processed cycle without resetting when
     f.preview.setMode('source');
     f.tick();
     assert.equal(f.canvas.pixel, f.source.color, 'Source still shows the original video');
+});
+
+function setSearchRange(f) {
+    f.state.tab = 'find';
+    f.state.opts = { from: 40, to: 56 };
+    f.state.info.duration = f.source.duration = 60;
+    f.state.s.start = 0;
+    f.state.s.end = 7;
+    f.preview.setMode('source');
+}
+
+test('Find playback explores a late search range independently of the render trim', async t => {
+    const f = fixture(t);
+    setSearchRange(f);
+    f.preview.seek(45);
+    await f.preview.play();
+    assert.equal(f.source.currentTime, 45, 'playing a late source position must not jump to the render trim');
+    f.source.currentTime = 56;
+    f.tick();
+    assert.equal(f.source.currentTime, 40, 'the search end wraps to the search start');
+    assert.deepEqual(f.times.at(-1), { time: 40, mode: 'source' });
+    f.preview.pause();
+    f.preview.seek(3);
+    await f.preview.play();
+    assert.equal(f.source.currentTime, 40, 'playing outside the search interval starts inside it');
+    assert.equal(f.state.s.start, 0);
+    assert.equal(f.state.s.end, 7);
+});
+
+test('Find stepping uses source frames within the active search bounds', t => {
+    const f = fixture(t);
+    setSearchRange(f);
+    f.source.currentTime = 45;
+    f.preview.step(1);
+    assert.equal(f.source.currentTime, 45 + 1 / 30);
+    f.source.currentTime = 40;
+    f.preview.step(-1);
+    assert.equal(f.source.currentTime, 40);
+    f.source.currentTime = 56;
+    f.preview.step(1);
+    assert.equal(f.source.currentTime, 56 - 1 / 30);
+    assert.equal(f.state.s.start, 0);
+    assert.equal(f.state.s.end, 7);
+});
+
+test('Find range edits affect an active preview and ended playback immediately', t => {
+    const f = fixture(t);
+    setSearchRange(f);
+    f.source.currentTime = 45;
+    f.source.paused = false;
+    f.state.opts = { from: 48, to: 54 };
+    f.tick();
+    assert.equal(f.source.currentTime, 48);
+    f.source.currentTime = 60;
+    f.source.paused = true;
+    f.source.dispatch('ended');
+    assert.equal(f.source.currentTime, 48);
+    assert.equal(f.source.paused, false);
+    f.preview.pause();
+    f.preview.seek(52);
+    f.tick(250);
+    assert.equal(f.transport.textContent, '00:52.000 / 01:00.000', 'timestamps retain absolute source coordinates');
+});
+
+test('Leaving Find restores the render trim while Composition and Loop keep their own timing', async t => {
+    const f = fixture(t);
+    setSearchRange(f);
+    f.source.currentTime = 45;
+    f.state.tab = 'edit';
+    await f.preview.play();
+    assert.equal(f.source.currentTime, 0);
+    f.preview.pause();
+    f.state.tab = 'find';
+    f.preview.setMode('composition');
+    f.source.currentTime = 45;
+    await f.preview.play();
+    assert.equal(f.source.currentTime, 0, 'Composition still uses the output trim');
+    f.preview.setMode('loop');
+    f.output.currentTime = 1;
+    f.preview.step(1);
+    assert.equal(f.output.currentTime, 1 + 1 / 30);
+    await f.preview.play();
+    assert.equal(f.output.currentTime, 1 + 1 / 30, 'Loop playback does not use the source search range');
+    f.tick();
+    assert.deepEqual(f.times.at(-1), { time: 1 + 1 / 30, mode: 'loop' });
+});
+
+test('Find playback waits for metadata and keeps invalid bounds out of the media element', async t => {
+    const f = fixture(t);
+    setSearchRange(f);
+    f.state.info.duration = 0;
+    f.source.currentTime = 1;
+    await f.preview.play();
+    f.preview.step(1);
+    f.source.dispatch('ended');
+    assert.equal(f.source.currentTime, 1);
+    assert.equal(f.source.paused, true);
+    f.state.info.duration = 60;
+    f.state.opts = { from: 55, to: 80 };
+    await f.preview.play();
+    assert.equal(f.source.currentTime, 55);
+    f.source.currentTime = 60;
+    f.tick();
+    assert.equal(f.source.currentTime, 55);
+    f.preview.pause();
+    f.state.opts.to = NaN;
+    await f.preview.play();
+    f.preview.step(1);
+    assert.equal(f.source.currentTime, 55);
+    assert.equal(f.source.paused, true);
 });

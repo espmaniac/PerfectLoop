@@ -1,5 +1,5 @@
 import { clamp } from './logic.js';
-import { pairScore } from './ranking.js';
+import { distinctCandidates, pairScore } from './ranking.js';
 function aborted(signal) { if (signal?.aborted)
     throw new DOMException('Cancelled', 'AbortError'); }
 export async function openVideo(url, signal) {
@@ -90,6 +90,21 @@ export async function thumbnails(url, count, signal) {
     }
     return out;
 }
+export function searchSamplePlan(options, fps, duration) {
+    if (!Number.isFinite(fps) || fps <= 0)
+        throw new Error('The source frame rate must be known before searching.');
+    // A and B are frame boundaries, with B exclusive. Decode only frame centers
+    // inside the selection, including its first and last readable source frames.
+    const firstFrame = Math.ceil(options.from * fps - 1e-7);
+    const endFrame = Math.floor(Math.min(options.to, duration) * fps + 1e-7);
+    const lastFrame = endFrame - 1;
+    if (lastFrame <= firstFrame || (endFrame - firstFrame) / fps < options.min - 1e-6)
+        throw new Error('Choose a search range long enough for the requested loop duration at the source frame rate.');
+    const requestedStep = options.precision === 'fast' ? 0.5 : options.precision === 'detailed' ? 0.1 : 0.25;
+    const intervals = Math.min(1600, lastFrame - firstFrame, Math.max(1, Math.floor((lastFrame - firstFrame) / fps / requestedStep)));
+    const times = Array.from({ length: intervals + 1 }, (_, i) => (firstFrame + Math.round(i * (lastFrame - firstFrame) / intervals)) / fps);
+    return { times, first: firstFrame / fps, last: lastFrame / fps, end: endFrame / fps, step: (lastFrame - firstFrame) / fps / intervals };
+}
 export async function searchVideo(url, options, fps, signal, onProgress) {
     if (![options.from, options.to, options.min, options.max].every(Number.isFinite) || options.from < 0 || options.to <= options.from || options.min <= 0 || options.max < options.min || options.to - options.from < options.min)
         throw new Error('Choose a search range long enough for the requested loop duration.');
@@ -98,16 +113,13 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
         releaseVideo(video);
         throw new Error('The search range exceeds the source duration.');
     }
-    const span = options.to - options.from;
-    const requestedStep = options.precision === 'fast' ? 0.5 : options.precision === 'detailed' ? 0.1 : 0.25;
-    const step = Math.max(requestedStep, span / 1600);
     const frames = [];
     let worker;
     try {
-        const lastSample = Math.min(options.to, video.duration - 1 / fps);
-        const count = Math.floor((lastSample - options.from) / step) + 1;
+        const plan = searchSamplePlan(options, fps, video.duration), { step } = plan;
+        const count = plan.times.length;
         for (let i = 0; i < count; i++) {
-            const t = clamp(Math.round((options.from + i * step) * fps) / fps, options.from, lastSample);
+            const t = plan.times[i];
             // Seek inside the requested frame. At exact boundaries browser timestamp
             // rounding can otherwise display the preceding frame.
             await seekVideo(video, t + 0.5 / fps, signal);
@@ -122,7 +134,7 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             signal.addEventListener('abort', abort, { once: true });
             worker.onerror = () => { signal.removeEventListener('abort', abort); reject(new Error('The analysis worker failed. Try a smaller search range.')); };
             worker.onmessage = event => { signal.removeEventListener('abort', abort); event.data.error ? reject(new Error(event.data.error)) : resolve(event.data.candidates); };
-            worker.postMessage({ frames, options }, frames.map(f => f.pixels.buffer));
+            worker.postMessage({ frames, options: { ...options, endBoundary: plan.end } }, frames.map(f => f.pixels.buffer));
         });
         worker.terminate();
         worker = undefined;
@@ -130,12 +142,14 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
         for (let i = 0; i < Math.min(5, candidates.length); i++) {
             aborted(signal);
             onProgress(0.72 + i / 5 * 0.2, `Refining match ${i + 1} at frame precision…`);
-            const c = candidates[i], radius = Math.min(8, Math.ceil(step / 2 * fps));
+            // At an exclusive terminal end, the center itself is not readable.
+            // Include both the last frame and its predecessor even at low FPS.
+            const c = candidates[i], radius = Math.max(2, Math.min(8, Math.ceil(step / 2 * fps)));
             const starts = [], ends = [];
             for (const [center, list] of [[c.start, starts], [c.end, ends]]) {
                 for (let j = -radius; j <= radius + 1; j++) {
                     const t = (Math.round(center * fps) + j) / fps;
-                    if (t < options.from || t > Math.min(options.to, video.duration - 1 / fps))
+                    if (t < plan.first - 1e-7 || t > plan.last + 1e-7)
                         continue;
                     await seekVideo(video, t + 0.5 / fps, signal);
                     list.push(descriptor(video, t));
@@ -143,24 +157,28 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             }
             let best;
             for (let a = 0; a < starts.length - 1; a++)
-                for (let b = 1; b < ends.length - 1; b++) {
-                    const d = ends[b].time - starts[a].time;
+                for (let b = 1; b < ends.length; b++) {
+                    const terminal = Math.abs(ends[b].time - plan.last) < 1e-7;
+                    if (!terminal && b === ends.length - 1)
+                        continue;
+                    const end = terminal ? plan.end : ends[b].time;
+                    const d = end - starts[a].time;
                     if (d < options.min - 1e-6 || d > options.max + 1e-6)
                         continue;
-                    const match = { id: c.id, ...pairScore(starts[a], starts[a + 1], ends[b - 1], ends[b], options.preferMotion, c.cuts, ends[b + 1]), refined: true };
+                    const match = { id: c.id, ...pairScore(starts[a], starts[a + 1], ends[b - 1], ends[b], options.preferMotion, c.cuts, ends[b + 1]), end, refined: true };
                     if (!best || match.score > best.score)
                         best = match;
                 }
             if (best)
                 candidates[i] = best;
         }
-        candidates.sort((a, b) => b.score - a.score);
-        for (let i = 0; i < candidates.length; i++) {
-            await seekVideo(video, candidates[i].start, signal);
-            candidates[i].thumbnail = capture(video).toDataURL('image/jpeg', 0.75);
-            onProgress(0.94 + i / candidates.length * 0.06, 'Preparing loop candidates…');
+        const distinct = distinctCandidates(candidates, options);
+        for (let i = 0; i < distinct.length; i++) {
+            await seekVideo(video, distinct[i].start + 0.5 / fps, signal);
+            distinct[i].thumbnail = capture(video).toDataURL('image/jpeg', 0.75);
+            onProgress(0.94 + i / distinct.length * 0.06, 'Preparing loop candidates…');
         }
-        return { candidates, step };
+        return { candidates: distinct, step };
     }
     finally {
         worker?.terminate();

@@ -67,8 +67,8 @@ export function initializeFields() {
     + '<p class="micro">0 MB uses the quality setting. The exported file may be larger or smaller than the target.</p>';
   $('#trim-fields').innerHTML = numberField('start', 'In point', { min: 0, step: 1 / 30, suffix: 's' })
     + numberField('end', 'Out point (exclusive)', { min: 0, step: 1 / 30, suffix: 's' })
-    + '<div class="range-summary"><span>Duration (source)</span><b><span id="timeline-source-duration"></span><small> s</small></b></div>'
-    + '<div class="range-summary"><span>Finished loop</span><b><span id="timeline-output-duration"></span><small> s</small></b></div>';
+    + '<div class="range-summary"><span id="timeline-range-label">Duration (source)</span><b><span id="timeline-source-duration"></span><small> s</small></b></div>'
+    + '<div class="range-summary" id="timeline-finished-summary"><span>Finished loop</span><b><span id="timeline-output-duration"></span><small> s</small></b></div>';
   $('#field-setting-start > span').textContent = 'In';
   $('#field-setting-end > span').textContent = 'Out';
   decorateIcons();

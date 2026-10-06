@@ -35,9 +35,9 @@ export class Preview {
     this.source.addEventListener('pause', () => this.syncPlayButton());
     this.output.addEventListener('pause', () => this.syncPlayButton());
     this.source.addEventListener('ended', () => {
-      const st = this.getState();
-      if (st.mode !== 'loop' && !st.job && st.s.end > st.s.start) {
-        this.source.currentTime = st.s.start;
+      const st = this.getState(), range = this.sourceRange();
+      if (st.mode !== 'loop' && !st.job && range.end > range.start) {
+        this.source.currentTime = range.start;
         this.source.play().catch(() => {});
       }
     });
@@ -48,6 +48,15 @@ export class Preview {
     this.frame = this.frame.bind(this); this.raf = requestAnimationFrame(this.frame);
   }
   active() { const st = this.getState(); return st.mode === 'loop' && st.renderURL ? this.output : this.source; }
+  sourceRange() {
+    const st = this.getState(), search = st.mode === 'source' && st.tab === 'find';
+    const duration = Number.isFinite(st.info.duration) ? Math.max(0, st.info.duration) : 0;
+    const start = search ? st.opts?.from : st.s.start, end = search ? st.opts?.to : st.s.end;
+    return {
+      start: clamp(Number.isFinite(start) ? start : 0, 0, duration),
+      end: clamp(Number.isFinite(end) ? end : 0, 0, duration),
+    };
+  }
   pause() { this.source.pause(); this.output.pause(); this.syncPlayButton(); }
   setSource(url) {
     if (this.active() === this.source) clearFrame(this.canvas);
@@ -103,7 +112,11 @@ export class Preview {
     if (st.job || !st.info.duration) return;
     if (!video.paused) video.pause();
     else {
-      if (st.mode !== 'loop' && (video.currentTime < st.s.start || video.currentTime >= st.s.end)) video.currentTime = st.s.start;
+      if (st.mode !== 'loop') {
+        const range = this.sourceRange();
+        if (range.end <= range.start) return;
+        if (video.currentTime < range.start || video.currentTime >= range.end) video.currentTime = range.start;
+      }
       await video.play().catch(() => {});
     }
     this.syncPlayButton();
@@ -114,8 +127,9 @@ export class Preview {
     video.pause();
     const rate = st.mode === 'loop' ? st.render?.fps || st.s.fps : st.mode === 'composition' ? st.s.fps : st.info.fps || 30;
     const delta = st.mode === 'composition' ? st.s.speed / rate : 1 / rate;
-    video.currentTime = clamp(video.currentTime + direction * delta, st.mode === 'loop' ? 0 : st.s.start,
-      st.mode === 'loop' ? Math.max(0, video.duration - delta) : Math.max(st.s.start, st.s.end - delta));
+    const range = st.mode === 'loop' ? { start: 0, end: video.duration } : this.sourceRange();
+    if (range.end <= range.start) return;
+    video.currentTime = clamp(video.currentTime + direction * delta, range.start, Math.max(range.start, range.end - delta));
     if (st.mode === 'composition') this.compositionTime = Math.max(0, this.compositionTime + direction / st.s.fps);
     this.syncPlayButton(); this.dirtyFrame = true;
   }
@@ -147,7 +161,10 @@ export class Preview {
         this.compositionTime = (this.compositionTime + Math.max(0, now - this.compositionTick) / 1000) % period;
       this.compositionTick = now;
     } else this.compositionTick = null;
-    if (st.mode !== 'loop' && !video.paused && st.s.end > st.s.start && (video.currentTime >= st.s.end - 0.005 || video.currentTime < st.s.start - 0.05)) video.currentTime = st.s.start;
+    if (st.mode !== 'loop' && !video.paused) {
+      const range = this.sourceRange();
+      if (range.end > range.start && (video.currentTime >= range.end - 0.005 || video.currentTime < range.start - 0.05)) video.currentTime = range.start;
+    }
     const key = `${st.mode}-${video.currentTime}-${video.readyState}-${st.mode === 'composition' ? this.compositionTime : ''}`;
     if (this.dirtyFrame || key !== this.lastFrame) {
       // Composition uses live framing; encoded output already includes its layers.

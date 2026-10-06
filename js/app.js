@@ -27,8 +27,9 @@ let preview, timeline, layerPanel, sampleController, renderFilmstripController;
 const dirty = () => JSON.stringify(state.s) !== state.renderSignature;
 const busy = () => Boolean(state.job);
 
+function snapshot() { return { s: { ...state.s }, opts: { ...state.opts } }; }
 function remember() {
-  history.past.push({ ...state.s }); if (history.past.length > 60) history.past.shift(); history.future = [];
+  history.past.push(snapshot()); if (history.past.length > 60) history.past.shift(); history.future = [];
 }
 function update(partial, saveHistory = true) {
   if ('width' in partial || 'height' in partial) partial = { aspect: 'custom', ...partial };
@@ -37,8 +38,40 @@ function update(partial, saveHistory = true) {
   if (saveHistory) remember();
   state.s = { ...state.s, ...partial }; state.seam = null; $('#seam-result').replaceChildren(); refresh();
 }
-function undo() { if (busy() || !history.past.length) return; history.future.push(state.s); state.s = history.past.pop(); clearSeam(); refresh(); }
-function redo() { if (busy() || !history.future.length) return; history.past.push(state.s); state.s = history.future.pop(); clearSeam(); refresh(); }
+function restore(value) {
+  const searchChanged = JSON.stringify(state.opts) !== JSON.stringify(value.opts);
+  state.s = value.s; state.opts = value.opts;
+  if (searchChanged) clearCandidates();
+  clearSeam();
+  if (searchChanged && state.tab === 'find') preview.setMode('source');
+  else refresh();
+}
+function undo() { if (busy() || !history.past.length) return; history.future.push(snapshot()); restore(history.past.pop()); }
+function redo() { if (busy() || !history.future.length) return; history.past.push(snapshot()); restore(history.future.pop()); }
+function activeRange() {
+  return state.tab === 'find' ? { start: state.opts.from, end: state.opts.to } : state.s;
+}
+function clearCandidates() {
+  state.candidates = []; state.selected = new Set(); state.notice = ''; renderCandidates();
+}
+function updateSearch(partial, saveHistory = true) {
+  if (busy()) return;
+  const gap = Math.min(state.info.duration, 1 / (state.info.fps || 30));
+  if ('from' in partial) partial = { ...partial, from: clamp(partial.from, 0, Math.max(0, state.opts.to - gap)) };
+  if ('to' in partial) partial = { ...partial, to: clamp(partial.to, state.opts.from + gap, state.info.duration) };
+  if (Object.entries(partial).every(([key, value]) => state.opts[key] === value)) return;
+  if (saveHistory) remember();
+  state.opts = { ...state.opts, ...partial }; clearCandidates();
+  if ('from' in partial || 'to' in partial) preview.setMode('source');
+  else refresh();
+}
+function updateActiveRange(partial, saveHistory = true) {
+  if (state.tab !== 'find') { update(partial, saveHistory); return; }
+  const search = {};
+  if ('start' in partial) search.from = partial.start;
+  if ('end' in partial) search.to = partial.end;
+  updateSearch(search, saveHistory);
+}
 function clearSeam() { state.seam = null; $('#seam-result').replaceChildren(); }
 function notice(message) { state.notice = message; refreshStatus(); }
 function report(error) {
@@ -90,18 +123,25 @@ function syncDisabled() {
 }
 function refreshBindings() {
   $$('[data-setting], [data-search]').forEach(input => {
-    const setting = input.dataset.setting, value = setting ? state.s[setting] : state.opts[input.dataset.search];
+    const setting = input.dataset.setting;
+    const value = setting ? ['start', 'end'].includes(setting) ? activeRange()[setting] : state.s[setting] : state.opts[input.dataset.search];
     if (input.type === 'checkbox') input.checked = Boolean(value);
     else if (document.activeElement !== input) input.value = typeof value === 'number' ? String(Math.round(value * 1000) / 1000) : value;
   });
   $$('[data-value]').forEach(el => { el.textContent = `${state.s[el.dataset.value]}%`; });
   const rate = state.info.fps || 30;
-  $('[data-setting="start"]').max = state.s.end; $('[data-setting="start"]').step = 1 / rate;
-  $('[data-setting="end"]').max = state.info.duration; $('[data-setting="end"]').min = state.s.start; $('[data-setting="end"]').step = 1 / rate;
+  const range = activeRange(), searching = state.tab === 'find', gap = Math.min(state.info.duration, 1 / rate);
+  $('[data-setting="start"]').max = Math.max(0, range.end - (searching ? gap : 0)); $('[data-setting="start"]').step = 1 / rate;
+  $('[data-setting="end"]').max = state.info.duration; $('[data-setting="end"]').min = range.start + (searching ? gap : 0); $('[data-setting="end"]').step = 1 / rate;
+  $('#field-setting-start > span').textContent = searching ? 'Search from' : 'In';
+  $('#field-setting-end > span').textContent = searching ? 'Search to' : 'Out';
+  $('[data-setting="start"]').setAttribute('aria-label', searching ? 'Timeline search from' : 'In point');
+  $('[data-setting="end"]').setAttribute('aria-label', searching ? 'Timeline search to' : 'Out point (exclusive)');
   $$('[data-setting="transition"]').forEach(input => { input.step = 1 / state.s.fps; });
   $('[data-setting="transition"][type="range"]').max = Math.max(state.s.transition, Math.min(30, (state.s.end - state.s.start) / state.s.speed / 2));
-  $('[data-search="from"]').max = $('[data-search="to"]').max = state.info.duration;
-  $('[data-search="to"]').min = state.opts.from; $('[data-search="max"]').min = state.opts.min;
+  $('[data-search="from"]').max = Math.max(0, state.opts.to - gap); $('[data-search="to"]').max = state.info.duration;
+  $('[data-search="from"]').step = $('[data-search="to"]').step = 1 / rate;
+  $('[data-search="to"]').min = state.opts.from + gap; $('[data-search="max"]').min = state.opts.min;
 }
 function refreshHeaderHint(issues, plan) {
   const { s, info } = state, issue = info.duration ? issues[0] : '';
@@ -135,7 +175,7 @@ function refreshHeaderHint(issues, plan) {
       : layer.rotation % 360 ? 'Along rotation and Against rotation follow the element’s angle; screen directions follow the frame.'
       : 'Use Rotation animation to spin clockwise or counterclockwise. Movement controls the element’s path.';
   } else if (state.tab === 'find') {
-    message = 'Auto find looks for matching moments. Preview a candidate to check whether the motion joins smoothly.';
+    message = 'Auto find searches for loopable clips anywhere inside the highlighted range. Set the range here or drag its timeline handles.';
   } else if (state.tab === 'inspect') {
     message = 'Compare the last and first frames, then watch a few repeats to check the join in motion.';
   } else if (state.render && dirty()) {
@@ -167,7 +207,7 @@ function refresh() {
   refreshStatus(); refreshBindings(); syncDisabled(); refreshHeaderHint(issues, plan);
   $('#source-meta').innerHTML = `<span class="file-name" title="${escapeHTML(info.name)}">${rendered ? 'Loop preview' : escapeHTML(info.name || 'Open a video to begin')}</span>`
     + (timelineInfo.duration ? `<span>${timecode(timelineInfo.duration)}</span><span>${timelineInfo.width} × ${timelineInfo.height}</span><span>${humanSize(rendered ? rendered.blob.size : info.size)}</span>` : '');
-  $('#timeline-panel').setAttribute('aria-label', rendered ? 'Rendered loop timeline' : 'Source video timeline');
+  $('#timeline-panel').setAttribute('aria-label', rendered ? 'Rendered loop timeline' : state.tab === 'find' ? 'Loop search timeline' : 'Source video timeline');
   $('#timeline-caption').hidden = !rendered;
   if (rendered) {
     const settings = state.renderSettings;
@@ -220,7 +260,10 @@ function refresh() {
   document.documentElement.style.setProperty('--source-aspect', String(state.mode === 'loop' && state.render ? state.render.width / state.render.height : state.mode === 'composition' ? s.width / s.height : info.width / info.height || 9 / 16));
   $('#finished-duration').textContent = plan.totalDuration.toFixed(3);
   $('#output-meta').textContent = `${plan.totalFrames} frames · ${s.width} × ${s.height}`;
-  $('#timeline-source-duration').textContent = (s.end - s.start).toFixed(3);
+  const range = activeRange();
+  $('#timeline-source-duration').textContent = (range.end - range.start).toFixed(3);
+  $('#timeline-range-label').textContent = state.tab === 'find' ? 'Search range' : 'Duration (source)';
+  $('#timeline-finished-summary').hidden = state.tab === 'find';
   $('#timeline-output-duration').textContent = plan.totalDuration.toFixed(3);
   $('#validation').hidden = !info.duration || !issues.length;
   $('#validation').innerHTML = issues.map(issue => `<p>${escapeHTML(issue)}</p>`).join('')
@@ -233,8 +276,8 @@ function refresh() {
   $('#download-result').hidden = !state.lastExport;
   if (state.lastExport) $('#download-meta').textContent = `${humanSize(state.lastExport.blob.size)} · ${state.lastExport.hasAudio ? 'With audio' : 'No audio track'}`;
   $$('[data-mode]').forEach(button => { const active = button.dataset.mode === state.mode; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
-  $('#preview-tag').textContent = state.mode === 'composition' ? 'COMPOSITION DRAFT' : state.mode === 'source' ? 'SOURCE RANGE' : dirty() ? 'LAST RENDER' : 'ENCODED LOOP';
-  $('#preview-foot-message').textContent = state.mode === 'composition' ? 'Live layer draft. Render preview to check the finished loop.' : state.mode === 'source' ? 'Render to check the finished seam' : dirty() ? 'Settings changed. Render again.' : 'Playing the actual encoded loop';
+  $('#preview-tag').textContent = state.mode === 'composition' ? 'COMPOSITION DRAFT' : state.mode === 'source' ? state.tab === 'find' ? 'SEARCH RANGE' : 'SOURCE RANGE' : dirty() ? 'LAST RENDER' : 'ENCODED LOOP';
+  $('#preview-foot-message').textContent = state.mode === 'composition' ? 'Live layer draft. Render preview to check the finished loop.' : state.mode === 'source' ? state.tab === 'find' ? 'Find loopable clips inside the highlighted range' : 'Render to check the finished seam' : dirty() ? 'Settings changed. Render again.' : 'Playing the actual encoded loop';
   $('#inspection-mode').textContent = state.mode === 'loop' ? 'Rendered preview' : 'Selected source range';
   $('#timeline-fieldset').hidden = !info.duration;
   timeline?.render(); preview?.refresh();
@@ -292,6 +335,7 @@ async function makeProxy() {
     state.nativeError = ''; state.s = { ...state.s, start: 0, end: Math.min(state.info.duration, 6) };
     if (state.s.aspect === 'original') state.s = { ...state.s, ...dimensionsForAspect('original', state.info, state.s.rotate) };
     state.opts = { ...state.opts, from: 0, to: state.info.duration };
+    clearCandidates(); history.past = []; history.future = [];
     preview.setSource(state.sourceURL);
     state.fileController?.abort(); const controller = new AbortController(); state.fileController = controller;
     thumbnails(state.sourceURL, 10, controller.signal).then(frames => { if (!controller.signal.aborted) { state.filmstrip = frames; timeline.render(); } }).catch(() => {});
@@ -301,6 +345,7 @@ async function makeProxy() {
 }
 async function runSearch() {
   if (!state.file || !state.sourceURL || !startJob('search', 'Preparing search…')) return;
+  preview.setMode('source');
   try {
     let rate = state.info.fps;
     if (!rate) { const metadata = await engine.inspect(state.file, progress('search')); Object.assign(state.info, metadata); rate = metadata.fps; }
@@ -386,7 +431,7 @@ async function inspect() {
 }
 function setPreset(preset) {
   update(preset === 'spotify' ? { preset, aspect: '9:16', width: 576, height: 1024, fps: 30, format: 'mp4', audio: 'strip', repeats: 1 } : preset === 'vertical' ? { preset, aspect: '9:16', width: 720, height: 1280, fps: 30 } : { preset, aspect: 'custom' });
-  state.opts = { ...state.opts, min: 3, max: preset === 'spotify' ? 8 : 15 }; refresh();
+  updateSearch({ min: 3, max: preset === 'spotify' ? 8 : 15 }, false);
 }
 function setAspect(aspect, dimensions) {
   if (!state.info.duration || busy()) return;
@@ -406,8 +451,9 @@ function fitDuration() {
 }
 function mark(edge) {
   if (busy() || state.mode === 'loop') return;
-  const time = preview.source.currentTime;
-  update(edge === 'start' ? { start: Math.min(time, state.s.end - 0.1) } : { end: Math.max(time, state.s.start + 0.1) });
+  const time = preview.source.currentTime, range = activeRange();
+  const gap = state.tab === 'find' ? 1 / (state.info.fps || 30) : 0.1;
+  updateActiveRange(edge === 'start' ? { start: Math.min(time, range.end - gap) } : { end: Math.max(time, range.start + gap) });
 }
 
 function editLayer(id, partial, saveHistory = true) {
@@ -538,7 +584,7 @@ preview = new Preview(() => state, mode => { state.mode = mode; clearSeam(); ref
   else state.playhead = time;
   timeline?.renderPlayhead(time);
 });
-timeline = new Timeline(() => state, update, time => { preview.seek(time, state.mode); }, remember);
+timeline = new Timeline(() => state, updateActiveRange, time => { preview.seek(time, state.mode); }, remember);
 layerPanel = new LayerPanel(() => state, editLayer, layerAction);
 $('#layer-image-input').addEventListener('change', event => {
   const file = event.target.files[0]; event.target.value = ''; void addImage(file);
@@ -557,7 +603,8 @@ function changeField(event) {
   if (input.type === 'number' && input.value === '') return;
   const value = input.type === 'checkbox' ? input.checked : input.hasAttribute('data-number') ? Number(input.value) : input.value;
   if (typeof value === 'number' && !Number.isFinite(value)) return;
-  if (input.dataset.search) { state.opts[input.dataset.search] = value; refresh(); }
+  if (input.dataset.search) updateSearch({ [input.dataset.search]: value });
+  else if (['start', 'end'].includes(input.dataset.setting)) updateActiveRange({ [input.dataset.setting]: value });
   else if (input.dataset.setting === 'preset') setPreset(value);
   else if (input.dataset.setting === 'format' && value !== 'mp4' && state.s.preset === 'spotify') {
     update({ format: value, preset: 'custom' });
@@ -595,7 +642,7 @@ document.addEventListener('click', event => {
   else if (button.dataset.tab) {
     state.tab = button.dataset.tab;
     if (state.tab === 'layers') preview.setMode('composition');
-    else if (state.mode === 'composition') preview.setMode('source');
+    else if (state.tab === 'find' || state.mode === 'composition') preview.setMode('source');
     else refresh();
     if (matchMedia('(max-width: 739px)').matches) $('.controls-panel').scrollIntoView({ block: 'start' });
   }

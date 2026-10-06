@@ -46,6 +46,8 @@ Both ping-pong methods work with MP4, WebM, and GIF. GIF has no playback-directi
 4. Select **Render preview** and use **Inspect seam** to check the join.
 5. Export the finished loop and review the downloaded file at full resolution.
 
+**Auto find** ranks loopable clips throughout **Search from / Search to**, including clips beginning later in the video. Those fields and the timeline handles edit the same search area; playback and frame stepping in Auto find also use that area. **Min / Max loop length** constrain each candidate's source duration. Selecting a candidate sets the separate render in/out points and preserves the search area for another search. Changing search options clears previous results. Search edits support Undo/Redo.
+
 The **Source** preview keeps the original video's proportions. **Loop preview** shows the rendered output, including its framing, at a smaller resolution. Render again after changing settings.
 
 The **Layers** tab opens a live **Composition** draft with output framing. **Movement speed** chooses 1–10 complete passes per processed loop cycle. The four screen directions follow the frame axes. Rotating a text or image layer adds **Along rotation** and **Against rotation** to **Movement**; these follow the element's angle in either direction. An angled path exits the frame before returning at the opposite end, so it repeats without a visible jump. Resetting Rotation to 0° (or a full turn) converts these choices to Left to right or Right to left. **Render preview** and exports include the same layers and motion; video repeats repeat the entire composed cycle, and GIF **Loop forever** repeats that cycle automatically.
