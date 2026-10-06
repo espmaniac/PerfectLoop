@@ -2,22 +2,51 @@ import { clamp } from './logic.js';
 import { distinctCandidates, pairScore } from './ranking.js';
 function aborted(signal) { if (signal?.aborted)
     throw new DOMException('Cancelled', 'AbortError'); }
+const helperVideos = new WeakSet();
 export async function openVideo(url, signal) {
     aborted(signal);
     const video = document.createElement('video');
-    video.preload = 'auto';
-    video.muted = true;
-    video.playsInline = true;
+    helperVideos.add(video);
     try {
+        video.preload = 'auto';
+        video.muted = true;
+        video.playsInline = true;
+        video.setAttribute('muted', '');
+        video.setAttribute('playsinline', '');
+        video.setAttribute('aria-hidden', 'true');
+        video.tabIndex = -1;
+        // Safari can defer decoding detached media. Keep readers in the document
+        // with a nonzero size while they prepare metadata and canvas frames.
+        Object.assign(video.style, { position: 'fixed', left: '-2px', top: '0', width: '1px', height: '1px', opacity: '0.01', pointerEvents: 'none' });
+        document.body.append(video);
         await new Promise((resolve, reject) => {
-            const clean = () => { clearTimeout(timer); signal?.removeEventListener('abort', cancel); video.onloadeddata = null; video.onerror = null; };
+            const events = ['loadedmetadata', 'loadeddata', 'canplay', 'seeked'];
+            const clean = () => {
+                window.clearTimeout(timer);
+                signal?.removeEventListener('abort', cancel);
+                for (const event of events) video.removeEventListener(event, ready);
+                video.removeEventListener('error', fail);
+            };
             const cancel = () => { clean(); reject(new DOMException('Cancelled', 'AbortError')); };
+            const fail = () => { clean(); reject(new Error('This browser cannot play the source codec. Create a compatible proxy to edit it.')); };
+            const ready = () => {
+                // Metadata alone is insufficient for drawImage and frame sampling.
+                if (video.readyState < 2) return;
+                clean(); resolve();
+            };
             const timer = window.setTimeout(() => { clean(); reject(new Error('The video could not be decoded. Try an MP4 (H.264) or create a compatible proxy.')); }, 20_000);
             signal?.addEventListener('abort', cancel, { once: true });
-            video.onloadeddata = () => { clean(); resolve(); };
-            video.onerror = () => { clean(); reject(new Error('This browser cannot play the source codec. Create a compatible proxy to edit it.')); };
-            video.src = url;
+            for (const event of events) video.addEventListener(event, ready);
+            video.addEventListener('error', fail, { once: true });
+            try {
+                aborted(signal);
+                video.src = url;
+                video.load();
+                ready();
+            }
+            catch (error) { clean(); reject(error); }
         });
+        aborted(signal);
     }
     catch (e) {
         releaseVideo(video);
@@ -35,7 +64,16 @@ export async function openVideo(url, signal) {
     }
     return video;
 }
-export function releaseVideo(video) { video.pause(); video.removeAttribute('src'); video.load(); }
+export function releaseVideo(video) {
+    try { video.pause(); video.removeAttribute('src'); video.load(); }
+    catch { /* Cleanup must not replace the original read or cancellation error. */ }
+    finally {
+        if (helperVideos.has(video)) {
+            video.remove();
+            helperVideos.delete(video);
+        }
+    }
+}
 export async function seekVideo(video, time, signal) {
     aborted(signal);
     const t = clamp(time, 0, Math.max(0, video.duration - 0.001));

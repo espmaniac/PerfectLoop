@@ -3,6 +3,7 @@ import { PHONE_PROFILES } from './wallpaper.js';
 
 export const $ = selector => document.querySelector(selector);
 export const $$ = selector => [...document.querySelectorAll(selector)];
+export const supportsPackageSave = () => globalThis.isSecureContext === true && typeof globalThis.showDirectoryPicker === 'function';
 export const escapeHTML = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 
 export function icon(name, size = 16) {
@@ -53,7 +54,7 @@ export function initializeFields() {
   $('#preset-field').innerHTML = selectField('preset', 'Destination preset', [['spotify', 'Spotify Canvas'], ['vertical', 'Vertical music visual'], ['iphone', 'iPhone wallpaper'], ['custom', 'Custom']]);
   $('#wallpaper-device-field').innerHTML = selectField('wallpaperDevice', 'Phone screen size', [...PHONE_PROFILES.map(profile => [profile.id, `${profile.name} · ${profile.width} × ${profile.height}`]), ['custom', 'Custom phone size']])
     + '<p class="micro">Representative phone sizes. Choose Custom for your display dimensions.</p>';
-  $('#wallpaper-download-field').innerHTML = selectField('kind', 'Wallpaper download', [['live-photo', 'Live Photo · ZIP'], ['image', 'Still wallpaper · JPG'], ['video', 'Video · MP4'], ['kit', 'Full wallpaper kit · ZIP']], { scope: 'wallpaper' })
+  $('#wallpaper-download-field').innerHTML = selectField('kind', 'Wallpaper download', [...(supportsPackageSave() ? [['pvt', 'Live Photo · PVT package']] : []), ['live-photo', 'Live Photo · ZIP'], ['image', 'Still wallpaper · JPG'], ['video', 'Video · MP4'], ['kit', 'Full wallpaper kit · ZIP']], { scope: 'wallpaper' })
     + '<p class="micro" id="wallpaper-download-note"></p>';
   $('#dimension-fields').innerHTML = numberField('width', 'Width', { min: 16, max: 3840, step: 2, suffix: 'px' }) + numberField('height', 'Height', { min: 16, max: 3840, step: 2, suffix: 'px' });
   $('#format-fields').innerHTML = selectField('fps', 'Frame rate', [12, 15, 24, 25, 30, 48, 50, 60].map(n => [n, `${n} fps`]), { numeric: true })

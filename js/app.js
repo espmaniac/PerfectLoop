@@ -4,24 +4,26 @@ import { alternateFormat, dimensionsForAspect, selectedAspect } from './aspect.j
 import { clamp, download, framePlan, humanSize, timecode, validate } from './logic.js';
 import { VideoEngine } from './engine.js';
 import { capture, inspectSeam, openVideo, releaseVideo, searchVideo, seekVideo, thumbnails } from './media.js';
+import { prepareVideoFile } from './source-file.js';
 import { Preview } from './preview.js';
 import { Timeline } from './timeline.js';
 import { WallpaperPreview } from './wallpaper-preview.js';
 import { keyPhotoTime, phoneProfile, wallpaperPreset, wallpaperRange } from './wallpaper.js';
-import { wallpaperDownload } from './wallpaper-export.js';
+import { saveWallpaperPackage, wallpaperDownload } from './wallpaper-export.js';
 import { createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, MAX_LAYERS } from './layers.js';
 import { LayerPanel } from './layer-panel.js';
 import { loadFont, importFontFile, discoverDeviceFonts, clearFonts } from './fonts.js';
-import { $, $$, decorateIcons, escapeHTML, icon, initializeFields } from './ui.js';
+import { $, $$, decorateIcons, escapeHTML, icon, initializeFields, supportsPackageSave } from './ui.js';
 
-// All application state is local to this page. No file is uploaded or persisted.
+// Source assets and edit state stay local to this page. Exports can be downloaded
+// or saved to a folder the user chooses. No source is uploaded.
 const emptyInfo = { name: '', duration: 0, width: 0, height: 0, fps: 0, hasAudio: false, size: 0 };
 const state = {
   s: { ...DEFAULTS }, info: { ...emptyInfo }, file: null,
   sourceURL: '', renderURL: '', render: null, renderSignature: '', lastExport: null,
   mode: 'source', tab: 'edit', playhead: 0, filmstrip: [], activeLayerId: '',
   renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
-  wallpaperScreen: 'editor', wallpaperDownload: 'live-photo', wallpaperPosterURL: '', wallpaperPosterSignature: '',
+  wallpaperScreen: 'editor', wallpaperDownload: supportsPackageSave() ? 'pvt' : 'live-photo', wallpaperPosterURL: '', wallpaperPosterSignature: '',
   opts: { from: 0, to: 18, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true },
   candidates: [], selected: new Set(), seam: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
@@ -333,7 +335,7 @@ function refresh() {
   $('#export-valid').innerHTML = icon('Check', 14) + (s.preset === 'spotify' ? 'Canvas format checks passed' : 'Ready to export')
     + (isGif ? s.gifLoop ? ' · loops forever · silent' : ' · plays once · silent' : s.audio === 'strip' ? ' · silent' : '');
   $('#long-loop-warning').hidden = plan.totalDuration <= 30;
-  $('#export-label').textContent = wallpaper ? state.wallpaperDownload === 'live-photo' ? 'Download Live Photo' : state.wallpaperDownload === 'kit' ? 'Download wallpaper kit' : state.wallpaperDownload === 'image' ? 'Download wallpaper JPG' : 'Download wallpaper MP4' : `Export ${s.format.toUpperCase()}`;
+  $('#export-label').textContent = wallpaper ? state.wallpaperDownload === 'pvt' ? 'Save Live Photo (.pvt)' : state.wallpaperDownload === 'live-photo' ? 'Download Live Photo ZIP' : state.wallpaperDownload === 'kit' ? 'Download wallpaper kit' : state.wallpaperDownload === 'image' ? 'Download wallpaper JPG' : 'Download wallpaper MP4' : `Export ${s.format.toUpperCase()}`;
   $('#download-result').hidden = !state.lastExport;
   if (state.lastExport) $('#download-meta').textContent = `${humanSize(state.lastExport.blob.size)} · ${state.lastExport.hasAudio ? 'With audio' : 'No audio track'}`;
   $$('[data-mode]').forEach(button => { const active = button.dataset.mode === state.mode; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
@@ -347,7 +349,9 @@ function refresh() {
     device: profile.chrome, posterURL: posterReady ? state.wallpaperPosterURL : '', disabled: busy(), draft: state.mode !== 'loop' || dirty() });
   $('#wallpaper-key-time').textContent = `${keyPhotoTime(plan.duration, s.fps, s.wallpaperPoster).toFixed(3)}s`;
   $('#wallpaper-range-note').textContent = `Finished cycle: ${plan.duration.toFixed(3)}s. A short 3-second cycle is recommended; this is preparation guidance, not a universal iOS limit.`;
-  $('#wallpaper-download-note').textContent = state.wallpaperDownload === 'live-photo' ? 'Created in this browser as a native Live Photo package. Open the Photos import guide below for the actions available on your system.'
+  $('#wallpaper-download-note').textContent = state.wallpaperDownload === 'pvt' ? 'Choose a folder to save a real .pvt package directly, without an archive. The package contains the paired photo, video, and metadata.'
+    : state.wallpaperDownload === 'live-photo' ? supportsPackageSave() ? 'Download an archive containing the native package. Choose PVT package to save it directly to a folder instead.'
+      : 'A .pvt is a package folder. This browser downloads it as ZIP; unpack it using the Photos import guide below. Direct package saving is unavailable here.'
     : state.wallpaperDownload === 'kit' ? 'Includes the browser-created Live Photo, a regular MP4, a still JPG, and Photos import instructions.'
       : state.wallpaperDownload === 'image' ? 'A static wallpaper from the chosen frame. Render preview to inspect the key photo.' : 'A regular silent video. Choose Live Photo to download the paired photo and motion files.';
   if (staticHome()) $('#preview-foot-message').textContent = posterReady ? 'Selected key photo. Home Screen wallpaper stays still.' : 'Draft still. Render preview to see the selected key photo.';
@@ -362,8 +366,12 @@ async function loadFile(file, sample = false) {
   if (!sample) { sampleController?.abort(); sampleController = undefined; }
   state.fileController?.abort(); state.controller?.abort(); preview.pause();
   renderFilmstripController?.abort();
-  clearWallpaperPoster(); state.wallpaperScreen = 'editor';
   const controller = new AbortController(); state.fileController = controller;
+  notice('Reading the selected video…');
+  try { file = await prepareVideoFile(file, controller.signal); }
+  catch (error) { if (!controller.signal.aborted) { notice(''); report(error); } return; }
+  if (controller.signal.aborted || state.fileController !== controller || busy()) return;
+  clearWallpaperPoster(); state.wallpaperScreen = 'editor';
   if (state.sourceURL) URL.revokeObjectURL(state.sourceURL);
   if (state.renderURL) URL.revokeObjectURL(state.renderURL);
   Object.assign(state, { file, info: { ...emptyInfo, name: file.name, size: file.size }, sourceURL: URL.createObjectURL(file), renderURL: '',
@@ -482,10 +490,18 @@ function chooseCandidate(id) {
   if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
 }
 async function runRender(isPreview) {
-  if (!state.file || validate(state.s, state.info).length || validateLayers(state.s.layers, state.s).length || !startJob(isPreview ? 'preview' : 'export', 'Preparing render…')) return;
+  const directPackage = !isPreview && state.s.preset === 'iphone' && state.wallpaperDownload === 'pvt';
+  if (!state.file || validate(state.s, state.info).length || validateLayers(state.s.layers, state.s).length || !startJob(isPreview ? 'preview' : 'export', directPackage ? 'Choose a destination folder…' : 'Preparing render…')) return;
   preview.pause(); const settings = { ...state.s }, wallpaper = settings.preset === 'iphone';
   const kind = state.wallpaperDownload, controller = state.controller;
   try {
+    let directory;
+    if (directPackage) {
+      if (!supportsPackageSave()) throw new Error('This browser cannot save package folders directly. Choose Live Photo ZIP instead.');
+      // The picker needs the original click's activation, before asynchronous rendering.
+      directory = await window.showDirectoryPicker({ mode: 'readwrite', id: 'perfectloop-live-photo' });
+      if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    }
     const result = await engine.render(state.file, settings, state.info, progress(isPreview ? 'preview' : 'export'), isPreview,
       wallpaper && !isPreview && kind !== 'video' ? { posterPercent: settings.wallpaperPoster } : null);
     if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -505,6 +521,13 @@ async function runRender(isPreview) {
       notice('Loop preview ready. Watch several repeats and inspect the seam.');
       if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
     } else {
+      if (directPackage) {
+        progress('export')(0.99, 'Saving the Live Photo package…');
+        const saved = await saveWallpaperPackage(result, directory, controller.signal);
+        state.lastExport = null;
+        notice(`Live Photo saved as ${saved.name}. Import the package into Apple Photos and check wallpaper motion on the target iPhone.`);
+        return;
+      }
       const exported = wallpaper ? await wallpaperDownload(result, kind, controller.signal) : result;
       if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
       state.lastExport = exported; download(exported.blob, exported.name);
@@ -753,7 +776,10 @@ document.addEventListener('change', event => { if (event.target.tagName === 'SEL
 document.addEventListener('focusout', event => { if (event.target.matches('[data-setting], [data-search]')) refreshBindings(); });
 $('#file-input').addEventListener('change', event => {
   const file = event.target.files[0];
-  if (file) /^image\/(png|jpeg|webp)$/i.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name) ? void openPhoto(file) : void loadFile(file);
+  if (file) {
+    const photo = !/^video\//i.test(file.type) && (/^image\//i.test(file.type) || /\.(png|jpe?g|webp|heic|heif)$/i.test(file.name));
+    if (photo) void openPhoto(file); else void loadFile(file);
+  }
   event.target.value = '';
 });
 

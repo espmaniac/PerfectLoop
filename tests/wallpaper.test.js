@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { DEFAULTS, METHODS } from '../js/constants.js';
 import { framePlan, validate } from '../js/logic.js';
 import { PHONE_PROFILES, keyPhotoTime, phoneProfile, wallpaperPreset, wallpaperRange } from '../js/wallpaper.js';
-import { wallpaperDownload } from '../js/wallpaper-export.js';
+import { saveWallpaperPackage, wallpaperDownload } from '../js/wallpaper-export.js';
 
 let native = true;
 try {
@@ -207,4 +207,150 @@ test('Cancelling either wallpaper package rejects before packaging and after asy
         await assert.rejects(wallpaperDownload(result, kind, during.signal), { name: 'AbortError' });
         assert.equal(result.blob.size, 0, 'The original result is not replaced by a partial package');
     }
+});
+
+function nativeWallpaper(t) {
+    const dir = mkdtempSync(join(tmpdir(), 'perfectloop-direct-pvt-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const mp4 = join(dir, 'source.mp4'), mov = join(dir, 'source.mov'), jpg = join(dir, 'source.jpg');
+    run(['-f', 'lavfi', '-i', 'testsrc2=s=96x144:r=30:d=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-an', mp4]);
+    run(['-i', mp4, '-map', '0:v:0', '-c:v', 'copy', '-an', '-map_metadata', '-1', mov]);
+    run(['-ss', '1.5', '-i', mp4, '-frames:v', '1', '-q:v', '2', jpg]);
+    return { dir, mp4, jpg, result: { name: 'flowers-loop.mp4', blob: blob(mp4), width: 96, height: 144,
+        duration: 3, fps: 30, wallpaper: { jpeg: blob(jpg), mov: blob(mov), stillTime: 1.5 } } };
+}
+
+function memoryFolder(hooks = {}) {
+    const entries = new Map();
+    const removed = [], abortedWrites = [];
+    const parent = {
+        entries, removed, abortedWrites,
+        async getDirectoryHandle(name, options = {}) {
+            await hooks.lookup?.(name, options);
+            if (entries.has(name)) {
+                const entry = entries.get(name);
+                if (entry.kind !== 'directory') throw new DOMException('A file already has that name.', 'TypeMismatchError');
+                return entry;
+            }
+            if (!options.create) throw new DOMException('No such entry.', 'NotFoundError');
+            const directory = {
+                kind: 'directory', files: new Map(),
+                async getFileHandle(filename, options) {
+                    assert.equal(options.create, true);
+                    if (!this.files.has(filename)) this.files.set(filename, null);
+                    return { async createWritable() {
+                        let pending;
+                        return {
+                            async write(source) {
+                                assert.ok(source instanceof Blob, 'Real media blobs are written without ZIP packaging');
+                                pending = source;
+                                await hooks.write?.(filename, source);
+                            },
+                            async close() {
+                                await hooks.close?.(filename);
+                                directory.files.set(filename, pending);
+                            },
+                            async abort() { abortedWrites.push(filename); pending = undefined; },
+                        };
+                    } };
+                },
+            };
+            entries.set(name, directory);
+            return directory;
+        },
+        async removeEntry(name, options) {
+            assert.equal(options.recursive, true);
+            await hooks.remove?.(name);
+            removed.push(name);
+            entries.delete(name);
+        },
+    };
+    return parent;
+}
+
+test('Direct PVT saves write one actual package with paired media and no archive', { skip: !native }, async t => {
+    const { dir, mp4, jpg, result } = nativeWallpaper(t);
+    const parent = memoryFolder();
+    const output = await saveWallpaperPackage(result, parent);
+    assert.match(output.name, /^flowers-live-photo-[0-9a-f-]{36}\.pvt$/);
+    assert.equal(output.blob, undefined, 'Direct export returns a saved package, not an archive to download');
+    assert.equal(parent.entries.size, 1);
+    const files = parent.entries.get(output.name).files;
+    assert.deepEqual([...files.keys()].sort(), ['metadata.plist', 'photo.jpg', 'photo.mov']);
+    assert.equal(output.bytes, [...files.values()].reduce((sum, source) => sum + source.size, 0));
+    assert.match(await files.get('metadata.plist').text(), /<key>PFVideoComplementMetadataVersionKey<\/key>\s*<string>1<\/string>/);
+    for (const [name, source] of files) writeFileSync(join(dir, name), new Uint8Array(await source.arrayBuffer()));
+    const media = probe(join(dir, 'photo.mov'));
+    assert.equal(media.format.tags['com.apple.quicktime.content.identifier'], output.identifier);
+    assert.ok(readFileSync(join(dir, 'photo.jpg')).includes(Buffer.from(output.identifier)));
+    assert.equal(media.streams.find(stream => stream.codec_tag_string === 'mebx').start_time, '1.500000');
+    assert.equal(media.streams.some(stream => stream.codec_type === 'audio'), false);
+    const decoded = path => run(['-i', path, '-map', '0:v:0', '-f', 'md5', 'pipe:1']).toString();
+    assert.equal(decoded(join(dir, 'photo.mov')), decoded(mp4));
+    assert.equal(decoded(join(dir, 'photo.jpg')), decoded(jpg));
+});
+
+test('Direct PVT saving preserves existing packages and files with colliding names', { skip: !native }, async t => {
+    const { result } = nativeWallpaper(t);
+    t.mock.method(crypto, 'getRandomValues', bytes => bytes.fill(0x23));
+    const stem = 'flowers-live-photo-23232323-2323-4323-a323-232323232323';
+    const parent = memoryFolder();
+    const existing = { kind: 'directory', files: new Map([['photo.jpg', new Blob(['user photo'])]]) };
+    const file = { kind: 'file', blob: new Blob(['user file']) };
+    parent.entries.set(`${stem}.pvt`, existing);
+    parent.entries.set(`${stem}-2.pvt`, file);
+    const output = await saveWallpaperPackage(result, parent);
+    assert.equal(output.name, `${stem}-3.pvt`);
+    assert.equal(parent.entries.get(`${stem}.pvt`), existing);
+    assert.equal(await existing.files.get('photo.jpg').text(), 'user photo');
+    assert.equal(parent.entries.get(`${stem}-2.pvt`), file);
+    assert.equal(await file.blob.text(), 'user file');
+    assert.deepEqual(parent.removed, []);
+});
+
+test('Direct PVT saving rejects an unavailable or refused folder before creating a package', { skip: !native }, async t => {
+    const { result } = nativeWallpaper(t);
+    await assert.rejects(saveWallpaperPackage(result, undefined), /writable folder/);
+    const refused = memoryFolder({ lookup() { throw new DOMException('Write permission denied.', 'NotAllowedError'); } });
+    await assert.rejects(saveWallpaperPackage(result, refused), { name: 'NotAllowedError' });
+    assert.equal(refused.entries.size, 0);
+    const cancelled = new AbortController();
+    cancelled.abort();
+    const unused = memoryFolder();
+    await assert.rejects(saveWallpaperPackage(result, unused, cancelled.signal), { name: 'AbortError' });
+    assert.equal(unused.entries.size, 0);
+    const invalid = memoryFolder();
+    await assert.rejects(saveWallpaperPackage({ ...result, wallpaper: undefined }, invalid), /not ready/);
+    assert.equal(invalid.entries.size, 0, 'Invalid paired media never creates a partial package');
+});
+
+test('Interrupted PVT writes remove their partial package and identify any cleanup failure', { skip: !native }, async t => {
+    const { result } = nativeWallpaper(t);
+    const cancelled = new AbortController();
+    const duringWrite = memoryFolder({ write(filename) { if (filename === 'photo.mov') cancelled.abort(); } });
+    await assert.rejects(saveWallpaperPackage(result, duringWrite, cancelled.signal), { name: 'AbortError' });
+    assert.equal(duringWrite.entries.size, 0);
+    assert.equal(duringWrite.removed.length, 1);
+    assert.deepEqual(duringWrite.abortedWrites, ['photo.mov']);
+
+    const writeFailure = new DOMException('The disk is full.', 'QuotaExceededError');
+    const full = memoryFolder({ close(filename) { if (filename === 'photo.mov') throw writeFailure; } });
+    await assert.rejects(saveWallpaperPackage(result, full), error => error === writeFailure);
+    assert.equal(full.entries.size, 0);
+    assert.equal(full.removed.length, 1);
+
+    const blockedCancellation = new AbortController();
+    const blocked = memoryFolder({
+        write() { blockedCancellation.abort(); },
+        remove() { throw new DOMException('Folder access was revoked.', 'NotAllowedError'); },
+    });
+    await assert.rejects(saveWallpaperPackage(result, blocked, blockedCancellation.signal), error => {
+        assert.equal(error.name, 'Error', 'An unremoved partial package is not reported as a clean cancellation');
+        assert.equal(error.cause.name, 'AbortError');
+        assert.equal(error.cleanupError.name, 'NotAllowedError');
+        assert.ok(blocked.entries.has(error.partialPackageName));
+        assert.ok(error.message.includes(error.partialPackageName));
+        assert.match(error.message, /Delete that package/);
+        return true;
+    });
 });

@@ -1,6 +1,6 @@
 # iPhone wallpaper preparation
 
-PerfectLoop creates the Live Photo entirely in your browser: the still image, finished motion video, pairing identifier, timed key-photo marker, and native package. A compatible browser on a phone or computer can create and download these files. No third-party converter is required to create the result.
+PerfectLoop creates the Live Photo entirely in your browser: the still image, finished motion video, pairing identifier, timed key-photo marker, and native package. A compatible browser on a phone or computer can create and export these files. No third-party converter is required to create the result.
 
 Saving the downloaded package as one asset in Apple Photos is a separate operating-system import step. Browsers have no standard PhotoKit API to perform that import directly. A ZIP downloaded into Files is not automatically a Photos asset.
 
@@ -12,7 +12,7 @@ Saving the downloaded package as one asset in Apple Photos is a separate operati
 4. Choose the source range, loop method, framing, and layer animation. **Fit to a 3-second cycle** accounts for speed, dissolves, and ping-pong. Shorter sources remain within their available range. Three seconds is a practical starting point, not a verified universal iOS limit.
 5. Select **Render preview**. Use **Lock Screen** to review approximate clock placement and **Home Screen** to review a still background behind approximate app icons. **Editor** returns to the ordinary canvas. Source playback uses the ordinary canvas too.
 6. Set **Key photo** to a frame in the finished video. Changing this frame alone does not require another video preview render. Before a current render, the Home Screen shows a labeled draft.
-7. Choose **Download Live Photo** to generate the paired resources and native package locally, then download the ZIP.
+7. Use **Save Live Photo (.pvt)** in a browser with directory access, or **Download Live Photo ZIP** otherwise, to generate and export the native package locally.
 
 Actual wallpaper cropping, controls, motion eligibility, and playback depend on the device and iOS. Screen frames, clocks, and app icons are DOM overlays and never appear in exported photos or video.
 
@@ -20,12 +20,17 @@ Actual wallpaper cropping, controls, motion eligibility, and playback depend on 
 
 | Choice | Download |
 | --- | --- |
-| Live Photo · ZIP (default) | The browser-created native Live Photo package. Import instructions appear in Video settings. |
+| Live Photo · PVT package (when supported) | Saves a real native package directly to a chosen folder, without an archive. |
+| Live Photo · ZIP | Downloads the package inside a ZIP. Used by browsers without directory access, including Safari. |
 | Still wallpaper · JPG | The selected frame for a still Lock Screen or Home Screen wallpaper. |
 | Video · MP4 | The ordinary finished silent H.264 video. |
 | Full wallpaper kit · ZIP | The Live Photo package and instructions, plus the regular MP4 and still JPG. |
 
-The default download ends in `.pvt.zip` and contains:
+A `.pvt` is a directory package, displayed as a single package by supporting operating systems. It contains three files. Renaming ZIP bytes to `.pvt` does not create a native directory package.
+
+Direct saving uses the browser's directory picker, requested from the export click before rendering. It requires a secure context and directory access support. The resulting package uses a unique name and preserves existing files. Failed or cancelled saves remove their partial package; if deletion fails, the error identifies the package to remove. Safari and Firefox currently do not expose this API. Runtime support determines which choice appears in the editor.
+
+The ZIP download ends in `.pvt.zip` and contains:
 
 ```text
 live-photo.pvt/
@@ -90,3 +95,4 @@ Researched on 2026-10-06. Apple support, developer, and App Store pages were blo
 - [Reported iPhone/iPad Files import workflow](https://github.com/Hronrad/livephoto-forge/blob/41d2366f68dffad7a1be038de7613882b117d077/README.en.md) and [structural export tests](https://github.com/Hronrad/livephoto-forge/blob/41d2366f68dffad7a1be038de7613882b117d077/tests/test_web.py#L79). This report does not specify a tested iOS version or provide independent device verification.
 - [Mac Photos → iCloud → iPhone playback report](https://github.com/RhetTbull/makelive/issues/26#issuecomment-2708626042), distinguishing wallpaper failure from Photos playback.
 - [Modern wallpaper compatibility reports](https://github.com/LimitPoint/LivePhoto/issues/10).
+- [Native package type declarations](https://github.com/darlinghq/darling/blob/60ba801decee7a00782f74f6be4c8ffb013f79ff/src/frameworks/CoreServices/Info.plist#L2907), [directory-picker browser support](https://github.com/mdn/browser-compat-data/blob/03b0ca395986fbff181b2731ad8b73a58ddc84d2/api/Window.json), and [File System Access requirements](https://github.com/WICG/file-system-access/blob/93119927fa7a678c1863996f6f3a32d9ac53943d/index.bs#L330).

@@ -90,7 +90,9 @@ Select **iPhone wallpaper** in **Destination preset**. Choose a phone size or en
 
 Use **Lock Screen** to preview the motion behind approximate clock and phone controls. **Home Screen** shows a still image behind approximate app icons. Select **Render preview** to see the processed video, then use **Key photo** to choose its still frame. Phone frames, clocks, and icons are preview overlays and never appear in downloaded media.
 
-**Live Photo · ZIP** is the default download. PerfectLoop creates the paired JPEG/MOV, key-photo metadata, and native `.pvt` package on this site, without a third-party converter. Creation and download work in a compatible browser on a phone or computer; saving the finished result into Apple Photos is a separate system import step.
+PerfectLoop creates the paired JPEG/MOV, key-photo metadata, and native `.pvt` package on this site, without a third-party converter. Browsers with directory access offer **Live Photo · PVT package** by default: select a destination folder, and the site saves the real package directly without an archive. Existing packages are preserved, and interrupted writes remove the partial package. If cleanup fails, the error identifies the folder to remove.
+
+Safari, including iPhone, and browsers without directory access use **Live Photo · ZIP**. A `.pvt` is a package folder, so downloading an ordinary file with that extension cannot replace the folder's structure. Creation and export work in a compatible browser on a phone or computer; saving the finished result into Apple Photos is a separate system import step.
 
 On iPhone/iPad, try saving the ZIP to Files, choosing **Uncompress**, opening `live-photo.pvt`, and using **Save to Photos** if the system offers it. This action depends on iOS and is not guaranteed. On a Mac, import the package or its paired files together into the built-in Photos app, verify one Live Photo, then sync with iCloud Photos or share that asset from Photos via AirDrop. The full kit also includes an ordinary MP4 and still JPG.
 
@@ -103,6 +105,8 @@ Search scores estimate visual similarity; they do not guarantee a smooth transit
 Processing speed and available memory depend on the browser and device. Large resolutions, long clips, ping-pong buffers, and motion interpolation take more resources. Short clips at moderate resolutions work best.
 
 Source playback depends on browser codec support. If a file cannot play, use **Create proxy**. Exports still read the original file; retained audio is taken from the original source.
+
+When opening a video, the editor checks a small readable prefix before replacing the current project and repairs missing MIME information for known video containers. An empty or unavailable Photos/iCloud selection keeps the previous project and explains how to retry. Frame readers remain attached to the document while waiting for decoded frames, then are removed after reading or cancellation. These measures improve Safari loading; a Photo Library file may still differ from the file selected through Files because iOS can supply a converted or temporary representation.
 
 ## License
 
