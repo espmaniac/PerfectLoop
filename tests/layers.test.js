@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTextLayer, duplicateLayer, importImageLayer, discardImportedImageLayer, clearLayerAssets, angleTrajectory, layerPosition, layerRotation, rasterizeLayers, validateLayers, MAX_LAYERS, MAX_TEXT_LENGTH } from '../js/layers.js';
+import { createTextLayer, duplicateLayer, importImageLayer, discardImportedImageLayer, clearLayerAssets, angleTrajectory, layerPosition, layerRotation, animationCycles, animationProgress, rasterizeLayers, validateLayers, MAX_LAYERS, MAX_TEXT_LENGTH, MAX_ANIMATION_CYCLES } from '../js/layers.js';
 
 test('Layers retain their settings when duplicated and receive independent IDs', () => {
     const original = Object.freeze({ ...createTextLayer(), text: 'Rotating title', rotation: 37, opacity: 65, x: 20, y: 80, motion: 'up' });
@@ -100,6 +100,98 @@ test('Spin is independent of movement and duplication preserves both animation s
         const position = layerPosition(moving, 320, 180, 1, 4, bounds);
         assert.deepEqual(layerPosition({ ...moving, spin: 'counterclockwise' }, 320, 180, 1, 4, bounds), position);
         assert.deepEqual(layerPosition({ ...moving, spin: 'none' }, 320, 180, 1, 4, bounds), position, 'Spin never changes the movement phase for the same safe sprite bounds');
+    }
+});
+
+test('Movement and spin cycle counts default independently, survive duplication, and reject invalid inactive settings', async () => {
+    const initial = createTextLayer();
+    assert.equal(initial.motionCycles, 1);
+    assert.equal(initial.spinCycles, 1);
+    const legacy = { ...initial };
+    delete legacy.motionCycles;
+    delete legacy.spinCycles;
+    assert.equal(animationCycles(legacy, 'motion'), 1);
+    assert.equal(animationCycles(legacy, 'spin'), 1);
+    assert.deepEqual(validateLayers([legacy]), []);
+    const original = Object.freeze({ ...initial, motion: 'right', spin: 'clockwise', motionCycles: 2, spinCycles: 3 });
+    const copy = duplicateLayer(original);
+    assert.equal(copy.motionCycles, 2);
+    assert.equal(copy.spinCycles, 3);
+    const edited = Object.freeze({ ...copy, motionCycles: 3, spinCycles: 10 });
+    assert.equal(original.motionCycles, 2);
+    assert.equal(original.spinCycles, 3);
+    assert.equal(copy.motionCycles, 2);
+    assert.equal(edited.spinCycles, MAX_ANIMATION_CYCLES);
+    for (const field of ['motionCycles', 'spinCycles']) {
+        for (const count of [1, 2, 3, MAX_ANIMATION_CYCLES])
+            assert.deepEqual(validateLayers([{ ...initial, [field]: count }]), []);
+        for (const value of [null, '2', '', NaN, Infinity, -Infinity, 0, -1, 1.5, MAX_ANIMATION_CYCLES + 1]) {
+            const invalid = { ...initial, [field]: value, visible: false, opacity: 0 };
+            assert.equal(animationCycles(invalid, field === 'motionCycles' ? 'motion' : 'spin'), 1, 'Partially edited settings preserve a valid preview rate');
+            assert.ok(validateLayers([invalid]).some(issue => /cycles must be a whole number/i.test(issue)));
+            await assert.rejects(rasterizeLayers([invalid], { width: 96, height: 72 }), /cycles must be a whole number/i, 'Inactive hidden layers still receive export validation');
+        }
+    }
+});
+
+test('Multiple movement and spin cycles complete their subcycles independently and preserve the full-period boundary', () => {
+    const close = (actual, expected) => Math.abs(actual.x - expected.x) < 1e-7 && Math.abs(actual.y - expected.y) < 1e-7;
+    const angleDifference = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+    const period = 6, bounds = { width: 45, height: 45 };
+    for (const type of ['text', 'image']) {
+        for (const count of [2, 3, 10]) {
+            for (const motion of ['right', 'left', 'down', 'up', 'along-angle', 'against-angle']) {
+                const single = { ...createTextLayer(), type, motion, rotation: 37, x: 35, y: 65, motionCycles: 1 };
+                const faster = { ...single, motionCycles: count, spinCycles: 3, spin: 'clockwise' };
+                const initial = layerPosition(faster, 320, 180, 0, period, bounds);
+                const subcycle = period / count;
+                assert.ok(close(layerPosition(faster, 320, 180, subcycle, period, bounds), initial), `${type}, ${motion}, ${count} cycles: one subcycle returns to its start`);
+                assert.deepEqual(layerPosition(faster, 320, 180, period, period, bounds), initial);
+                for (const time of [subcycle / 4, period / 5, period - 0.0001, -subcycle / 4, period * 2 + subcycle / 4]) {
+                    const actual = layerPosition(faster, 320, 180, time, period, bounds);
+                    const expected = layerPosition(single, 320, 180, time * count, period, bounds);
+                    assert.ok(close(actual, expected), `${type}, ${motion}, ${count} cycles: phase agrees with repeated traversal`);
+                    assert.deepEqual(layerPosition({ ...faster, spinCycles: 10 }, 320, 180, time, period, bounds), actual, 'Changing rotation rate never changes movement');
+                }
+                const before = layerPosition(faster, 320, 180, period - 0.0001, period, bounds);
+                assert.ok(Math.hypot(before.x - initial.x, before.y - initial.y) < 0.08, 'The last traversal still approaches the first frame continuously');
+            }
+            for (const [spin, direction] of [['clockwise', 1], ['counterclockwise', -1]]) {
+                const faster = { ...createTextLayer(), type, rotation: 37, spin, spinCycles: count, motionCycles: 2, motion: 'right' };
+                const subcycle = period / count;
+                assert.ok(angleDifference(layerRotation(faster, subcycle / 4, period), (37 + direction * 90 + 360) % 360) < 1e-7);
+                assert.ok(angleDifference(layerRotation(faster, subcycle, period), 37) < 1e-7);
+                assert.equal(layerRotation(faster, period, period), 37);
+                assert.ok(angleDifference(layerRotation(faster, -subcycle / 4, period), (37 - direction * 90 + 360) % 360) < 1e-7);
+                assert.ok(angleDifference(layerRotation(faster, period - 0.0001, period), 37) < 0.061);
+                assert.equal(layerRotation({ ...faster, motionCycles: 10 }, subcycle / 4, period), layerRotation(faster, subcycle / 4, period), 'Changing movement rate never changes rotation');
+            }
+        }
+    }
+});
+
+test('Exact thirds restore the identical phase and odd sprite position without freezing nearby movement', () => {
+    const bounds = { width: 45, height: 45 };
+    for (const period of [1, 17 / 24, 118 / 60, 1.23456789]) {
+        for (const time of [period / 3, 2 * period / 3, -period / 3, period])
+            assert.equal(animationProgress(time, period, 3), 0, 'Exact subcycle boundaries eliminate floating-point residue');
+        const after = animationProgress(period / 3 + period * 1e-10 / 3, period, 3);
+        const before = animationProgress(period / 3 - period * 1e-10 / 3, period, 3);
+        assert.ok(after > 5e-11 && after < 1.5e-10, 'Movement outside the narrow precision tolerance continues');
+        assert.ok(before > 1 - 1.5e-10 && before < 1 - 5e-11);
+        for (const motion of ['right', 'left', 'down', 'up', 'along-angle', 'against-angle']) {
+            for (const spin of ['clockwise', 'counterclockwise']) {
+                const layer = { ...createTextLayer(), rotation: 37, motion, spin, motionCycles: 3, spinCycles: 3 };
+                const initial = layerPosition(layer, 96, 72, 0, period, bounds);
+                for (const time of [period / 3, 2 * period / 3, -period / 3, period]) {
+                    const point = layerPosition(layer, 96, 72, time, period, bounds);
+                    assert.deepEqual(point, initial, 'Every exact subcycle uses the identical geometry coefficients');
+                    assert.equal(Math.round(point.x - bounds.width / 2), Math.round(initial.x - bounds.width / 2));
+                    assert.equal(Math.round(point.y - bounds.height / 2), Math.round(initial.y - bounds.height / 2));
+                    assert.equal(layerRotation(layer, time, period), 37);
+                }
+            }
+        }
     }
 });
 

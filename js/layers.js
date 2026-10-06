@@ -1,6 +1,7 @@
 // Layer pixels and movement geometry are shared by canvas previews and exports.
 export const MAX_LAYERS = 8;
 export const MAX_TEXT_LENGTH = 500;
+export const MAX_ANIMATION_CYCLES = 10;
 const MAX_IMAGE_BYTES = 20 * 1024 ** 2;
 const MAX_IMAGE_PIXELS = 16 * 1024 ** 2;
 const MAX_SPRITE_SIDE = 4096;
@@ -17,7 +18,21 @@ let measurementContext;
 const id = () => globalThis.crypto?.randomUUID?.() || `layer-${Date.now().toString(36)}-${++sequence}`;
 const mod = (value, extent) => ((value % extent) + extent) % extent;
 const finite = (value, min, max) => Number.isFinite(value) && value >= min && value <= max;
-const base = () => ({ id: id(), visible: true, x: 50, y: 50, rotation: 0, opacity: 100, motion: 'none', spin: 'none' });
+const base = () => ({ id: id(), visible: true, x: 50, y: 50, rotation: 0, opacity: 100, motion: 'none', spin: 'none', motionCycles: 1, spinCycles: 1 });
+
+export function animationCycles(layer, kind) {
+    const value = layer?.[`${kind}Cycles`];
+    return Number.isInteger(value) && value >= 1 && value <= MAX_ANIMATION_CYCLES ? value : 1;
+}
+
+export function animationProgress(time, period, cycles = 1) {
+    // Reduce time before multiplying to keep long playback stable. Snap exact
+    // subcycle boundaries and normalize the phase to [0, 1), so every pass and
+    // turn starts with identical coefficients instead of accumulated residue.
+    const progress = cycles * mod(time, period) / period;
+    const nearest = Math.round(progress);
+    return (Math.abs(progress - nearest) < 1e-12 ? nearest : progress) % 1;
+}
 
 export function createTextLayer(settings = { width: 576, height: 1024 }) {
     const fontSize = Math.max(8, Math.floor(Math.min(64, settings.width / 8, settings.height / 6)));
@@ -114,6 +129,11 @@ export function validateLayers(layers, settings) {
             issues.push(`${label} animation direction is invalid.`);
         if (!spins.has(layer.spin === undefined ? 'none' : layer.spin))
             issues.push(`${label} spin direction is invalid.`);
+        for (const [kind, name] of [['motion', 'movement'], ['spin', 'rotation']]) {
+            const cycles = layer[`${kind}Cycles`];
+            if (cycles !== undefined && (!Number.isInteger(cycles) || !finite(cycles, 1, MAX_ANIMATION_CYCLES)))
+                issues.push(`${label} ${name} cycles must be a whole number between 1 and ${MAX_ANIMATION_CYCLES}.`);
+        }
         if (layer.type === 'text') {
             if (typeof layer.text !== 'string' || !layer.text.trim() || layer.text.length > MAX_TEXT_LENGTH)
                 issues.push(`${label} text must contain 1–${MAX_TEXT_LENGTH} characters.`);
@@ -175,8 +195,7 @@ export function layerPosition(layer, width, height, time, period, spriteBounds =
     let x = layer.x / 100 * width, y = layer.y / 100 * height;
     if (!(period > 0) || !Number.isFinite(period) || !Number.isFinite(time))
         return { x, y };
-    // Reducing time before calculating distance also keeps long playback stable.
-    const progress = mod(time, period) / period;
+    const progress = animationProgress(time, period, animationCycles(layer, 'motion'));
     const trajectory = angleTrajectory(layer, width, height, spriteBounds?.width, spriteBounds?.height);
     if (trajectory) {
         const displacement = trajectory.min + mod(-trajectory.min + trajectory.distance * progress, trajectory.distance);
@@ -195,7 +214,7 @@ export function layerRotation(layer, time, period) {
     const direction = layer?.spin === 'clockwise' ? 1 : layer?.spin === 'counterclockwise' ? -1 : 0;
     if (!direction || !(period > 0) || !Number.isFinite(period) || !Number.isFinite(time))
         return mod(rotation, 360);
-    return mod(rotation + direction * 360 * mod(time, period) / period, 360);
+    return mod(rotation + direction * 360 * animationProgress(time, period, animationCycles(layer, 'spin')), 360);
 }
 
 function spinsLayer(layer) {

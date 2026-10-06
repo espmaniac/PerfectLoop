@@ -114,6 +114,9 @@ main { padding-top: 0; }
 .layer-controls .input-unit input { padding-inline: 10px 27px; }
 .layer-controls .input-unit > span { right: 9px; }
 .layer-controls textarea { width: 100%; min-height: 76px; resize: vertical; padding: 9px 11px; color: #eeeef0; background: rgba(0,0,0,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 13px; font-size: 13px; line-height: 1.5; }
+.layer-animation-speed { margin-bottom: 17px; }
+.layer-animation-speed .range-field { margin: 12px 0 6px; }
+.layer-speed-summary { display: block; font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .layer-motion-help { margin: 14px 3px 0; }
 .preview-panel { grid-column: 2; grid-row: 1; padding: 13px 15px 8px; overflow: hidden; }
 .preview-top { display: flex; align-items: center; gap: 10px; margin-bottom: 13px; min-height: 42px; }
