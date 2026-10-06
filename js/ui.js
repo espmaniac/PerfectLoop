@@ -3,9 +3,8 @@ import { PHONE_PROFILES } from './wallpaper.js';
 
 export const $ = selector => document.querySelector(selector);
 export const $$ = selector => [...document.querySelectorAll(selector)];
-// Direct package-folder saving is intentionally disabled. It behaves like a
-// folder picker on desktop and is unavailable on iPhone, which made it a poor
-// cross-device export option.
+// Package-folder saving is intentionally disabled. It behaves like a folder
+// picker on desktop and is unavailable on iPhone, so it is not a useful export.
 export const supportsPackageSave = () => false;
 export const escapeHTML = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 
@@ -57,8 +56,18 @@ export function initializeFields() {
   $('#preset-field').innerHTML = selectField('preset', 'Destination preset', [['spotify', 'Spotify Canvas'], ['vertical', 'Vertical music visual'], ['iphone', 'iPhone wallpaper'], ['custom', 'Custom']]);
   $('#wallpaper-device-field').innerHTML = selectField('wallpaperDevice', 'Phone screen size', [...PHONE_PROFILES.map(profile => [profile.id, `${profile.name} · ${profile.width} × ${profile.height}`]), ['custom', 'Custom phone size']])
     + '<p class="micro">Representative phone sizes. Choose Custom for your display dimensions.</p>';
-  $('#wallpaper-download-field').innerHTML = selectField('kind', 'Wallpaper download', [['live-photo', 'Live Photo · ZIP'], ['image', 'Still wallpaper · JPG'], ['video', 'Video · MP4']], { scope: 'wallpaper' })
-    + '<p class="micro" id="wallpaper-download-note"></p>';
+  $('#wallpaper-download-field').innerHTML = selectField('kind', 'Wallpaper download', [['video', 'Video wallpaper · MP4']], { scope: 'wallpaper' })
+    + '<p class="micro" id="wallpaper-download-note">Downloads the finished silent MP4 directly. Package/ZIP exports were removed because browser-only Live Photo import was unreliable across desktop browsers and iPhone.</p>';
+  const installGuide = document.querySelector('.wallpaper-install-guide');
+  if (installGuide) installGuide.hidden = true;
+  // app.js initially falls back to the former ZIP mode when direct package save
+  // is unavailable. Run after its listeners are installed and switch state to MP4.
+  queueMicrotask(() => {
+    const select = document.querySelector('[data-wallpaper="kind"]');
+    if (!select) return;
+    select.value = 'video';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   $('#dimension-fields').innerHTML = numberField('width', 'Width', { min: 16, max: 3840, step: 2, suffix: 'px' }) + numberField('height', 'Height', { min: 16, max: 3840, step: 2, suffix: 'px' });
   $('#format-fields').innerHTML = selectField('fps', 'Frame rate', [12, 15, 24, 25, 30, 48, 50, 60].map(n => [n, `${n} fps`]), { numeric: true })
     + selectField('format', 'Format', [['mp4', 'MP4 · H.264'], ['webm', 'WebM · VP8'], ['gif', 'Animated GIF']]);
