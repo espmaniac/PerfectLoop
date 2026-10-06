@@ -1,5 +1,6 @@
 import { $, escapeHTML, icon } from './ui.js';
-import { MAX_LAYERS } from './layers.js';
+import { MAX_LAYERS, MAX_ANIMATION_CYCLES, animationCycles } from './layers.js';
+import { framePlan } from './logic.js';
 
 const MOTIONS = [
   ['none', 'Static'],
@@ -26,6 +27,28 @@ function selectField(key, label, options) {
   return `<label class="field"><span>${label}</span><select aria-label="${label}" data-layer-setting="${key}">${options.map(([value, text]) => `<option value="${value}">${text}</option>`).join('')}</select></label>`;
 }
 
+function animationSpeedField(kind, label) {
+  const key = `${kind}Cycles`;
+  const id = `layer-${key}`;
+  const note = kind === 'spin'
+    ? 'Whole turns return to the starting angle at the loop boundary.'
+    : 'Whole passes return to the starting position at the loop boundary.';
+  return `<div class="layer-animation-speed" data-layer-speed="${kind}" hidden>
+    <label class="range-field" for="${id}"><span>${label}</span><input id="${id}" type="range" min="1" max="${MAX_ANIMATION_CYCLES}" step="1" data-layer-setting="${key}" aria-describedby="${id}-summary ${id}-note"></label>
+    <output class="layer-speed-summary" id="${id}-summary" for="${id}"></output>
+    <p class="micro" id="${id}-note">${note}</p>
+  </div>`;
+}
+
+function animationSpeedSummary(kind, cycles, duration) {
+  const unit = kind === 'spin' ? 'turn' : 'pass';
+  const count = `${cycles} ${unit}${cycles === 1 ? '' : kind === 'spin' ? 's' : 'es'}/loop`;
+  if (!Number.isFinite(duration) || duration <= 0) return `${count} · choose a valid loop range to see speed`;
+  const speed = (kind === 'spin' ? 360 : 1) * cycles / duration;
+  const rate = Number(speed >= 0.001 ? speed.toFixed(3) : speed.toPrecision(3));
+  return `${count} · ${rate}${kind === 'spin' ? '°/s' : ` ${rate === 1 ? 'pass' : 'passes'}/s`}`;
+}
+
 function layerLabel(layer) {
   return layer.type === 'text' ? layer.text.trim() || 'Empty text' : layer.name || 'Image';
 }
@@ -50,8 +73,9 @@ export class LayerPanel {
       const key = input.dataset.layerSetting;
       const state = this.getState();
       if (!key || state.job || !state.activeLayerId) return;
-      if (input.type === 'number' && input.value === '') return;
-      const value = input.type === 'number' ? Number(input.value) : input.value;
+      const numeric = input.type === 'number' || input.type === 'range';
+      if (numeric && input.value === '') return;
+      const value = numeric ? Number(input.value) : input.value;
       if (typeof value === 'number' && !Number.isFinite(value)) return;
       this.updateLayer(state.activeLayerId, { [key]: value });
     };
@@ -119,8 +143,10 @@ export class LayerPanel {
       + `<div class="fields two">${numberField('x', 'Horizontal', 0, 100, '%', 0.1)}${numberField('y', 'Vertical', 0, 100, '%', 0.1)}</div>`
       + `<div class="fields two">${numberField('rotation', 'Rotation', -360, 360, '°')}${numberField('opacity', 'Opacity', 0, 100, '%')}</div>`
       + selectField('spin', 'Rotation animation', SPINS)
-      + `<p class="micro">Rotation sets the starting angle. Rotation animation completes one full turn per finished loop.</p>`
-      + selectField('motion', 'Movement', MOTIONS);
+      + `<p class="micro">Rotation sets the starting angle. Rotation speed controls how many full turns fit into each finished loop.</p>`
+      + animationSpeedField('spin', 'Rotation speed')
+      + selectField('motion', 'Movement', MOTIONS)
+      + animationSpeedField('motion', 'Movement speed');
   }
 
   refreshBindings() {
@@ -140,10 +166,20 @@ export class LayerPanel {
       } else if (!rotated && existing) existing.remove();
     });
     this.controls.querySelectorAll('[data-layer-setting]').forEach(input => {
-      if (input === document.activeElement && input !== movement && input !== spin) return;
+      if (input === document.activeElement && input !== movement && input !== spin && input.type !== 'range') return;
       const key = input.dataset.layerSetting;
-      const value = String(layer[key] ?? (key === 'spin' ? 'none' : ''));
+      const value = String(key === 'motionCycles' || key === 'spinCycles'
+        ? animationCycles(layer, key === 'motionCycles' ? 'motion' : 'spin')
+        : layer[key] ?? (key === 'spin' ? 'none' : ''));
       if (input.value !== value) input.value = value;
+    });
+    const duration = framePlan(state.s).duration;
+    this.controls.querySelectorAll('[data-layer-speed]').forEach(field => {
+      const kind = field.dataset.layerSpeed;
+      field.hidden = !layer[kind] || layer[kind] === 'none';
+      const output = field.querySelector('output');
+      const summary = animationSpeedSummary(kind, animationCycles(layer, kind), duration);
+      if (output.textContent !== summary) output.textContent = summary;
     });
   }
 }

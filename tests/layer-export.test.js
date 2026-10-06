@@ -362,3 +362,156 @@ test('FFmpeg spin follows the complete processed ping-pong period rather than th
         rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test('FFmpeg completes two, three and ten traversals on every movement path with ordinary cycle boundaries', { skip: !native }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'layer-movement-cycles-'));
+    const rate = 60, s = { ...settings, fps: rate };
+    const center = mask => {
+        assert.ok(mask.size > 15);
+        let x = 0, y = 0;
+        for (const value of mask) {
+            x += value % width;
+            y += Math.floor(value / width);
+        }
+        return { x: x / mask.size, y: y / mask.size };
+    };
+    try {
+        const png = sprite(dir, 0, [255, 0, 0, 255], true, 37);
+        for (const motionCycles of [2, 3, 10]) {
+            for (const [motion, directionX, directionY] of [['right', 1, 0], ['left', -1, 0], ['down', 0, 1], ['up', 0, -1], ['along-angle', 1, 1], ['against-angle', -1, -1]]) {
+                const moving = { ...layer, type: motionCycles === 3 || directionX < 0 ? 'image' : 'text', rotation: 37, motion, motionCycles };
+                const frames = render(dir, s, [{ ...png, layer: moving }], 1);
+                assert.equal(frames.length, rate + 1);
+                assert.deepEqual(frames[rate], frames[0], `${motion}, ${motionCycles}: the output period closes exactly`);
+                assert.deepEqual(frames[rate / motionCycles], frames[0], `${motion}, ${motionCycles}: every traversal returns to the original phase`);
+                const initial = redMask(frames[0]);
+                if (motion === 'along-angle' || motion === 'against-angle') {
+                    const start = center(initial), next = center(redMask(frames[1])), last = center(redMask(frames[rate - 1]));
+                    const trajectory = angleTrajectory(moving, width, height, png.width, png.height);
+                    for (const delta of [{ x: next.x - start.x, y: next.y - start.y }, { x: start.x - last.x, y: start.y - last.y }]) {
+                        const length = Math.hypot(delta.x, delta.y);
+                        assert.ok((delta.x * trajectory.dx + delta.y * trajectory.dy) / length > 0.985, 'Repeated traversals retain their physical direction');
+                        assert.ok(Math.abs(length - trajectory.distance * motionCycles / rate) < 1.5, 'The last-to-first step has the requested traversal speed');
+                    }
+                    assert.equal(redMask(frames[rate / (2 * motionCycles)]).size, 0, 'Re-entry still occurs outside the expanded sprite bounds');
+                }
+                else {
+                    for (const index of [1, rate / (2 * motionCycles), rate - 1]) {
+                        const dx = Math.round(directionX * width * motionCycles * index / rate), dy = Math.round(directionY * height * motionCycles * index / rate);
+                        assert.ok(maskOverlap(redMask(frames[index]), translated(initial, dx, dy)) > 0.7, `${motion}, ${motionCycles}: pixels follow the requested cycle count at frame ${index}`);
+                    }
+                }
+            }
+        }
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('FFmpeg spins text and image sprites two, three or ten times in either direction while retaining their starting phase', { skip: !native }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'layer-spin-cycles-'));
+    const rate = 60, s = { ...settings, fps: rate };
+    try {
+        for (const type of ['text', 'image']) {
+            const png = spinSprite(dir, type === 'image' ? 128 : 255);
+            for (const spinCycles of [2, 3, 10]) {
+                for (const [spin, direction] of [['clockwise', 1], ['counterclockwise', -1]]) {
+                    const spinning = { ...layer, type, rotation: -67, spin, spinCycles };
+                    const frames = render(dir, s, [{ ...png, layer: spinning }], 1);
+                    assert.equal(frames.length, rate + 1);
+                    assert.deepEqual(frames[rate], frames[0]);
+                    for (const index of [0, 1, rate / (2 * spinCycles), rate / spinCycles, rate - 1])
+                        assertSpriteAngle(frames[index], -67 + direction * 360 * spinCycles * index / rate, `${type}, ${spin}, ${spinCycles}: actual pixel orientation at frame ${index}`);
+                    assert.ok(maskOverlap(redMask(frames[rate / spinCycles]), redMask(frames[0])) > 0.99, 'Every completed turn preserves its starting phase');
+                }
+            }
+        }
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('FFmpeg combines two movement cycles with three independent spin cycles', { skip: !native }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'layer-independent-cycles-'));
+    const rate = 60, s = { ...settings, fps: rate };
+    try {
+        const png = spinSprite(dir);
+        const spinning = { ...layer, type: 'image', rotation: 37, spin: 'clockwise', spinCycles: 3, motionCycles: 2 };
+        const stationary = render(dir, s, [{ ...png, layer: spinning }], 1);
+        for (const motion of ['right', 'along-angle']) {
+            const moving = { ...spinning, motion };
+            const frames = render(dir, s, [{ ...png, layer: moving }], 1);
+            assert.deepEqual(frames[rate], frames[0]);
+            for (const index of [1, 5, 10, 15, 20, 30, 45, 59]) {
+                const point = layerPosition(moving, width, height, index / rate, 1, png);
+                const dx = Math.round(point.x - png.width / 2) - Math.round(width / 2 - png.width / 2);
+                const dy = Math.round(point.y - png.height / 2) - Math.round(height / 2 - png.height / 2);
+                let expected;
+                if (motion === 'right')
+                    expected = translated(redMask(stationary[index]), dx, dy);
+                else {
+                    expected = new Set();
+                    for (const value of redMask(stationary[index])) {
+                        const x = value % width + dx, y = Math.floor(value / width) + dy;
+                        if (x >= 0 && x < width && y >= 0 && y < height)
+                            expected.add(y * width + x);
+                    }
+                }
+                const actual = redMask(frames[index]);
+                if (expected.size > 10)
+                    assert.ok(maskOverlap(actual, expected) > 0.7, `${motion}: movement and spin retain independent phases at frame ${index}`);
+                else
+                    assert.ok(actual.size <= 10, 'Angle movement re-enters while the independently spinning sprite is invisible');
+            }
+        }
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('Multiple animation cycles use the processed ping-pong period and ignore video export repeats', { skip: !native }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'layer-cycles-period-'));
+    const rate = 60, s = { ...settings, fps: rate, method: 'pingpong', format: 'mp4', repeats: 7 };
+    try {
+        const png = sprite(dir, 0, [255, 0, 0, 255], true, 37);
+        const moving = { ...layer, type: 'text', rotation: 37, motion: 'right', motionCycles: 2 };
+        const frames = render(dir, s, [{ ...png, layer: moving }]);
+        assert.equal(frames.length, 118);
+        const initial = redMask(frames[0]);
+        assert.deepEqual(frames[59], frames[0], 'One traversal uses half of the processed forward-and-backward cycle');
+        for (const index of [1, 20, 117])
+            assert.ok(maskOverlap(redMask(frames[index]), translated(initial, Math.round(width * 2 * index / 118), 0)) > 0.7, 'Movement speed depends on the processed cycle rather than the source or repeated export duration');
+
+        const raw = spinSprite(dir);
+        const spinning = { ...layer, type: 'image', rotation: 37, spin: 'counterclockwise', spinCycles: 3 };
+        const turns = render(dir, s, [{ ...raw, layer: spinning }]);
+        assert.equal(turns.length, 118);
+        for (const index of [0, 1, 20, 59, 117])
+            assertSpriteAngle(turns[index], 37 - 360 * 3 * index / 118, 'Rotation speed depends on the complete processed ping-pong cycle');
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('Native exact-third boundaries restore identical pixels for odd-sized spinning sprites', { skip: !native }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'layer-exact-thirds-'));
+    const s = { ...settings, fps: 60, end: 0.7 };
+    try {
+        const png = spinSprite(dir);
+        assert.equal(png.width % 2, 1, 'The fixture exercises half-pixel centering');
+        for (const [motion, spin] of [['right', 'clockwise'], ['left', 'counterclockwise'], ['down', 'clockwise'], ['up', 'counterclockwise'], ['along-angle', 'clockwise'], ['against-angle', 'counterclockwise']]) {
+            const animated = { ...layer, type: spin === 'clockwise' ? 'text' : 'image', rotation: 37, motion, spin, motionCycles: 3, spinCycles: 3 };
+            const frames = render(dir, s, [{ ...png, layer: animated }], 1);
+            assert.equal(frames.length, 43);
+            for (const index of [14, 28, 42])
+                assert.deepEqual(frames[index], frames[0], `${motion}, ${spin}: frame ${index} returns without a one-pixel centering shift`);
+        }
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});

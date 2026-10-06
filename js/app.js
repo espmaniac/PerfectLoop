@@ -6,7 +6,7 @@ import { VideoEngine } from './engine.js';
 import { inspectSeam, openVideo, releaseVideo, searchVideo, thumbnails } from './media.js';
 import { Preview } from './preview.js';
 import { Timeline } from './timeline.js';
-import { createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, MAX_LAYERS } from './layers.js';
+import { createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, MAX_LAYERS } from './layers.js';
 import { LayerPanel } from './layer-panel.js';
 import { $, $$, decorateIcons, escapeHTML, icon, initializeFields } from './ui.js';
 
@@ -123,11 +123,14 @@ function refreshHeaderHint(issues, plan) {
   } else if (state.tab === 'layers') {
     const layer = s.layers.find(item => item.id === state.activeLayerId) || s.layers.at(-1);
     const spinning = layer?.spin === 'clockwise' || layer?.spin === 'counterclockwise';
+    const turns = animationCycles(layer, 'spin'), passes = animationCycles(layer, 'motion');
+    const turnText = `${turns} ${turns === 1 ? 'turn' : 'turns'}`, passText = `${passes} ${passes === 1 ? 'pass' : 'passes'}`;
     message = !layer ? 'Add text or an image, then choose its position, angle, and movement direction.'
-      : spinning && (layer.motion === 'along-angle' || layer.motion === 'against-angle') ? `This element spins once per loop while moving ${layer.motion === 'along-angle' ? 'along' : 'opposite'} its starting angle.`
-      : spinning ? `${layer.spin === 'clockwise' ? 'Clockwise' : 'Counterclockwise'} makes one full turn per finished loop. Rotation sets the starting angle; Movement controls its path.`
-      : layer.motion === 'along-angle' ? 'Along rotation moves in the direction of this element’s angle. Movement repeats once per finished loop.'
-      : layer.motion === 'against-angle' ? 'Against rotation moves opposite this element’s angle. Movement repeats once per finished loop.'
+      : spinning && layer.motion !== 'none' ? `This element completes ${turnText} and ${passText} per loop.${layer.motion === 'along-angle' || layer.motion === 'against-angle' ? ` Its path runs ${layer.motion === 'along-angle' ? 'along' : 'opposite'} the starting angle.` : ' Movement and rotation speeds are independent.'}`
+      : spinning ? `${layer.spin === 'clockwise' ? 'Clockwise' : 'Counterclockwise'} completes ${turnText} per finished loop. Rotation sets the starting angle.`
+      : layer.motion === 'along-angle' ? `Along rotation completes ${passText} per loop in the direction of this element’s angle.`
+      : layer.motion === 'against-angle' ? `Against rotation completes ${passText} per loop opposite this element’s angle.`
+      : layer.motion !== 'none' ? `Movement completes ${passText} per loop. Whole passes and turns keep the start and end aligned.`
       : layer.rotation % 360 ? 'Along rotation and Against rotation follow the element’s angle; screen directions follow the frame.'
       : 'Use Rotation animation to spin clockwise or counterclockwise. Movement controls the element’s path.';
   } else if (state.tab === 'find') {
