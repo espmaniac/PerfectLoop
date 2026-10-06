@@ -85,7 +85,7 @@
     ]
   }
   </script>
-  <script type="module" src="./js/app.js"></script>
+  <script type="module" src="./js/start.js"></script>
 </head>
 <body>
   <noscript>This video editor needs JavaScript enabled.</noscript>
@@ -215,9 +215,9 @@
             <div class="wallpaper-settings" id="wallpaper-settings" hidden>
               <div id="wallpaper-device-field"></div>
               <div class="wallpaper-photo-actions"><button class="btn secondary" data-action="open-photo"><span data-icon="ImagePlus" data-size="16"></span>Open photo</button><p class="micro">Turn a JPEG, PNG, or WebP photo into a gentle motion loop. You can add text and images in Layers.</p></div>
-              <label class="range-field"><span>Key photo <b id="wallpaper-key-time">1.500s</b></span><input type="range" min="0" max="100" step="1" data-setting="wallpaperPoster" data-number aria-label="Key photo position"></label>
+              <label class="range-field"><span>Key photo <b id="wallpaper-key-time">1.000s</b></span><input type="range" min="0" max="100" step="1" data-setting="wallpaperPoster" data-number aria-label="Key photo position"></label>
               <div id="wallpaper-download-field"></div>
-              <div class="wallpaper-duration-note"><p class="micro" id="wallpaper-range-note"></p><button class="text-btn" data-action="fit-duration">Fit to a 3-second cycle</button></div>
+              <div class="wallpaper-duration-note"><p class="micro" id="wallpaper-range-note"></p><button class="text-btn" data-action="fit-duration">Fit to a 2-second cycle</button></div>
               <details class="disclosure wallpaper-install-guide"><summary>Save the Live Photo to Apple Photos</summary><div class="disclosure-content micro"><p>PerfectLoop creates the Live Photo entirely in your browser. Export it on any device; importing the finished result into Apple Photos is a separate system step.</p><p><b>Direct PVT save:</b> where available, choose <b>Live Photo · PVT package</b> and select a destination folder. The site saves the real package directly, without an archive. A PVT is a package folder; Safari cannot save one directly and uses ZIP instead.</p><p><b>Try on iPhone or iPad:</b> save the ZIP to Files, touch and hold it, choose <b>Uncompress</b>, then open <b>live-photo.pvt</b>. Use <b>Save to Photos</b> if the system offers it. Verify one Live Photo and its motion. This import action depends on iOS and may not be available; it has not been verified on a physical iPhone by PerfectLoop. Windows/Linux users can transfer the ZIP to their iPhone for the same steps.</p><p><b>On a Mac:</b> import the saved PVT package into Photos, or unzip the download and import <b>live-photo.pvt</b>. If the package is not recognized, import both files inside it, <b>photo.jpg</b> and <b>photo.mov</b>, together. Verify one Live Photo, then sync with iCloud Photos or share that asset from Photos via AirDrop.</p><p>Browser exports cannot directly add a paired asset to Photos. The import is experimental, and modern iOS can show <b>Motion Not Available</b> when selecting an otherwise working Live Photo as wallpaper. Check on the target iPhone.</p><p>Home Screen wallpaper stays still. The phone frame, clock, and icons are preview overlays and are excluded from downloads.</p></div></details>
             </div>
             <div class="output-aspect">

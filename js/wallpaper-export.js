@@ -16,10 +16,18 @@ const metadataPlist = `<?xml version="1.0" encoding="UTF-8"?>
 
 function wallpaperBase(result) { return result.name.replace(/\.[^.]+$/, '').replace(/-loop$/, '') || 'wallpaper'; }
 
-function wallpaperMedia(result) {
+function wallpaperMedia(result, motion = true) {
   const { jpeg, mov, stillTime } = result.wallpaper || {};
-  if (!(jpeg instanceof Blob) || !(mov instanceof Blob) || !Number.isFinite(stillTime)) throw new Error('The wallpaper files are not ready. Export again.');
+  if (!(jpeg instanceof Blob) || (motion && !(mov instanceof Blob)) || !Number.isFinite(stillTime)) throw new Error('The wallpaper files are not ready. Export again.');
   return { jpeg, mov, stillTime };
+}
+
+function pairedDetails(result) {
+  const wallpaper = result.wallpaper || {};
+  const fps = wallpaper.fps ?? result.fps;
+  return { width: wallpaper.width ?? result.width, height: wallpaper.height ?? result.height, fps,
+    frames: wallpaper.frames ?? result.frames ?? Math.floor(result.duration * fps + 1e-6),
+    duration: wallpaper.duration ?? result.duration, codec: wallpaper.codec ?? result.codec ?? 'h264' };
 }
 
 async function pairedPackage(result, signal) {
@@ -29,11 +37,12 @@ async function pairedPackage(result, signal) {
   random[6] = (random[6] & 0x0f) | 0x40; random[8] = (random[8] & 0x3f) | 0x80;
   const hex = [...random].map(value => value.toString(16).padStart(2, '0')).join('');
   const identifier = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  const photo = await livePhotoJpeg(jpeg, identifier, result);
+  const details = pairedDetails(result);
+  const photo = await livePhotoJpeg(jpeg, identifier, details);
   aborted(signal);
-  const video = await livePhotoMov(mov, identifier, { stillTime, fps: result.fps });
+  const video = await livePhotoMov(mov, identifier, { ...details, stillTime });
   aborted(signal);
-  return { identifier, photo, video, plist: new Blob([metadataPlist], { type: 'application/xml' }) };
+  return { identifier, photo, video, details, plist: new Blob([metadataPlist], { type: 'application/xml' }) };
 }
 
 export async function wallpaperDownload(result, kind, signal) {
@@ -41,9 +50,9 @@ export async function wallpaperDownload(result, kind, signal) {
   if (!['video', 'image', 'live-photo', 'kit'].includes(kind)) throw new Error('Choose a wallpaper download format.');
   const base = wallpaperBase(result);
   if (kind === 'video') return { ...result, name: `${base}-wallpaper.mp4` };
-  const { jpeg, stillTime } = wallpaperMedia(result);
+  const { jpeg, stillTime } = wallpaperMedia(result, kind !== 'image');
   if (kind === 'image') return { ...result, blob: jpeg, name: `${base}-wallpaper.jpg`, hasAudio: false };
-  const { identifier, photo, video, plist } = await pairedPackage(result, signal);
+  const { identifier, photo, video, details, plist } = await pairedPackage(result, signal);
   const read = async source => {
     aborted(signal);
     const bytes = new Uint8Array(await source.arrayBuffer());
@@ -59,9 +68,9 @@ export async function wallpaperDownload(result, kind, signal) {
   if (kind === 'kit') {
     files['wallpaper.jpg'] = await read(jpeg);
     files['wallpaper.mp4'] = await read(result.blob);
-    files['README.txt'] = new TextEncoder().encode(wallpaperInstructions({ ...result, stillTime, kind }));
-    files['wallpaper-info.json'] = new TextEncoder().encode(JSON.stringify({ width: result.width, height: result.height,
-      duration: result.duration, fps: result.fps, keyPhotoTime: stillTime, assetIdentifier: identifier,
+    files['README.txt'] = new TextEncoder().encode(wallpaperInstructions({ ...details, stillTime, kind }));
+    files['wallpaper-info.json'] = new TextEncoder().encode(JSON.stringify({ width: details.width, height: details.height,
+      duration: details.duration, fps: details.fps, frames: details.frames, codec: details.codec, keyPhotoTime: stillTime, assetIdentifier: identifier,
       livePhotoImport: 'experimental', wallpaperEligibility: 'requires verification on the target iPhone' }, null, 2));
   }
   aborted(signal);

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULTS, METHODS } from '../js/constants.js';
 import { framePlan, validate } from '../js/logic.js';
-import { PHONE_PROFILES, keyPhotoTime, phoneProfile, wallpaperPreset, wallpaperRange } from '../js/wallpaper.js';
+import { PHONE_PROFILES, keyPhotoTime, phoneProfile, wallpaperCompatibilityProfile, wallpaperExportSettings, wallpaperPreset, wallpaperRange } from '../js/wallpaper.js';
 import { saveWallpaperPackage, wallpaperDownload } from '../js/wallpaper-export.js';
 
 let native = true;
@@ -16,6 +16,8 @@ try {
 } catch { native = false; }
 const run = args => execFileSync('ffmpeg', ['-v', 'error', '-y', '-threads', '1', '-filter_threads', '1', ...args], { maxBuffer: 4 * 1024 ** 2 });
 const probe = (path, args = ['-show_streams', '-show_format']) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', ...args, '-of', 'json', path], { maxBuffer: 4 * 1024 ** 2 }));
+const stillMarkerPacket = path => probe(path, ['-select_streams', 'd', '-show_packets', '-show_data']).packets
+    .find(packet => packet.data.includes('0000 0009 0000 0001 ff'));
 const blob = path => new Blob([readFileSync(path)]);
 const zipDirectoryAttributes = bytes => {
     const end = bytes.length - 22;
@@ -38,7 +40,7 @@ test('Wallpaper ranges produce a three-second cycle for every method, speed, and
             for (const speed of [0.25, 1, 4]) {
                 for (const transition of [0.01, 0.5, 30]) {
                     const settings = { ...DEFAULTS, method, fps, speed, transition, start: 40 };
-                    const range = wallpaperRange(settings, { duration: 100 });
+                    const range = wallpaperRange(settings, { duration: 100 }, 3);
                     assert.equal(range.start, 40, `${method}: preserve the chosen starting moment`);
                     assert.ok(range.end <= 100 && range.end > range.start);
                     const finished = framePlan({ ...settings, ...range }).duration;
@@ -57,7 +59,7 @@ test('Wallpaper ranges stay inside the source when starting near its end or usin
             for (const duration of [0.5, 2, 10]) {
                 for (const start of [-5, duration - 0.01, duration + 10]) {
                     const settings = { ...DEFAULTS, method, speed, transition: 30, start };
-                    const range = wallpaperRange(settings, { duration });
+                    const range = wallpaperRange(settings, { duration }, 3);
                     assert.ok(range.start >= 0 && range.end <= duration && range.end > range.start);
                     const output = framePlan({ ...settings, ...range }).duration;
                     assert.ok(output <= 3 + 1 / settings.fps + 1e-8);
@@ -79,7 +81,7 @@ test('iPhone presets use the selected phone size and one silent MP4 cycle while 
         assert.equal(next.width, profile.width);
         assert.equal(next.height, profile.height);
         assert.equal(next.wallpaperDevice, profile.id);
-        assert.equal(next.fps, 30);
+        assert.equal(next.fps, 60);
         assert.equal(next.format, 'mp4');
         assert.equal(next.audio, 'strip');
         assert.equal(next.repeats, 1);
@@ -87,6 +89,7 @@ test('iPhone presets use the selected phone size and one silent MP4 cycle while 
         assert.equal(next.layers, layers);
         assert.equal(next.speed, 4);
         assert.ok(next.end - next.start > 8, 'A valid wallpaper source range can exceed Spotify limits');
+        assert.ok(Math.abs(framePlan(next).duration - 2) <= 1 / 60, 'The recommended preset creates a two-second cycle');
         assert.deepEqual(validate(next, { duration: 100 }), []);
     }
     const custom = wallpaperPreset({ ...original, width: 1080, height: 2340 }, { duration: 100 }, 'custom');
@@ -94,6 +97,38 @@ test('iPhone presets use the selected phone size and one silent MP4 cycle while 
     assert.deepEqual([custom.width, custom.height], [1080, 2340]);
     assert.deepEqual(phoneProfile(custom), { id: 'custom', name: 'Custom phone size', width: 1080, height: 2340, chrome: 'island' });
     assert.deepEqual([original.preset, original.format, original.repeats, original.audio, original.fps], ['spotify', 'gif', 20, 'keep', 24]);
+});
+
+test('Live Photo profiles fit compatibility bounds without upscaling and retain framing to pixel precision', () => {
+    for (const [width, height] of [[1170, 2532], [1290, 2796], [750, 1334], [1080, 2340],
+        [576, 1024], [320, 240], [1920, 1080], [3840, 2160], [1000, 1000]]) {
+        const profile = wallpaperCompatibilityProfile({ width, height, fps: 24 });
+        assert.equal(profile.fps, 60);
+        assert.ok(profile.width <= 720 && profile.height <= 1560);
+        assert.ok(profile.width <= width && profile.height <= height);
+        assert.equal(profile.width % 2, 0);
+        assert.equal(profile.height % 2, 0);
+        assert.ok(Math.abs(profile.height - profile.width * height / width) < 4,
+            `${width} × ${height} retains the selected framing after even-pixel rounding`);
+    }
+    assert.deepEqual(wallpaperCompatibilityProfile({ width: 1080, height: 2340 }), { width: 720, height: 1560, fps: 60 });
+    assert.deepEqual(wallpaperCompatibilityProfile({ width: 576, height: 1024 }), { width: 576, height: 1024, fps: 60 });
+    assert.deepEqual(wallpaperCompatibilityProfile({ width: 3840, height: 16 }), { width: 720, height: 16, fps: 60 },
+        'Extremely thin footage retains the encoder minimum');
+    assert.deepEqual(wallpaperCompatibilityProfile({ width: NaN, height: '' }), { width: 16, height: 16, fps: 60 },
+        'The UI can describe a profile while size fields are incomplete');
+    const settings = { ...DEFAULTS, fps: 60, method: 'natural', start: 10 };
+    assert.deepEqual(wallpaperRange(settings, { duration: 100 }), { start: 10, end: 12 });
+    for (const fps of [24, 30, 60]) {
+        for (const method of METHODS.map(item => item.id)) {
+            const selected = { ...DEFAULTS, fps, method, start: 40 };
+            const actual = { ...selected, ...wallpaperCompatibilityProfile(selected) };
+            const range = wallpaperRange(actual, { duration: 100 });
+            assert.ok(Math.abs(framePlan({ ...actual, ...range }).duration - 2) <= 1 / 60,
+                `Fit uses the Live Photo frame rate for ${method}, even when settings select ${fps} fps`);
+            assert.equal(selected.fps, fps, 'Fitting the Live Photo range retains the selected frame rate for ordinary exports');
+        }
+    }
 });
 
 test('The first, middle, and final key photos select actual frames before the exclusive endpoint', () => {
@@ -108,6 +143,28 @@ test('The first, middle, and final key photos select actual frames before the ex
             assert.ok(Math.abs(time * fps - Math.round(time * fps)) < 1e-8);
         }
     }
+});
+
+test('Live Photo validation uses actual encoding settings while rejecting invalid user inputs', () => {
+    const info = { duration: 20 };
+    const slow = { ...DEFAULTS, preset: 'iphone', format: 'mp4', audio: 'strip', repeats: 1,
+        method: 'natural', start: 0, end: 2, fps: 1, width: 1170, height: 2532 };
+    assert.ok(validate(slow, info).includes('Select at least three output frames.'));
+    assert.deepEqual(validate(wallpaperExportSettings(slow), info), [],
+        'A valid low selected frame rate does not block the actual 60 fps Live Photo');
+    const large = { ...slow, method: 'pingpong', end: 3.1, fps: 60, width: 1290, height: 2796 };
+    assert.ok(validate(large, info).some(issue => issue.includes('too much memory')));
+    assert.deepEqual(validate(wallpaperExportSettings(large), info), [],
+        'Memory validation measures the smaller video that will actually be encoded');
+    for (const invalid of [{ width: NaN }, { width: 1171 }, { height: 15 }, { width: 4000 },
+        { height: Infinity }, { fps: NaN }, { fps: 0 }, { fps: 61 }, { fps: 24.5 }]) {
+        const original = { ...slow, fps: 30, ...invalid };
+        const output = wallpaperExportSettings(original);
+        assert.ok(validate(output, info).length > 0, `${JSON.stringify(invalid)} still rejects`);
+        for (const key of Object.keys(invalid)) assert.equal(output[key], original[key], `Invalid ${key} is retained`);
+    }
+    assert.equal(slow.fps, 1);
+    assert.deepEqual([large.width, large.height], [1290, 2796], 'Preparing an export does not modify preview settings');
 });
 
 test('Live Photo and wallpaper ZIPs contain a native PVT bundle with matching metadata and intact media', { skip: !native }, async t => {
@@ -126,6 +183,10 @@ test('Live Photo and wallpaper ZIPs contain a native PVT bundle with matching me
         const jpeg = new TrackedBlob([readFileSync(jpg)]), video = new TrackedBlob([readFileSync(mp4)]);
         const result = { blob: video, name: 'flowers-loop.mp4', width: 96, height: 144, duration: 3, fps: 30,
             hasAudio: false, wallpaper: { jpeg, mov: blob(mov), stillTime: 1.5 } };
+        if (kind === 'kit') {
+            Object.assign(result, { width: 1170, height: 2532, fps: 60, frames: 180 });
+            Object.assign(result.wallpaper, { width: 96, height: 144, fps: 30, frames: 90, duration: 3, codec: 'h264' });
+        }
         const output = await wallpaperDownload(result, kind);
         assert.equal(output.name, kind === 'live-photo' ? 'flowers-live-photo.pvt.zip' : 'flowers-wallpaper-kit.zip');
         assert.equal(output.blob.type, 'application/zip');
@@ -155,7 +216,7 @@ test('Live Photo and wallpaper ZIPs contain a native PVT bundle with matching me
         const identifier = media.format.tags['com.apple.quicktime.content.identifier'];
         assert.match(identifier, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
         assert.ok(readFileSync(pairJpg).includes(Buffer.from(identifier)), 'The paired JPEG contains the same identifier');
-        assert.equal(media.streams.find(stream => stream.codec_tag_string === 'mebx').start_time, '1.500000');
+        assert.equal(stillMarkerPacket(pairMov)?.pts_time, '1.500000');
         assert.equal(media.streams.find(stream => stream.codec_type === 'video').codec_name, 'h264');
         assert.equal(media.streams.some(stream => stream.codec_type === 'audio'), false);
         assert.equal(decoded(pairMov), decoded(mp4));
@@ -163,6 +224,8 @@ test('Live Photo and wallpaper ZIPs contain a native PVT bundle with matching me
         if (kind === 'kit') {
             const info = JSON.parse(readFileSync(join(extracted, 'wallpaper-info.json'), 'utf8'));
             assert.equal(info.assetIdentifier, identifier);
+            assert.deepEqual([info.width, info.height, info.fps, info.frames, info.codec], [96, 144, 30, 90, 'h264'],
+                'Pairing uses the actual motion profile rather than outer render settings');
             assert.equal(info.livePhotoImport, 'experimental');
             assert.match(info.wallpaperEligibility, /verification.*iPhone/);
             assert.equal(info.keyPhotoTime, 1.5);
@@ -185,6 +248,8 @@ test('Video and image downloads retain their original bytes and use the correct 
     assert.equal(image.blob.type, 'image/jpeg');
     assert.equal(image.name, 'flowers-wallpaper.jpg');
     assert.equal(image.hasAudio, false);
+    const stillOnly = await wallpaperDownload({ ...result, wallpaper: { jpeg, stillTime: 1.5 } }, 'image');
+    assert.equal(stillOnly.blob, jpeg, 'A plain JPG does not require Live Photo motion preparation');
     await assert.rejects(wallpaperDownload(result, 'unknown'), /download format/);
     for (const kind of ['live-photo', 'kit'])
         await assert.rejects(wallpaperDownload({ ...result, wallpaper: undefined }, kind), /not ready/);
@@ -283,7 +348,7 @@ test('Direct PVT saves write one actual package with paired media and no archive
     const media = probe(join(dir, 'photo.mov'));
     assert.equal(media.format.tags['com.apple.quicktime.content.identifier'], output.identifier);
     assert.ok(readFileSync(join(dir, 'photo.jpg')).includes(Buffer.from(output.identifier)));
-    assert.equal(media.streams.find(stream => stream.codec_tag_string === 'mebx').start_time, '1.500000');
+    assert.equal(stillMarkerPacket(join(dir, 'photo.mov'))?.pts_time, '1.500000');
     assert.equal(media.streams.some(stream => stream.codec_type === 'audio'), false);
     const decoded = path => run(['-i', path, '-map', '0:v:0', '-f', 'md5', 'pipe:1']).toString();
     assert.equal(decoded(join(dir, 'photo.mov')), decoded(mp4));
