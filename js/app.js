@@ -102,12 +102,59 @@ function refreshBindings() {
   $('[data-search="from"]').max = $('[data-search="to"]').max = state.info.duration;
   $('[data-search="to"]').min = state.opts.from; $('[data-search="max"]').min = state.opts.min;
 }
+function refreshHeaderHint(issues, plan) {
+  const { s, info } = state, issue = info.duration ? issues[0] : '';
+  let message;
+  if (!info.duration) {
+    message = 'Open a video to choose a range and build a loop.';
+  } else if (issue) {
+    if (issue.includes('Spotify Canvas must be 3–8')) {
+      const timing = s.method.includes('pingpong') ? ' after the forward and backward passes' : s.repeats > 1 ? ' including repeats' : '';
+      message = `Spotify Canvas only accepts 3–8 seconds. Your finished video is ${plan.totalDuration.toFixed(2)}s${timing}; adjust the range or choose Custom.`;
+    } else if (issue.includes('Spotify Canvas needs exact 9:16')) {
+      message = 'Spotify Canvas needs portrait 9:16 video, 720–1080 pixels tall. Adjust Video settings or choose Custom.';
+    } else if (issue === 'Use MP4 for Spotify Canvas.') {
+      message = 'Spotify Canvas accepts MP4 video. Select MP4 or choose Custom for WebM and GIF.';
+    } else if (issue.includes('Ping-pong would use too much memory')) {
+      message = 'Ping-pong keeps frames in memory to play them backward. Shorten the range or lower the resolution or frame rate.';
+    } else {
+      message = issue;
+    }
+  } else if (state.tab === 'layers') {
+    message = s.layers.length
+      ? 'Layer motion repeats once per finished loop. A rotated element keeps its angle while it moves.'
+      : 'Add text or an image, then choose its position, angle, and movement direction.';
+  } else if (state.tab === 'find') {
+    message = 'Auto find looks for matching moments. Preview a candidate to check whether the motion joins smoothly.';
+  } else if (state.tab === 'inspect') {
+    message = 'Compare the last and first frames, then watch a few repeats to check the join in motion.';
+  } else if (state.render && dirty()) {
+    message = 'Settings changed. Update preview to check the finished loop before exporting.';
+  } else if (s.format === 'gif') {
+    message = s.gifLoop
+      ? s.method.includes('pingpong')
+        ? 'A Ping-pong GIF stores both directions. Loop forever repeats the complete forward-and-backward cycle.'
+        : 'GIF stores one complete cycle. Loop forever repeats it; GIF exports have no audio.'
+      : 'Loop forever is off: the GIF plays one complete cycle and then stops.';
+  } else if (s.preset === 'spotify') {
+    message = 'Spotify Canvas accepts 3–8 seconds in portrait 9:16. The duration limit includes the loop method and all repeats.';
+  } else if (s.method.includes('pingpong')) {
+    message = 'Ping-pong plays forward, then backward, making each cycle nearly twice as long as the selected range.';
+  } else if (s.method === 'crossfade' || s.method === 'offset') {
+    message = 'A dissolve overlaps the end with the start, so the finished cycle is shorter than the selected range.';
+  } else {
+    message = 'Choose a range and loop method, then render preview to check how the end joins the start.';
+  }
+  const hint = $('#header-hint');
+  if (hint.textContent !== message) hint.textContent = message;
+  hint.parentElement.dataset.tone = issue ? 'warning' : 'tip';
+}
 function refresh() {
   const { s, info } = state, plan = framePlan(s), issues = info.duration ? [...validate(s, info), ...validateLayers(s.layers, s)] : ['Open a playable video to begin.'];
   const isGif = s.format === 'gif';
   const rendered = state.mode === 'loop' && state.render;
   const timelineInfo = rendered || info;
-  refreshStatus(); refreshBindings(); syncDisabled();
+  refreshStatus(); refreshBindings(); syncDisabled(); refreshHeaderHint(issues, plan);
   $('#source-meta').innerHTML = `<span class="file-name" title="${escapeHTML(info.name)}">${rendered ? 'Loop preview' : escapeHTML(info.name || 'Open a video to begin')}</span>`
     + (timelineInfo.duration ? `<span>${timecode(timelineInfo.duration)}</span><span>${timelineInfo.width} × ${timelineInfo.height}</span><span>${humanSize(rendered ? rendered.blob.size : info.size)}</span>` : '');
   $('#timeline-panel').setAttribute('aria-label', rendered ? 'Rendered loop timeline' : 'Source video timeline');
