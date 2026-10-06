@@ -4,6 +4,7 @@ import { audioGraph, framePlan, geometry, validate, videoGraph } from './logic.j
 import { rasterizeLayers, validateLayers } from './layers.js';
 import { layerOverlayGraph } from './layer-export.js';
 import { captureWallpaperStill } from './wallpaper-still.js';
+import { wallpaperExportSettings } from './wallpaper.js';
 const even = (n) => Math.max(16, Math.round(n / 2) * 2);
 const numberRate = (rate) => { const [a, b = '1'] = (rate || '0').split('/'); return Number(a) / Number(b) || 30; };
 export class VideoEngine {
@@ -43,7 +44,8 @@ export class VideoEngine {
         if (!this.loading)
             this.loading = (async () => {
                 onProgress(0, this.everLoaded ? 'Starting the video engine…' : 'Loading the video engine for the first time…');
-                const base = new URL('../vendor/ffmpeg/', import.meta.url);
+                const threaded = globalThis.crossOriginIsolated === true && typeof SharedArrayBuffer !== 'undefined';
+                const base = new URL(threaded ? '../vendor/ffmpeg-mt/' : '../vendor/ffmpeg/', import.meta.url);
                 // Store the unmodified WASM core as gzip so every hosted file fits
                 // GitHub's web uploader. The browser expands it once per page.
                 if (!this.wasmPromise) this.wasmPromise = (async () => {
@@ -59,7 +61,8 @@ export class VideoEngine {
                 })().catch(error => { this.wasmPromise = undefined; throw error; });
                 const wasmURL = await this.wasmPromise;
                 if (requestedWorker !== this.ff || this.cancelled) throw new DOMException('Cancelled', 'AbortError');
-                await requestedWorker.load({ coreURL: new URL('ffmpeg-core.js', base).href, wasmURL });
+                await requestedWorker.load({ coreURL: new URL('ffmpeg-core.js', base).href, wasmURL,
+                    ...(threaded ? { workerURL: new URL('ffmpeg-core.worker.js', base).href } : {}) });
                 this.everLoaded = true;
             })();
         try {
@@ -174,11 +177,15 @@ export class VideoEngine {
         }
     }
     async renderVideo(file, original, info, onProgress, preview = false, wallpaperOptions = null) {
-        const issues = [...validate(original, info), ...validateLayers(original.layers || [], original)];
+        const livePhoto = Boolean(wallpaperOptions && wallpaperOptions.livePhoto !== false);
+        const exportSettings = livePhoto ? wallpaperExportSettings(original) : original;
+        const issues = [...validate(exportSettings, info), ...validateLayers(original.layers || [], original)];
         if (issues.length)
             throw new Error(issues[0]);
         if (wallpaperOptions && (preview || original.format !== 'mp4'))
             throw new Error('Live Photo preparation requires a full-resolution MP4 export.');
+        if (livePhoto && (globalThis.crossOriginIsolated !== true || typeof SharedArrayBuffer === 'undefined'))
+            throw new Error('This browser could not start Live Photo export. Open the site in a full browser tab and reload, or choose JPG or MP4.');
         this.cancelled = false;
         const requestedWorker = this.ff;
         const checkCancelled = () => {
@@ -186,7 +193,7 @@ export class VideoEngine {
                 throw new DOMException('Cancelled', 'AbortError');
         };
         const ratio = preview ? Math.min(1, 360 / original.width, 640 / original.height) : 1;
-        const s = preview ? { ...original, width: even(original.width * ratio), height: even(original.height * ratio), quality: 'small', format: 'mp4', audio: original.format === 'gif' ? 'strip' : original.audio, repeats: 1, targetMB: 0, interpolate: original.interpolate } : { ...original };
+        const s = preview ? { ...original, width: even(original.width * ratio), height: even(original.height * ratio), quality: 'small', format: 'mp4', audio: original.format === 'gif' ? 'strip' : original.audio, repeats: 1, targetMB: 0, interpolate: original.interpolate } : { ...exportSettings };
         const plan = framePlan(s);
         try {
             if (original.layers?.some(layer => layer.visible))
@@ -264,15 +271,30 @@ export class VideoEngine {
                 const frameCount = Number(video.nb_frames) || Math.floor(duration * fps + 0.000001);
                 const lastFrame = Math.max(0, Math.min(frameCount - 1, Math.floor(duration * fps + 0.000001) - 1));
                 const stillTime = Math.round(lastFrame * Math.max(0, Math.min(100, percent)) / 100) / fps;
-                // Copy the completed video, including its layers and loop method. A
-                // terminal moov atom lets the pairing writer append Live Photo metadata.
-                await this.exec(['-i', result, '-map', '0:v:0', '-c:v', 'copy', '-an', '-map_metadata', '-1', '-f', 'mov', '-brand', 'qt  ', 'wallpaper.mov'], duration, 0.9, 0.95, 'Preparing the Live Photo video…', onProgress);
-                checkCancelled();
-                const mov = await this.ff.readFile('wallpaper.mov');
-                checkCancelled();
-                if (!(mov instanceof Uint8Array) || !mov.length)
-                    throw new Error('The wallpaper files could not be read.');
-                wallpaper = { mov: new Blob([mov.slice().buffer], { type: 'video/quicktime' }), stillTime };
+                wallpaper = { stillTime };
+                if (livePhoto) {
+                    // Modern wallpaper converters use 8-bit HEVC at 60 fps. Keep a
+                    // terminal moov so the pairing writer can append timed tracks.
+                    // The single-thread core's x265 build hangs; this runs only in
+                    // the isolated multithread core, with bounded encoder threads.
+                    await this.exec(['-i', result, '-map', '0:v:0', '-an', '-c:v', 'libx265', '-preset', 'ultrafast', '-crf', String(crf), '-profile:v', 'main', '-pix_fmt', 'yuv420p', '-tag:v', 'hvc1', '-threads', '1', '-x265-params', 'pools=none:frame-threads=1:wpp=0:bframes=0:rc-lookahead=0:keyint=60:min-keyint=60:scenecut=0', '-r', String(s.fps), '-frames:v', String(frameCount), '-video_track_timescale', '60000', '-movie_timescale', '60000', '-map_metadata', '-1', '-f', 'mov', '-brand', 'qt  ', 'wallpaper.mov'], duration, 0.9, 0.95, 'Preparing the Live Photo video…', onProgress);
+                    checkCancelled();
+                    const pairedOutput = await this.probe('wallpaper.mov');
+                    checkCancelled();
+                    const pairedVideo = pairedOutput.streams.find(stream => stream.codec_type === 'video');
+                    if (!pairedVideo || pairedVideo.codec_name !== 'hevc' || pairedVideo.codec_tag_string !== 'hvc1'
+                        || pairedVideo.width !== video.width || pairedVideo.height !== video.height
+                        || numberRate(pairedVideo.avg_frame_rate) !== s.fps || Number(pairedVideo.nb_frames) !== frameCount)
+                        throw new Error('The Live Photo video could not be prepared. Try a shorter cycle.');
+                    const mov = await this.ff.readFile('wallpaper.mov');
+                    checkCancelled();
+                    if (!(mov instanceof Uint8Array) || !mov.length)
+                        throw new Error('The wallpaper files could not be read.');
+                    wallpaper = { ...wallpaper, mov: new Blob([mov.slice().buffer], { type: 'video/quicktime' }),
+                        codec: pairedVideo.codec_name, width: pairedVideo.width, height: pairedVideo.height,
+                        fps: numberRate(pairedVideo.avg_frame_rate), frames: Number(pairedVideo.nb_frames),
+                        duration: Number(pairedOutput.format?.duration || pairedVideo.duration || duration) };
+                }
             }
             return { blob, name: `${file.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]/gi, '-').slice(0, 60) || 'video'}-${s.method}-loop.${s.format}`, duration, width: video.width || s.width, height: video.height || s.height, fps, frames: Number(video.nb_frames || plan.totalFrames), hasAudio: output.streams.some(st => st.codec_type === 'audio'), sourceFps: numberRate(probe.streams.find(st => st.codec_type === 'video')?.avg_frame_rate), ...(wallpaper ? { wallpaper } : {}) };
         }
@@ -310,7 +332,7 @@ export class VideoEngine {
             if (this.cancelled || requestedWorker !== this.ff)
                 throw new DOMException('Cancelled', 'AbortError');
         };
-        const duration = 3, fps = 30, frames = duration * fps;
+        const duration = 2, fps = 30, frames = duration * fps;
         try {
             await this.load(onProgress);
             checkCancelled();

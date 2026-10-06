@@ -73,12 +73,12 @@ The displayed **Finished loop** duration includes the loop method, speed, overla
 | --- | --- |
 | Spotify Canvas | Silent MP4 at 576 × 1024 and 30 fps, with checks for the finished 3–8 second loop. |
 | Vertical music visual | Short portrait visuals, with a suggested duration of up to 15 seconds. |
-| iPhone wallpaper | One silent portrait MP4 cycle, representative phone sizes or custom dimensions, key-photo selection, and wallpaper downloads. |
+| iPhone wallpaper | A suggested two-second cycle, phone-size previews, key-photo selection, and Live Photo or ordinary wallpaper downloads. |
 | Custom | Your own output dimensions, format, timing, and frame rate. |
 
 Select **Custom** under **Aspect ratio** to enter Width and Height directly. Use even dimensions from **16 to 3840 pixels**.
 
-MP4 uses H.264 with optional AAC audio. WebM uses VP8 with optional Opus audio. GIF exports are silent and contain one loop cycle; **Loop forever** controls whether playback repeats continuously or stops after that cycle. Video cycle counts and file-size targets do not apply to GIF.
+MP4 uses H.264 with optional AAC audio. The paired MOV inside a Live Photo uses the separate HEVC compatibility profile described below. WebM uses VP8 with optional Opus audio. GIF exports are silent and contain one loop cycle; **Loop forever** controls whether playback repeats continuously or stops after that cycle. Video cycle counts and file-size targets do not apply to GIF.
 
 **Muting the preview does not remove export audio.** Choose the audio-removal option in **Video settings** to create a video with no audio stream.
 
@@ -86,23 +86,29 @@ Review [Spotify's Canvas guidelines](https://support.spotify.com/us/artists/arti
 
 ## Prepare an iPhone wallpaper
 
-Select **iPhone wallpaper** in **Destination preset**. Choose a phone size or enter custom dimensions, then open a video or choose **Open photo** to make a gentle three-second zoom loop from a JPEG, PNG, or WebP photo. Text and image layers, movement, rotation, framing, and loop methods work with wallpaper exports.
+Select **iPhone wallpaper** in **Destination preset**. Choose a phone size or enter custom dimensions, then open a video or choose **Open photo** to make a gentle two-second zoom loop from a JPEG, PNG, or WebP photo. The preset suggests a two-second selection; **Fit to a 2-second cycle** adjusts the source range for the loop method and speed. Text and image layers, movement, rotation, and framing work with wallpaper exports.
 
 Use **Lock Screen** to preview the motion behind approximate clock and phone controls. **Home Screen** shows a still image behind approximate app icons. Select **Render preview** to see the processed video, then use **Key photo** to choose its still frame. Phone frames, clocks, and icons are preview overlays and never appear in downloaded media.
 
-PerfectLoop creates the paired JPEG/MOV, key-photo metadata, and native `.pvt` package on this site, without a third-party converter. Browsers with directory access offer **Live Photo · PVT package** by default: select a destination folder, and the site saves the real package directly without an archive. Existing packages are preserved, and interrupted writes remove the partial package. If cleanup fails, the error identifies the folder to remove.
+PerfectLoop creates the paired JPEG/MOV, timed frame and key-photo metadata, and native `.pvt` package on this site, without a third-party converter. Live Photo exports use silent HEVC Main, 8-bit video at 60 fps, scaled down to at most 720 × 1560 while preserving the selected aspect ratio. They do not upscale smaller output sizes. The full kit's MP4 and JPG use this same size; standalone **Video · MP4** and **Still wallpaper · JPG** keep your selected dimensions.
+
+The generated timing records describe the exported frames with identity geometry and their actual timestamps. They are not measurements of the source camera's motion. PerfectLoop does not copy donor sensor recordings or add a fake camera identity or GPS location.
+
+Browsers with directory access offer **Live Photo · PVT package** by default: select a destination folder, and the site saves the real package directly without an archive. Existing packages are preserved, and interrupted writes remove the partial package. If cleanup fails, the error identifies the folder to remove.
 
 Safari, including iPhone, and browsers without directory access use **Live Photo · ZIP**. A `.pvt` is a package folder, so downloading an ordinary file with that extension cannot replace the folder's structure. Creation and export work in a compatible browser on a phone or computer; saving the finished result into Apple Photos is a separate system import step.
 
-On iPhone/iPad, try saving the ZIP to Files, choosing **Uncompress**, opening `live-photo.pvt`, and using **Save to Photos** if the system offers it. This action depends on iOS and is not guaranteed. On a Mac, import the package or its paired files together into the built-in Photos app, verify one Live Photo, then sync with iCloud Photos or share that asset from Photos via AirDrop. The full kit also includes an ordinary MP4 and still JPG.
+On iPhone/iPad, try saving the ZIP to Files, choosing **Uncompress**, opening `live-photo.pvt`, and using **Save to Photos** if the system offers it. This action depends on iOS and is not guaranteed. On a Mac, import the package or its paired files together into the built-in Photos app, verify one Live Photo, then sync with iCloud Photos or share that asset from Photos via AirDrop. The full kit also includes an MP4 and still JPG at the compatibility size.
 
-Import and wallpaper eligibility are experimental: native package support does not guarantee an import action is available in Files, and correct pairing metadata does not guarantee modern iOS will animate the result as Lock Screen wallpaper. These steps have not been verified on a physical iPhone by PerfectLoop. Home Screen wallpaper stays still; iOS controls Lock Screen motion. Three seconds is a practical starting point, not an enforced universal iOS duration limit. See [format details, import steps, and research sources](./docs/iphone-wallpapers.md).
+Import and wallpaper eligibility are experimental: native package support does not guarantee an import action is available in Files, and correct metadata does not guarantee modern iOS will animate the result as Lock Screen wallpaper. PerfectLoop has not verified these outcomes on a physical iPhone. Home Screen wallpaper stays still; iOS controls Lock Screen motion. Two seconds is preparation guidance, not a universal Apple limit. See [format details, import steps, and the device reports behind the compatibility profile](./docs/iphone-wallpapers.md).
 
 ## Browser and processing notes
 
 Search scores estimate visual similarity; they do not guarantee a smooth transition. Review candidates and the rendered preview before exporting.
 
 Processing speed and available memory depend on the browser and device. Large resolutions, long clips, ping-pong buffers, and motion interpolation take more resources. Short clips at moderate resolutions work best.
+
+Live Photo encoding uses a bundled multithread FFmpeg core. On a supported HTTPS or localhost page, an app-scoped service worker supplies the cross-origin isolation headers it needs. First use can reload the page once, before the editor, sample, or local files load. The worker fetches network responses without caching media or creating an offline copy. Browsers that cannot enable isolation can still use the ordinary single-thread editor; Live Photo HEVC export requires the multithread core.
 
 Source playback depends on browser codec support. If a file cannot play, use **Create proxy**. Exports still read the original file; retained audio is taken from the original source.
 

@@ -13,6 +13,12 @@ Unmodified, single-thread ESM assets. Includes FFmpeg and codec libraries.
 Source/build references: vendor/ffmpeg/SOURCES.txt
 GPL text: vendor/ffmpeg/GPL-2.txt
 
+@ffmpeg/core-mt 0.12.10 — GPL-2.0-or-later
+Unmodified, multithread ESM assets, including FFmpeg and x264/x265 codecs.
+Verified archive integrity and source/build references: vendor/ffmpeg-mt/README.md
+Bundled asset checksums: vendor/ffmpeg-mt/checksums.json
+GPL text: vendor/ffmpeg-mt/GPL-2.txt
+
 @ffmpeg/ffmpeg 0.12.15 — MIT
 Copyright (c) 2019 Jerome Wu
 Source: https://github.com/ffmpegwasm/ffmpeg.wasm

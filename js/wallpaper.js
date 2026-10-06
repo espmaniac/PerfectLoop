@@ -13,7 +13,31 @@ export function phoneProfile(settings) {
     : PHONE_PROFILES.find(profile => profile.id === settings.wallpaperDevice) || PHONE_PROFILES[0];
 }
 
-export function wallpaperRange(settings, info, seconds = 3) {
+export function wallpaperCompatibilityProfile(settings) {
+  // Settings can be incomplete while a size field is being edited. Validation
+  // handles that at export; the profile also serves a live UI description.
+  const size = value => Number.isFinite(Number(value)) && Number(value) >= 16 ? Number(value) : 16;
+  const width = size(settings.width), height = size(settings.height);
+  const scale = Math.min(1, 720 / width, 1560 / height);
+  // Even pixel dimensions keep the encoder's chroma planes aligned. Rounding
+  // only shrinks ordinary sizes. Extremely thin videos retain the encoder's
+  // existing 16-pixel minimum rather than producing an unsupported small edge.
+  return { width: Math.max(16, Math.floor(width * scale / 2 + 1e-7) * 2),
+    height: Math.max(16, Math.floor(height * scale / 2 + 1e-7) * 2), fps: 60 };
+}
+
+export function wallpaperExportSettings(settings) {
+  const profile = wallpaperCompatibilityProfile(settings);
+  const validSize = [settings.width, settings.height].every(value => Number.isInteger(value)
+    && value >= 16 && value <= 3840 && value % 2 === 0);
+  const validRate = Number.isInteger(settings.fps) && settings.fps >= 1 && settings.fps <= 60;
+  // Validate what will actually be encoded, while retaining invalid user input
+  // so a compatibility profile cannot silently turn it into a valid export.
+  return { ...settings, ...(validSize ? { width: profile.width, height: profile.height } : {}),
+    ...(validRate ? { fps: profile.fps } : {}) };
+}
+
+export function wallpaperRange(settings, info, seconds = 2) {
   const target = Math.max(3, Math.round(seconds * settings.fps));
   let frames = target;
   if (settings.method.includes('pingpong')) frames = Math.ceil((target + 2) / 2);
@@ -30,7 +54,7 @@ export function wallpaperRange(settings, info, seconds = 3) {
 export function wallpaperPreset(settings, info, device = settings.wallpaperDevice || 'notch') {
   const profile = phoneProfile({ ...settings, wallpaperDevice: device });
   const next = { ...settings, preset: 'iphone', aspect: 'custom', wallpaperDevice: profile.id,
-    width: profile.width, height: profile.height, format: 'mp4', fps: 30, audio: 'strip', repeats: 1, targetMB: 0 };
+    width: profile.width, height: profile.height, format: 'mp4', fps: 60, audio: 'strip', repeats: 1, targetMB: 0 };
   return { ...next, ...wallpaperRange(next, info) };
 }
 
@@ -39,10 +63,10 @@ export function keyPhotoTime(duration, fps, percent = 50, frameCount = Math.floo
   return Math.round(last * clamp(percent, 0, 100) / 100) / fps;
 }
 
-export function wallpaperInstructions({ kind, width, height, duration, stillTime }) {
+export function wallpaperInstructions({ kind, width, height, duration, stillTime, fps, codec }) {
   return `PerfectLoop ${kind === 'live-photo' ? 'Live Photo' : 'iPhone wallpaper'} files
 
-Video: ${width} x ${height}, ${duration.toFixed(3)} seconds, silent H.264.
+Live Photo motion: ${width} x ${height}, ${duration.toFixed(3)} seconds, silent ${codec === 'hevc' ? 'HEVC' : 'H.264'}${fps ? ` at ${fps} fps` : ''}.
 Key photo: ${stillTime.toFixed(3)} seconds in the finished video.
 
 Created on the PerfectLoop website
@@ -74,7 +98,12 @@ In Settings > Wallpaper > Add New Wallpaper > Photos, choose the imported Live P
 Check that motion is available before setting it as your Lock Screen. Modern iOS may
 accept a Live Photo in Photos and still report Motion Not Available for wallpaper.
 Pairing and native packaging do not establish wallpaper eligibility; that must be
-verified on the target iPhone. PerfectLoop does not reproduce camera sensor metadata.
+verified on the target iPhone. Generated motion records describe the finished frames;
+they do not measure the original camera.
+The Live Photo compatibility profile uses a smaller video, up to 720 x 1560 at
+60 fps, while preserving your framing and layers. A short 2-second cycle and a
+key photo at 0.5 seconds or later are suggested, not universal iOS requirements.
+Choose a later key photo if iOS rejects the beginning of the movie.
 
 ${kind === 'kit' ? `Other files in this kit
 wallpaper.mp4 is the regular finished video.
