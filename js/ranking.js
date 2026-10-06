@@ -50,13 +50,20 @@ export function pairScore(a, an, bp, b, preferMotion, cuts = 0, bn) {
     return { start: a.time, end: b.time, score, visual: visual * 100, motion: motion * 100, activity, cuts };
 }
 export function rankFrames(frames, opts) {
+    // Bounds are enforced here as well as during decoding: analysis workers and
+    // refinement must never nominate a clip outside the requested source range.
+    frames = frames.filter(frame => frame.time >= opts.from - 1e-7 && frame.time < opts.to - 1e-7);
     const prefix = new Uint32Array(frames.length);
     for (let i = 1; i < frames.length; i++)
         prefix[i] = prefix[i - 1] + (pixelDistance(frames[i - 1].pixels, frames[i].pixels) > 0.24 ? 1 : 0);
-    const best = [];
-    for (let a = 0; a < frames.length - 2; a++) {
-        for (let b = a + 2; b < frames.length - 1; b++) {
-            const d = frames[b].time - frames[a].time;
+    const shortlist = [];
+    for (let a = 0; a < frames.length - 1; a++) {
+        const matches = [];
+        for (let b = a + 1; b < frames.length; b++) {
+            // The terminal sample is the last frame inside an exclusive end.
+            // Other samples represent matching phases and use forward motion.
+            const end = b === frames.length - 1 && Number.isFinite(opts.endBoundary) ? opts.endBoundary : frames[b].time;
+            const d = end - frames[a].time;
             if (d < opts.min - 1e-6)
                 continue;
             if (d > opts.max + 1e-6)
@@ -67,22 +74,58 @@ export function rankFrames(frames, opts) {
             // Cheap shortlist avoids running SSIM over obviously unrelated frames.
             if (pixelDistance(frames[a].pixels, frames[b].pixels) > 0.22)
                 continue;
-            const c = { id: `${a}-${b}`, ...pairScore(frames[a], frames[a + 1], frames[b - 1], frames[b], opts.preferMotion, cuts, frames[b + 1]) };
-            if (c.score >= (best.length >= 100 ? best[best.length - 1].score : 0)) {
-                best.push(c);
-                best.sort((x, y) => y.score - x.score);
-                if (best.length > 100)
-                    best.pop();
-            }
+            if (end > opts.to + 1e-7)
+                continue;
+            matches.push({ id: `${a}-${b}`, ...pairScore(frames[a], frames[a + 1], frames[b - 1], frames[b], opts.preferMotion, cuts, frames[b + 1]), end });
         }
-    }
-    const distinct = [];
-    const separation = opts.precision === 'detailed' ? 0.3 : 0.6;
-    for (const c of best)
-        if (!distinct.some(x => Math.abs(x.start - c.start) < separation && Math.abs((x.end - x.start) - (c.end - c.start)) < 0.35)) {
-            distinct.push(c);
-            if (distinct.length >= 16)
+        // Preserve strong alternatives at every start before applying a global
+        // result limit. A raw top-100 list could be entirely near one timestamp.
+        matches.sort((x, y) => y.score - x.score);
+        const durations = [];
+        for (const match of matches) {
+            const duration = match.end - match.start;
+            if (durations.some(other => Math.abs(other - duration) < 0.35))
+                continue;
+            shortlist.push(match);
+            durations.push(duration);
+            if (durations.length >= 16)
                 break;
         }
+    }
+    return distinctCandidates(shortlist, opts);
+}
+export function distinctCandidates(candidates, opts) {
+    const best = [...candidates].sort((x, y) => y.score - x.score);
+    const distinct = [];
+    const separation = opts.precision === 'detailed' ? 0.3 : 0.6;
+    const duplicate = c => distinct.some(x => Math.abs(x.start - c.start) < separation && Math.abs((x.end - x.start) - (c.end - c.start)) < 0.35);
+    for (let index = 0; index < best.length && distinct.length < 16;) {
+        let end = index + 1;
+        while (end < best.length && Math.abs(best[end].score - best[index].score) < 1e-8)
+            end++;
+        // Equal quality carries no reason to prefer the beginning of a video.
+        // Spread ties across source time, without promoting weaker matches.
+        const ties = best.slice(index, end);
+        while (ties.length && distinct.length < 16) {
+            let chosen = -1, widest = -1, durationGap = -1;
+            for (let i = 0; i < ties.length; i++) {
+                const c = ties[i];
+                if (duplicate(c))
+                    continue;
+                const gap = distinct.length ? Math.min(...distinct.map(x => Math.abs(x.start - c.start))) : 0;
+                const lengths = distinct.length ? Math.min(...distinct.map(x => Math.abs((x.end - x.start) - (c.end - c.start)))) : 0;
+                if (gap > widest || (gap === widest && lengths > durationGap)) {
+                    chosen = i;
+                    widest = gap;
+                    durationGap = lengths;
+                }
+            }
+            if (chosen < 0)
+                break;
+            distinct.push(ties[chosen]);
+            ties.splice(chosen, 1);
+        }
+        index = end;
+    }
     return distinct;
 }

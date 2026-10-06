@@ -119,11 +119,11 @@
           </div>
           <div class="tool-body" role="tabpanel" id="panel-find" aria-labelledby="tab-find" hidden>
             <fieldset data-disable>
-              <p class="panel-copy">Find matching moments in the whole video or a selected range.</p>
+              <p class="panel-copy">Find loopable clips anywhere in the video or inside a selected search range. Edit Search from / Search to here or drag the timeline handles.</p>
               <div class="fields two" id="search-range-fields"></div>
               <div id="search-options"></div>
               <button class="btn primary full" data-action="search"><span data-icon="Search" data-size="16"></span>Find loop candidates</button>
-              <details class="disclosure"><summary>How search works</summary><p class="micro">Lengths refer to the source range. Long videos use adaptive sampling, up to 1,601 frames. The best five matches are refined around individual frames. Scores estimate visual fit; watch the motion at the seam.</p></details>
+              <details class="disclosure"><summary>How search works</summary><p class="micro">Search from / Search to limit where clips can be found. Min / Max loop length set each clip's source duration. Matches are ranked across the whole search range; selecting one sets the render range and preserves the search range. Long videos use adaptive sampling, up to 1,601 frames. The best five matches are refined around individual frames. Scores estimate visual fit; watch the motion at the seam.</p></details>
               <div class="candidate-section" id="candidate-section" hidden><div class="candidate-head"><b id="candidate-count"></b><button class="text-btn" data-action="select-top" id="select-top">Select top 5</button></div><div class="candidates" id="candidates"></div><button class="btn secondary full" data-action="batch" id="batch-button" hidden></button></div>
             </fieldset>
           </div>
