@@ -103,7 +103,8 @@ test('An exact-length selection at low frame rates refines its terminal seam wit
     let currentTime = 0;
     const video = {
         duration: 60, videoWidth: 32, videoHeight: 32, readyState: 2,
-        set src(value) { queueMicrotask(() => this.onloadeddata?.()); },
+        style: {}, setAttribute() {}, remove() {},
+        set src(value) { queueMicrotask(() => { for (const callback of [...(listeners.get('loadeddata') || [])]) callback(); }); },
         get currentTime() { return currentTime; },
         set currentTime(value) {
             currentTime = value;
@@ -124,11 +125,11 @@ test('An exact-length selection at low frame rates refines its terminal seam wit
         rgba[i] = rgba[i + 1] = rgba[i + 2] = 102;
         rgba[i + 3] = 255;
     }
-    globalThis.document = { createElement: tag => tag === 'video' ? video : {
+    globalThis.document = { body: { append() {} }, createElement: tag => tag === 'video' ? video : {
         getContext: () => ({ drawImage() {}, getImageData: () => ({ data: rgba }) }),
         toDataURL: () => 'data:image/jpeg;base64,fixture',
     } };
-    globalThis.window = { setTimeout };
+    globalThis.window = { setTimeout, clearTimeout };
     globalThis.Worker = class {
         postMessage({ frames, options }) {
             queueMicrotask(() => this.onmessage({ data: { candidates: rankFrames(frames, options) } }));
