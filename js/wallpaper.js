@@ -104,6 +104,10 @@ The Live Photo compatibility profile uses a smaller video, up to 720 x 1560 at
 60 fps, while preserving your framing and layers. A short 2-second cycle and a
 key photo at 0.5 seconds or later are suggested, not universal iOS requirements.
 Choose a later key photo if iOS rejects the beginning of the movie.
+For accepted wallpapers, iOS creates its own short wake effect from motion near
+the key photo. It can select only a small part of the video and change its speed
+and smoothness. The website's Video view plays the complete clip; the static
+screen layouts do not simulate that iOS effect or promise its playback speed.
 
 ${kind === 'kit' ? `Other files in this kit
 wallpaper.mp4 is the regular finished video.

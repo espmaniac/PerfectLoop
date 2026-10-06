@@ -36,7 +36,7 @@ const downloadSettings = settings => settings.preset === 'iphone' && pairedWallp
   ? wallpaperExportSettings(settings) : settings;
 const dirty = () => videoSignature(state.s) !== state.renderSignature;
 const busy = () => Boolean(state.job);
-const staticHome = () => state.s.preset === 'iphone' && state.wallpaperScreen === 'home';
+const staticWallpaperLayout = () => state.s.preset === 'iphone' && ['lock', 'home'].includes(state.wallpaperScreen);
 
 function clearWallpaperPoster() {
   wallpaperPosterController?.abort(); wallpaperPosterPending = '';
@@ -45,7 +45,7 @@ function clearWallpaperPoster() {
 }
 function posterSignature() { return `${state.renderURL}:${state.s.wallpaperPoster}`; }
 async function prepareWallpaperPoster() {
-  if (state.s.preset !== 'iphone' || !state.renderURL || dirty()) return;
+  if (!staticWallpaperLayout() || !state.renderURL || dirty()) return;
   const signature = posterSignature();
   if (state.wallpaperPosterSignature === signature || wallpaperPosterPending === signature) return;
   wallpaperPosterController?.abort();
@@ -69,7 +69,7 @@ async function prepareWallpaperPoster() {
 function setWallpaperScreen(screen) {
   if (busy() || state.s.preset !== 'iphone' || !['editor', 'lock', 'home'].includes(screen)) return;
   state.wallpaperScreen = screen;
-  if (screen === 'home') preview.pause();
+  if (screen !== 'editor') preview.pause();
   if (screen !== 'editor' && state.mode !== 'loop' && state.mode !== 'composition') preview.setMode('composition');
   else refresh();
   wallpaperPreview?.captureStill();
@@ -166,7 +166,7 @@ function syncDisabled() {
   $$('[data-action="open"], [data-action="reset"], [data-action="proxy"]').forEach(el => { el.disabled = busy(); });
   $('[data-action="undo"]').disabled = busy() || !history.past.length;
   $('[data-action="redo"]').disabled = busy() || !history.future.length;
-  $$('[data-action="play"], [data-action="previous-frame"], [data-action="next-frame"]').forEach(el => { el.disabled = disabled || staticHome(); });
+  $$('[data-action="play"], [data-action="previous-frame"], [data-action="next-frame"], [data-action="frame-png"]').forEach(el => { el.disabled = disabled || staticWallpaperLayout(); });
   $('[data-action="alternate"]').disabled = disabled;
   $$('[data-action="mark-in"], [data-action="mark-out"], [data-action="zoom"]').forEach(button => {
     button.hidden = rendered; button.disabled = disabled || rendered;
@@ -224,6 +224,10 @@ function refreshHeaderHint(issues, plan) {
     } else {
       message = issue;
     }
+  } else if (staticWallpaperLayout()) {
+    message = state.wallpaperScreen === 'lock'
+      ? 'Lock Screen layout shows the key photo. iOS creates a short wake effect and may choose fewer frames or change playback speed and smoothness.'
+      : 'Home Screen layout shows the key photo. Home Screen wallpaper stays still; phone icons are preview overlays.';
   } else if (state.tab === 'layers') {
     const layer = s.layers.find(item => item.id === state.activeLayerId) || s.layers.at(-1);
     const spinning = layer?.spin === 'clockwise' || layer?.spin === 'counterclockwise';
@@ -240,8 +244,7 @@ function refreshHeaderHint(issues, plan) {
   } else if (state.tab === 'find') {
     message = 'Auto find searches for loopable clips anywhere inside the highlighted range. Set the range here or drag its timeline handles.';
   } else if (s.preset === 'iphone') {
-    message = staticHome() ? 'Home Screen wallpaper is still. The selected key photo is used; phone icons are preview overlays.'
-      : 'Live Photos are created here. Download the paired files, then import them into Apple Photos. iOS decides whether wallpaper motion is available.';
+    message = 'Video previews the full clip. iOS creates its own short wallpaper wake effect; its frames, playback speed, and smoothness can differ.';
   } else if (state.tab === 'inspect') {
     message = 'Compare the last and first frames, then watch a few repeats to check the join in motion.';
   } else if (state.render && dirty()) {
@@ -266,6 +269,11 @@ function refreshHeaderHint(issues, plan) {
   hint.parentElement.dataset.tone = issue ? 'warning' : 'tip';
 }
 function refresh() {
+  if (staticWallpaperLayout() && state.mode === 'loop' && dirty()) {
+    // A stale encoded frame cannot represent the current layout settings.
+    preview.setMode('composition');
+    return;
+  }
   const { s, info } = state, plan = framePlan(s), exportSettings = downloadSettings(s), exportPlan = framePlan(exportSettings);
   const issues = info.duration ? [...validate(exportSettings, info), ...validateLayers(s.layers, s)] : ['Open a playable video to begin.'];
   const isGif = s.format === 'gif', wallpaper = s.preset === 'iphone';
@@ -355,7 +363,7 @@ function refresh() {
   const profile = phoneProfile(s);
   const posterReady = state.wallpaperPosterSignature === posterSignature() && !dirty();
   wallpaperPreview?.refresh({ enabled: wallpaper, screen: state.wallpaperScreen, width: profile.width, height: profile.height,
-    device: profile.chrome, posterURL: posterReady ? state.wallpaperPosterURL : '', disabled: busy(), draft: state.mode !== 'loop' || dirty() });
+    device: profile.chrome, posterURL: posterReady ? state.wallpaperPosterURL : '', disabled: busy(), draft: !posterReady });
   const pairedDownload = wallpaper && pairedWallpaperKind(state.wallpaperDownload);
   const liveProfile = wallpaperCompatibilityProfile(s);
   const keyTime = keyPhotoTime(exportPlan.duration, exportSettings.fps, s.wallpaperPoster);
@@ -368,8 +376,14 @@ function refresh() {
     : state.wallpaperDownload === 'kit' ? `${profileNote}Includes the browser-created Live Photo, an MP4 and JPG at that size, and Photos import instructions.`
       : state.wallpaperDownload === 'image' ? `A static ${s.width} × ${s.height} wallpaper from the chosen frame. Render preview to inspect the key photo.` : `A regular silent ${s.width} × ${s.height} MP4 at ${s.fps} fps. Choose Live Photo to download the paired photo and motion files.`;
   if (state.wallpaperDownload === 'live-photo') $('#wallpaper-download-note').textContent = `${profileNote}${$('#wallpaper-download-note').textContent}`;
-  if (staticHome()) $('#preview-foot-message').textContent = posterReady ? 'Selected key photo. Home Screen wallpaper stays still.' : 'Draft still. Render preview to see the selected key photo.';
-  $('[data-action="frame-png"]').hidden = staticHome();
+  if (staticWallpaperLayout()) {
+    $('#preview-tag').textContent = posterReady ? 'KEY PHOTO LAYOUT' : 'DRAFT LAYOUT';
+    $('#preview-foot-message').textContent = posterReady
+      ? state.wallpaperScreen === 'lock' ? 'Selected key photo. Layout only; iOS creates the wake animation.' : 'Selected key photo. Home Screen wallpaper stays still.'
+      : 'Draft snapshot. Render preview to see the selected key photo.';
+  }
+  $('[data-action="frame-png"]').hidden = staticWallpaperLayout();
+  $('#transport-time').hidden = staticWallpaperLayout();
   void prepareWallpaperPoster();
   timeline?.render(); preview?.refresh();
 }
@@ -526,6 +540,7 @@ async function runRender(isPreview) {
       if (state.renderURL) URL.revokeObjectURL(state.renderURL);
       state.renderURL = URL.createObjectURL(result.blob); state.render = result; state.renderSignature = videoSignature(settings);
       state.renderSettings = settings; state.renderPlayhead = 0; state.renderFilmstrip = [];
+      if (wallpaper) state.wallpaperScreen = 'editor';
       clearSeam(); preview.setOutput(state.renderURL); preview.setMode('loop');
       const controller = new AbortController(), url = state.renderURL;
       renderFilmstripController = controller;
@@ -739,7 +754,7 @@ preview = new Preview(() => state, mode => { state.mode = mode; if (mode === 'so
   if (mode === 'loop') state.renderPlayhead = time;
   else state.playhead = time;
   timeline?.renderPlayhead(time);
-  if (staticHome() && (!state.wallpaperPosterURL || state.wallpaperPosterSignature !== posterSignature() || dirty())) {
+  if (staticWallpaperLayout() && (!state.wallpaperPosterURL || state.wallpaperPosterSignature !== posterSignature() || dirty())) {
     const key = `${videoSignature(state.s)}:${preview?.lastFrame}`;
     if (key !== wallpaperDraftFrame) { wallpaperDraftFrame = key; wallpaperPreview?.captureStill(); }
   }
@@ -806,8 +821,8 @@ const actions = {
   undo, redo, reset: () => update({ ...DEFAULTS, end: Math.min(state.info.duration || 6, 6) }),
   proxy: makeProxy, search: runSearch, render: () => runRender(true), export: () => runRender(false), inspect, batch: batchExport, cancel,
   'dismiss-error': () => { state.error = ''; refreshStatus(); }, 'dismiss-notice': () => notice(''),
-  play: () => staticHome() ? undefined : preview.play(), 'previous-frame': () => { if (!staticHome()) preview.step(-1); }, 'next-frame': () => { if (!staticHome()) preview.step(1); },
-  mute: () => preview.toggleMute(), guides: () => preview.toggleGuides(), fullscreen: () => preview.fullscreen(), 'frame-png': () => preview.saveFrame(),
+  play: () => staticWallpaperLayout() ? undefined : preview.play(), 'previous-frame': () => { if (!staticWallpaperLayout()) preview.step(-1); }, 'next-frame': () => { if (!staticWallpaperLayout()) preview.step(1); },
+  mute: () => preview.toggleMute(), guides: () => preview.toggleGuides(), fullscreen: () => preview.fullscreen(), 'frame-png': () => { if (!staticWallpaperLayout()) preview.saveFrame(); },
   zoom: () => timeline.toggleZoom(), 'mark-in': () => mark('start'), 'mark-out': () => mark('end'), 'fit-duration': fitDuration,
   alternate: () => { const { aspect, width, height } = alternateFormat(state.s); setAspect(aspect, { width, height }); },
   'download-again': () => { if (state.lastExport) download(state.lastExport.blob, state.lastExport.name); },
@@ -820,7 +835,7 @@ document.addEventListener('click', event => {
   else if (button.dataset.fit) update({ fit: button.dataset.fit });
   else if (button.dataset.tab) {
     state.tab = button.dataset.tab;
-    if (state.tab === 'layers') preview.setMode('composition');
+    if (state.tab === 'layers') { state.wallpaperScreen = 'editor'; preview.setMode('composition'); }
     else if (state.tab === 'find' || state.mode === 'composition') preview.setMode('source');
     else refresh();
     if (matchMedia('(max-width: 739px)').matches) $('.controls-panel').scrollIntoView({ block: 'start' });
@@ -837,7 +852,7 @@ document.addEventListener('keydown', event => {
     tabs[next].focus(); tabs[next].click(); return;
   }
   if (busy() || $('#help-dialog').open || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'SUMMARY'].includes(event.target.tagName)) return;
-  if (staticHome() && [' ', 'ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); return; }
+  if (staticWallpaperLayout() && [' ', 'ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); return; }
   if (event.key === ' ') { event.preventDefault(); void preview.play(); }
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); preview.step(event.key === 'ArrowRight' ? 1 : -1); }
   if (event.key.toLowerCase() === 'i') mark('start'); if (event.key.toLowerCase() === 'o') mark('end');
