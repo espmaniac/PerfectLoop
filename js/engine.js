@@ -135,7 +135,7 @@ export class VideoEngine {
         }
         try {
             for (const item of await this.ff.listDir('/'))
-                if (!item.isDir && (/^(clip|cyclic|audio|result|proxy|probe)\./.test(item.name) || /^layer-\d+\.png$/.test(item.name)))
+                if (!item.isDir && (/^(clip|cyclic|audio|result|proxy|probe|wallpaper|photo)\./.test(item.name) || /^layer-\d+\.png$/.test(item.name)))
                     await this.ff.deleteFile(item.name);
         }
         catch { /* terminated workers have no filesystem */ }
@@ -144,10 +144,12 @@ export class VideoEngine {
         // The same-origin core assets are cached by the browser.
         this.resetWorker();
     }
-    async render(file, original, info, onProgress, preview = false) {
+    async render(file, original, info, onProgress, preview = false, wallpaperOptions = null) {
         const issues = [...validate(original, info), ...validateLayers(original.layers || [], original)];
         if (issues.length)
             throw new Error(issues[0]);
+        if (wallpaperOptions && (preview || original.format !== 'mp4'))
+            throw new Error('Live Photo preparation requires a full-resolution MP4 export.');
         this.cancelled = false;
         const requestedWorker = this.ff;
         const checkCancelled = () => {
@@ -210,17 +212,45 @@ export class VideoEngine {
                 if (ext === 'mp4')
                     args.push('-movflags', '+faststart');
                 args.push('-t', String(plan.totalDuration), '-map_metadata', '-1', result);
-                await this.exec(args, plan.totalDuration, 0.84, 0.98, hasAudio ? 'Finishing the file…' : 'Finishing the file without an audio track…', onProgress);
+                await this.exec(args, plan.totalDuration, 0.84, wallpaperOptions ? 0.9 : 0.98, hasAudio ? 'Finishing the file…' : 'Finishing the file without an audio track…', onProgress);
             }
             const output = await this.probe(result), video = output.streams.find(st => st.codec_type === 'video');
+            checkCancelled();
             if (!video)
                 throw new Error('The export did not contain a video stream.');
             const bytes = await this.ff.readFile(result);
+            checkCancelled();
             if (!(bytes instanceof Uint8Array))
                 throw new Error('The export could not be read.');
             const blob = new Blob([bytes.slice().buffer], { type: s.format === 'gif' ? 'image/gif' : s.format === 'mp4' ? 'video/mp4' : 'video/webm' });
+            const duration = Number(output.format?.duration || video.duration || plan.totalDuration);
+            const fps = numberRate(video.avg_frame_rate);
+            let wallpaper;
+            if (wallpaperOptions) {
+                if (!Number.isFinite(duration) || duration <= 0)
+                    throw new Error('The wallpaper video has no usable duration.');
+                const percent = Number(wallpaperOptions.posterPercent ?? 50);
+                if (!Number.isFinite(percent))
+                    throw new Error('Choose a valid still frame position.');
+                const frameCount = Number(video.nb_frames) || Math.floor(duration * fps + 0.000001);
+                const lastFrame = Math.max(0, Math.min(frameCount - 1, Math.floor(duration * fps + 0.000001) - 1));
+                const stillTime = Math.round(lastFrame * Math.max(0, Math.min(100, percent)) / 100) / fps;
+                await this.exec(['-ss', String(stillTime), '-i', result, '-map', '0:v:0', '-an', '-frames:v', '1', '-c:v', 'mjpeg', '-q:v', '2', '-map_metadata', '-1', 'wallpaper.jpg'], 1 / fps, 0.9, 0.95, 'Preparing the wallpaper still frame…', onProgress);
+                checkCancelled();
+                // Copy the completed video, including its layers and loop method. A
+                // terminal moov atom lets the pairing writer append Live Photo metadata.
+                await this.exec(['-i', result, '-map', '0:v:0', '-c:v', 'copy', '-an', '-map_metadata', '-1', '-f', 'mov', '-brand', 'qt  ', 'wallpaper.mov'], duration, 0.95, 0.99, 'Preparing the Live Photo video…', onProgress);
+                checkCancelled();
+                const jpeg = await this.ff.readFile('wallpaper.jpg');
+                checkCancelled();
+                const mov = await this.ff.readFile('wallpaper.mov');
+                checkCancelled();
+                if (!(jpeg instanceof Uint8Array) || !(mov instanceof Uint8Array) || !jpeg.length || !mov.length)
+                    throw new Error('The wallpaper files could not be read.');
+                wallpaper = { jpeg: new Blob([jpeg.slice().buffer], { type: 'image/jpeg' }), mov: new Blob([mov.slice().buffer], { type: 'video/quicktime' }), stillTime };
+            }
             onProgress(1, 'Ready');
-            return { blob, name: `${file.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]/gi, '-').slice(0, 60) || 'video'}-${s.method}-loop.${s.format}`, duration: Number(output.format?.duration || video.duration || plan.totalDuration), width: video.width || s.width, height: video.height || s.height, fps: numberRate(video.avg_frame_rate), frames: Number(video.nb_frames || plan.totalFrames), hasAudio: output.streams.some(st => st.codec_type === 'audio'), sourceFps: numberRate(probe.streams.find(st => st.codec_type === 'video')?.avg_frame_rate) };
+            return { blob, name: `${file.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]/gi, '-').slice(0, 60) || 'video'}-${s.method}-loop.${s.format}`, duration, width: video.width || s.width, height: video.height || s.height, fps, frames: Number(video.nb_frames || plan.totalFrames), hasAudio: output.streams.some(st => st.codec_type === 'audio'), sourceFps: numberRate(probe.streams.find(st => st.codec_type === 'video')?.avg_frame_rate), ...(wallpaper ? { wallpaper } : {}) };
         }
         catch (e) {
             if (this.cancelled)
@@ -237,6 +267,52 @@ export class VideoEngine {
             await this.load(onProgress);
             const source = await this.mount(file), probe = await this.probe(source);
             return { fps: numberRate(probe.streams.find(st => st.codec_type === 'video')?.avg_frame_rate), hasAudio: probe.streams.some(st => st.codec_type === 'audio') };
+        }
+        catch (e) {
+            if (this.cancelled)
+                throw new DOMException('Cancelled', 'AbortError');
+            throw e;
+        }
+        finally {
+            await this.cleanup();
+        }
+    }
+    async makePhotoVideo(file, onProgress, { motion = 'zoom' } = {}) {
+        if (!['zoom', 'still'].includes(motion))
+            throw new Error('Choose a supported photo movement.');
+        this.cancelled = false;
+        const requestedWorker = this.ff;
+        const checkCancelled = () => {
+            if (this.cancelled || requestedWorker !== this.ff)
+                throw new DOMException('Cancelled', 'AbortError');
+        };
+        const duration = 3, fps = 30, frames = duration * fps;
+        try {
+            await this.load(onProgress);
+            checkCancelled();
+            const source = await this.mount(file);
+            checkCancelled();
+            const probe = await this.probe(source);
+            checkCancelled();
+            const image = probe.streams.find(stream => stream.codec_type === 'video');
+            if (!image || !(image.width > 0) || !(image.height > 0))
+                throw new Error('The photo could not be read. Choose a JPEG, PNG, or WebP image.');
+            const scale = Math.min(1, 1920 / image.width, 1920 / image.height);
+            const width = even(image.width * scale), height = even(image.height * scale);
+            // Zoompan rounds crop coordinates to source pixels. A larger still
+            // smooths that movement, and one input frame supplies the whole pulse.
+            // Both ends use exactly 1× so the file boundary preserves the photo.
+            const movement = motion === 'zoom'
+                ? `scale=${width * 2}:${height * 2},zoompan=z='1+0.02*(1-cos(2*PI*on/${frames - 1}))':x='iw/2-iw/(2*zoom)':y='ih/2-ih/(2*zoom)':d=${frames}:s=${width}x${height}:fps=${fps}`
+                : `scale=${width}:${height}`;
+            await this.exec(['-loop', '1', '-framerate', String(fps), '-i', source, '-map', '0:v:0', '-an', '-vf', `${movement},setsar=1,format=yuv420p`, '-frames:v', String(frames), '-r', String(fps), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-map_metadata', '-1', '-movflags', '+faststart', 'photo.mp4'], duration, 0.05, 0.98, motion === 'zoom' ? 'Creating a gentle motion loop from your photo…' : 'Preparing your photo as a video…', onProgress);
+            checkCancelled();
+            const bytes = await this.ff.readFile('photo.mp4');
+            checkCancelled();
+            if (!(bytes instanceof Uint8Array) || !bytes.length)
+                throw new Error('The photo video could not be read.');
+            onProgress(1, 'Ready');
+            return { blob: new Blob([bytes.slice().buffer], { type: 'video/mp4' }), name: `${file.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]/gi, '-').slice(0, 60) || 'photo'}-motion-source.mp4`, width, height, fps, duration, hasAudio: false };
         }
         catch (e) {
             if (this.cancelled)

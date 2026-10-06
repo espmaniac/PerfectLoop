@@ -4,9 +4,9 @@
 
 # PerfectLoop
 
-A browser-based video loop studio for Spotify Canvas, music visuals, and short clips. Find repeating moments in longer footage, choose how to join them, and export a loop in portrait, landscape, square, or custom dimensions.
+A browser-based video loop studio for Spotify Canvas, music visuals, iPhone wallpaper preparation, and short clips. Find repeating moments in longer footage, choose how to join them, and export a loop in portrait, landscape, square, or custom dimensions.
 
-Video processing happens on your device; your source videos are never uploaded.
+Media processing happens on your device; your source videos and photos are never uploaded.
 
 **[Open PerfectLoop](https://espmaniac.github.io/PerfectLoop/)**
 
@@ -22,6 +22,7 @@ Video processing happens on your device; your source videos are never uploaded.
 - **Export options** — download MP4, WebM, or a GIF that loops forever or plays once. Adjust frame rate and dimensions for all formats; set quality, cycles in the file, and an approximate file-size target for video. Export selected loop candidates together as a ZIP.
 - **Included sample** — a repeating animation with audio loads automatically once when the page opens.
 - **Text and image layers** — add text or a local image in **Layers**, set its position, size, angle, and opacity, and reorder, hide, or duplicate it. Move either type left to right, right to left, top to bottom, or bottom to top while preserving its angle.
+- **iPhone wallpaper preparation** — open a video or photo, preview approximate Lock Screen and Home Screen layouts, choose a key photo, and download a silent MP4, still JPG, or wallpaper kit with an experimental paired Live Photo and installation instructions.
 
 ## Loop methods
 
@@ -40,7 +41,7 @@ Both ping-pong methods work with MP4, WebM, and GIF. GIF has no playback-directi
 
 ## Make a loop
 
-1. Start with the automatically loaded sample, choose **Open video**, or drop your own file into the editor.
+1. Start with the automatically loaded sample, choose **Open media** for a video, or drop your own video into the editor.
 2. Set the in/out points manually, or use **Auto find** to discover candidate ranges.
 3. Choose a loop method and configure dimensions, framing, and audio in **Video settings**.
 4. Select **Render preview** and use **Inspect seam** to check the join.
@@ -72,6 +73,7 @@ The displayed **Finished loop** duration includes the loop method, speed, overla
 | --- | --- |
 | Spotify Canvas | Silent MP4 at 576 × 1024 and 30 fps, with checks for the finished 3–8 second loop. |
 | Vertical music visual | Short portrait visuals, with a suggested duration of up to 15 seconds. |
+| iPhone wallpaper | One silent portrait MP4 cycle, representative phone sizes or custom dimensions, key-photo selection, and wallpaper downloads. |
 | Custom | Your own output dimensions, format, timing, and frame rate. |
 
 Select **Custom** under **Aspect ratio** to enter Width and Height directly. Use even dimensions from **16 to 3840 pixels**.
@@ -81,6 +83,16 @@ MP4 uses H.264 with optional AAC audio. WebM uses VP8 with optional Opus audio. 
 **Muting the preview does not remove export audio.** Choose the audio-removal option in **Video settings** to create a video with no audio stream.
 
 Review [Spotify's Canvas guidelines](https://support.spotify.com/us/artists/article/canvas-guidelines/) before submitting a Canvas.
+
+## Prepare an iPhone wallpaper
+
+Select **iPhone wallpaper** in **Destination preset**. Choose a phone size or enter custom dimensions, then open a video or choose **Open photo** to make a gentle three-second zoom loop from a JPEG, PNG, or WebP photo. Text and image layers, movement, rotation, framing, and loop methods work with wallpaper exports.
+
+Use **Lock Screen** to preview the motion behind approximate clock and phone controls. **Home Screen** shows a still image behind approximate app icons. Select **Render preview** to see the processed video, then use **Key photo** to choose its still frame. Phone frames, clocks, and icons are preview overlays and never appear in downloaded media.
+
+Choose **MP4 for an iOS converter**, **Still wallpaper · JPG**, or **Wallpaper kit · ZIP**. The kit includes both, a matching JPEG/MOV Live Photo pair, and transfer instructions. On a Mac, import the paired files together into Photos and verify one Live Photo before syncing with iCloud Photos or sharing that asset from Photos via AirDrop. On Windows/Linux, transfer the MP4 to a compatible iOS converter instead.
+
+The pair is experimental: correct pairing metadata does not guarantee modern iOS will animate it as Lock Screen wallpaper. A compatible iOS converter may still be needed, and the finished asset must be checked on the target iPhone. Home Screen wallpaper stays still; iOS controls Lock Screen motion. Three seconds is a practical starting point, not an enforced universal iOS duration limit. See [format details, transfer steps, and research sources](./docs/iphone-wallpapers.md).
 
 ## Browser and processing notes
 

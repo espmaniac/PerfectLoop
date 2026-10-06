@@ -179,6 +179,62 @@ main { padding-top: 0; }
 .safe-guides span { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; padding: 4px; color: #fff; background: #0007; font-size: 10px; }
 .preview-stage:fullscreen { width: 100vw; height: 100vh; border-radius: 0; }
 .preview-stage:fullscreen canvas { height: 100%; max-height: 100%; width: auto; }
+.wallpaper-preview-controls { margin: 0 0 13px; }
+.wallpaper-screen-options { display: flex; width: max-content; max-width: 100%; }
+.wallpaper-screen-options button { padding: 8px 14px; font-size: 12px; }
+.wallpaper-preview-note { margin: 7px 3px 0; line-height: 1.5; }
+.wallpaper-device, .wallpaper-display { display: contents; }
+.wallpaper-screen-chrome { display: none; }
+.wallpaper-screen-active .wallpaper-device {
+  position: relative; display: block; width: calc(var(--wallpaper-width) + 14px);
+  flex-shrink: 0; border: 7px solid #08090a; border-radius: calc(var(--wallpaper-unit) * 13);
+  background: #08090a; box-shadow: 0 0 0 1px #5a5e64, 0 14px 38px #0007;
+}
+.wallpaper-screen-active .wallpaper-display {
+  position: relative; display: block; width: 100%; overflow: hidden;
+  border-radius: calc(var(--wallpaper-unit) * 10); background: #131517;
+}
+.wallpaper-screen-active .wallpaper-display > #preview-canvas,
+.wallpaper-screen-active .wallpaper-poster {
+  position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+  max-width: none; max-height: none; object-fit: cover;
+}
+.wallpaper-screen-active .wallpaper-live-hidden { visibility: hidden; }
+.wallpaper-screen-active .wallpaper-screen-chrome {
+  position: absolute; inset: 0; display: block; z-index: 4; pointer-events: none;
+  color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-shadow: 0 1px 5px #0009;
+}
+.wallpaper-screen-active .safe-guides { z-index: 3; }
+.wallpaper-status { position: absolute; top: 2.6%; left: 8%; right: 8%; display: flex; justify-content: space-between; align-items: center; font-size: calc(var(--wallpaper-unit) * 3.6); font-weight: 600; }
+.wallpaper-status-time { visibility: hidden; }
+[data-wallpaper-screen="home"] .wallpaper-status-time { visibility: visible; }
+.wallpaper-status-icons { display: flex; align-items: center; gap: calc(var(--wallpaper-unit) * 1.4); }
+.wallpaper-signal { display: block; width: calc(var(--wallpaper-unit) * 4.6); height: calc(var(--wallpaper-unit) * 2.8); background: linear-gradient(to top, #fff 33%, transparent 33%) 0 100% / 15% 100%, linear-gradient(to top, #fff 55%, transparent 55%) 28% 100% / 15% 100%, linear-gradient(to top, #fff 77%, transparent 77%) 58% 100% / 15% 100%, linear-gradient(#fff, #fff) 88% 100% / 15% 100%; background-repeat: no-repeat; }
+.wallpaper-battery { display: block; width: calc(var(--wallpaper-unit) * 6); height: calc(var(--wallpaper-unit) * 2.8); border: 1px solid #fff; border-radius: calc(var(--wallpaper-unit) * .7); background: linear-gradient(to right, #fff 75%, transparent 75%); }
+.wallpaper-camera-cutout { position: absolute; z-index: 2; left: 50%; transform: translateX(-50%); background: #08090a; }
+[data-device="notch"] .wallpaper-camera-cutout { top: -.2%; width: 42%; height: 4.7%; border-radius: 0 0 calc(var(--wallpaper-unit) * 4) calc(var(--wallpaper-unit) * 4); }
+[data-device="island"] .wallpaper-camera-cutout { top: 1.4%; width: 29%; height: 3.3%; border-radius: 999px; }
+.wallpaper-date { position: absolute; top: 9.5%; left: 0; right: 0; text-align: center; font-size: calc(var(--wallpaper-unit) * 4.3); font-weight: 500; }
+.wallpaper-clock { position: absolute; top: 12%; left: 0; right: 0; text-align: center; font-size: calc(var(--wallpaper-unit) * 24); line-height: 1.1; letter-spacing: calc(var(--wallpaper-unit) * -.8); font-weight: 600; }
+.wallpaper-lock-actions { position: absolute; bottom: 7%; left: 11%; right: 11%; display: flex; justify-content: space-between; }
+.wallpaper-lock-actions > span { display: grid; place-items: center; width: calc(var(--wallpaper-unit) * 12); height: calc(var(--wallpaper-unit) * 12); border-radius: 50%; background: #181b2266; backdrop-filter: blur(6px); }
+.wallpaper-lock-actions svg { width: 45%; height: 45%; }
+.wallpaper-home-indicator { position: absolute; bottom: 1.8%; width: 34%; height: calc(var(--wallpaper-unit) * 1.2); left: 33%; border-radius: 999px; background: #fff; box-shadow: 0 1px 4px #0007; }
+.wallpaper-home-ui { display: none; }
+[data-wallpaper-screen="home"] .wallpaper-lock-ui { display: none; }
+[data-wallpaper-screen="home"] .wallpaper-home-ui { display: block; }
+.wallpaper-app-grid { position: absolute; top: 9%; left: 8%; right: 8%; display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); column-gap: 7%; row-gap: calc(var(--wallpaper-unit) * 7); }
+.wallpaper-app { min-width: 0; text-align: center; }
+.wallpaper-app > span { display: grid; place-items: center; aspect-ratio: 1; border-radius: calc(var(--wallpaper-unit) * 3.3); background: var(--wallpaper-app-color); box-shadow: 0 1px 3px #0003; }
+.wallpaper-app svg { width: 59%; height: 59%; }
+.wallpaper-app small { display: block; margin-top: calc(var(--wallpaper-unit) * 1.3); font-size: calc(var(--wallpaper-unit) * 2.8); font-weight: 500; }
+.wallpaper-dock { position: absolute; bottom: 5%; left: 5%; right: 5%; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 7%; padding: 3.5%; background: #b8c2d34f; backdrop-filter: blur(12px); border-radius: calc(var(--wallpaper-unit) * 7); }
+.wallpaper-screen-active .wallpaper-device[data-device="button"] { padding-top: calc(var(--wallpaper-unit) * 10); padding-bottom: calc(var(--wallpaper-unit) * 16); border-radius: calc(var(--wallpaper-unit) * 11); }
+[data-device="button"] .wallpaper-display { border-radius: calc(var(--wallpaper-unit) * 1.5); }
+[data-device="button"] .wallpaper-camera-cutout, [data-device="button"] .wallpaper-home-indicator { display: none; }
+.wallpaper-screen-active [data-device="button"]::before { content: ""; position: absolute; top: calc(var(--wallpaper-unit) * 3); left: 43%; width: 14%; height: calc(var(--wallpaper-unit) * 1.3); background: #34383e; border-radius: 999px; }
+.wallpaper-screen-active [data-device="button"]::after { content: ""; position: absolute; bottom: calc(var(--wallpaper-unit) * 2); left: 43%; width: calc(var(--wallpaper-unit) * 14); height: calc(var(--wallpaper-unit) * 14); border: 1px solid #454a53; border-radius: 50%; }
 .transport { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 16px; padding: 13px 0 3px; min-height: 72px; }
 .segmented { display: inline-flex; align-items: center; background: transparent; border: 1px solid var(--line); border-radius: 999px; min-width: 0; }
 .segmented button { display: inline-flex; align-items: center; justify-content: center; flex: 1; min-width: 0; border: 1px solid transparent; border-radius: 999px; padding: 9px 12px; background: transparent; color: var(--muted); white-space: nowrap; font-size: 13px; line-height: 1.2; }
@@ -233,6 +289,16 @@ input[type=range]::-moz-range-progress { background: #d4d5d9; border-radius: 999
 .export-title { display: flex; align-items: center; justify-content: space-between; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
 .format-badge { color: var(--dim); font-size: 10px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; }
 .export-panel > fieldset { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px 24px; align-items: start; }
+.wallpaper-destination { grid-column: 1/-1; max-width: 430px; width: 100%; }
+.wallpaper-settings { grid-column: 1/-1; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px 24px; padding: 18px 0; border-block: 1px solid var(--line); }
+.wallpaper-settings .range-field { margin: 0; }
+.wallpaper-settings .range-field > span { gap: 10px; }
+.wallpaper-settings .range-field b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wallpaper-settings .wallpaper-duration-note { grid-column: 1/3; }
+.wallpaper-install-guide { grid-column: 3/5; margin: 0; border-top: 0; }
+.wallpaper-install-guide > summary { padding-top: 0; }
+.wallpaper-install-guide p + p { margin-top: 10px; }
+.wallpaper-photo-actions .btn { width: 100%; }
 .control-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: #e8e9ec; margin-bottom: 9px; }
 .output-aspect .segmented, .output-framing .segmented { display: flex; width: 100%; }
 .output-aspect .aspect-options { display: grid; grid-template-columns: 1.35fr repeat(3,.8fr) 1.25fr; }
@@ -255,13 +321,12 @@ input[type=range]::-moz-range-progress { background: #d4d5d9; border-radius: 999
 #field-audio-strip small { display: none; }
 .output-settings { grid-column: 1/-1; border-top: 1px solid var(--line); margin: 0; }
 .output-settings > summary { padding-top: 12px; }
-.output-settings > .disclosure-content { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 0 24px; align-items: start; }
-.preset-settings { min-width: 0; }
-#quality-field { grid-column: 2; grid-row: 1; }
-.output-settings > .disclosure-content > details { grid-column: 3; grid-row: 1; margin-top: 0; border-top: 0; }
-.output-settings > .disclosure-content > details:last-child { grid-column: 4; }
-#output-settings[data-format=gif] > .disclosure-content { grid-template-columns: repeat(2,minmax(0,1fr)); }
-#output-settings[data-format=gif] > .disclosure-content > details { grid-column: 2; grid-row: 1; margin-top: 0; border-top: 0; }
+.output-settings > .disclosure-content { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 0 24px; align-items: start; }
+#quality-field { grid-column: 1; grid-row: 1; }
+.output-settings > .disclosure-content > details { grid-column: 2; grid-row: 1; margin-top: 0; border-top: 0; }
+.output-settings > .disclosure-content > details:last-child { grid-column: 3; }
+#output-settings[data-format=gif] > .disclosure-content { grid-template-columns: 1fr; }
+#output-settings[data-format=gif] > .disclosure-content > details { grid-column: 1; grid-row: 1; margin-top: 0; border-top: 0; }
 .output-settings > .disclosure-content > details > summary { padding-top: 0; min-height: 24px; }
 .preset-hint { color: var(--dim); font-size: 11px; line-height: 1.5; margin: -5px 0 15px; }
 .export-footer { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,460px); align-items: center; gap: 24px; border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
@@ -427,6 +492,9 @@ footer a:hover { color: #f0f0f2; }
   .range-summary { padding-inline: 15px; gap: 12px; }
 }
 @media (max-width: 1099px) {
+  .wallpaper-settings { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .wallpaper-settings .wallpaper-duration-note { grid-column: 1; }
+  .wallpaper-install-guide { grid-column: 2; }
   .app-header { display: grid; grid-template-columns: auto auto; gap: 12px 20px; }
   .header-brand { grid-column: 1; grid-row: 1; }
   .header-actions { grid-column: 2; grid-row: 1; justify-self: end; }
@@ -462,6 +530,11 @@ footer a:hover { color: #f0f0f2; }
   .range-summary { grid-row: 2; border-left: 0; border-top: 1px solid var(--line); padding: 13px 0 0; justify-content: space-between; }
 }
 @media (max-width: 739px) {
+  .wallpaper-settings { display: block; margin-bottom: 20px; }
+  .wallpaper-settings > * + * { margin-top: 18px; }
+  .wallpaper-settings .range-field { margin-top: 18px; }
+  .wallpaper-install-guide { border-top: 1px solid var(--line); }
+  .wallpaper-install-guide > summary { padding-top: 13px; }
   .app-shell { padding: 0 12px; }
   .app-header { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; padding-block: 14px; }
   .brand { font-size: 21px; gap: 9px; }

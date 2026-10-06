@@ -12,4 +12,5 @@ export const DEFAULTS = {
     fit: 'cover', cropX: 50, cropY: 50, rotate: 0, mirror: false,
     background: '#000000', interpolate: false, audio: 'strip', format: 'mp4',
     quality: 'balanced', repeats: 1, targetMB: 0, gifLoop: true, layers: [],
+    wallpaperDevice: 'notch', wallpaperPoster: 50,
 };

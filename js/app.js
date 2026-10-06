@@ -3,9 +3,12 @@ import { DEFAULTS, METHODS } from './constants.js';
 import { alternateFormat, dimensionsForAspect, selectedAspect } from './aspect.js';
 import { clamp, download, framePlan, humanSize, timecode, validate } from './logic.js';
 import { VideoEngine } from './engine.js';
-import { inspectSeam, openVideo, releaseVideo, searchVideo, thumbnails } from './media.js';
+import { capture, inspectSeam, openVideo, releaseVideo, searchVideo, seekVideo, thumbnails } from './media.js';
 import { Preview } from './preview.js';
 import { Timeline } from './timeline.js';
+import { WallpaperPreview } from './wallpaper-preview.js';
+import { keyPhotoTime, phoneProfile, wallpaperPreset, wallpaperRange } from './wallpaper.js';
+import { wallpaperDownload } from './wallpaper-export.js';
 import { createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, MAX_LAYERS } from './layers.js';
 import { LayerPanel } from './layer-panel.js';
 import { loadFont, importFontFile, discoverDeviceFonts, clearFonts } from './fonts.js';
@@ -18,14 +21,54 @@ const state = {
   sourceURL: '', renderURL: '', render: null, renderSignature: '', lastExport: null,
   mode: 'source', tab: 'edit', playhead: 0, filmstrip: [], activeLayerId: '',
   renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
+  wallpaperScreen: 'editor', wallpaperDownload: 'kit', wallpaperPosterURL: '', wallpaperPosterSignature: '',
   opts: { from: 0, to: 18, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true },
   candidates: [], selected: new Set(), seam: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
-let preview, timeline, layerPanel, sampleController, renderFilmstripController;
-const dirty = () => JSON.stringify(state.s) !== state.renderSignature;
+let preview, timeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
+const videoSignature = settings => JSON.stringify({ ...settings, wallpaperPoster: undefined, wallpaperDevice: undefined });
+const dirty = () => videoSignature(state.s) !== state.renderSignature;
 const busy = () => Boolean(state.job);
+const staticHome = () => state.s.preset === 'iphone' && state.wallpaperScreen === 'home';
+
+function clearWallpaperPoster() {
+  wallpaperPosterController?.abort(); wallpaperPosterPending = '';
+  if (state.wallpaperPosterURL) URL.revokeObjectURL(state.wallpaperPosterURL);
+  state.wallpaperPosterURL = ''; state.wallpaperPosterSignature = '';
+}
+function posterSignature() { return `${state.renderURL}:${state.s.wallpaperPoster}`; }
+async function prepareWallpaperPoster() {
+  if (state.s.preset !== 'iphone' || !state.renderURL || dirty()) return;
+  const signature = posterSignature();
+  if (state.wallpaperPosterSignature === signature || wallpaperPosterPending === signature) return;
+  wallpaperPosterController?.abort();
+  const controller = new AbortController(), url = state.renderURL, result = state.render;
+  wallpaperPosterController = controller; wallpaperPosterPending = signature;
+  let video;
+  try {
+    video = await openVideo(url, controller.signal);
+    const time = keyPhotoTime(result.duration, result.fps, state.s.wallpaperPoster, result.frames);
+    await seekVideo(video, time + 0.5 / result.fps, controller.signal);
+    const blob = await new Promise(resolve => capture(video, result.width, result.height).toBlob(resolve, 'image/jpeg', 0.95));
+    if (!blob || controller.signal.aborted || state.renderURL !== url || posterSignature() !== signature) return;
+    if (state.wallpaperPosterURL) URL.revokeObjectURL(state.wallpaperPosterURL);
+    state.wallpaperPosterURL = URL.createObjectURL(blob); state.wallpaperPosterSignature = signature; refresh();
+  } catch { /* The phone preview can retain a draft still if decoding is unavailable. */ }
+  finally {
+    if (video) releaseVideo(video);
+    if (wallpaperPosterController === controller) wallpaperPosterPending = '';
+  }
+}
+function setWallpaperScreen(screen) {
+  if (busy() || state.s.preset !== 'iphone' || !['editor', 'lock', 'home'].includes(screen)) return;
+  state.wallpaperScreen = screen;
+  if (screen === 'home') preview.pause();
+  if (screen !== 'editor' && state.mode !== 'loop' && state.mode !== 'composition') preview.setMode('composition');
+  else refresh();
+  wallpaperPreview?.captureStill();
+}
 
 function snapshot() { return { s: { ...state.s }, opts: { ...state.opts } }; }
 function remember() {
@@ -36,14 +79,21 @@ function update(partial, saveHistory = true) {
   if ('rotate' in partial && state.s.aspect === 'original') partial = { ...partial, ...dimensionsForAspect('original', state.info, partial.rotate), aspect: 'original' };
   if (busy() || Object.entries(partial).every(([key, value]) => state.s[key] === value)) return;
   if (saveHistory) remember();
-  state.s = { ...state.s, ...partial }; state.seam = null; $('#seam-result').replaceChildren(); refresh();
+  const leavingWallpaper = state.s.preset === 'iphone' && partial.preset && partial.preset !== 'iphone';
+  state.s = { ...state.s, ...partial }; state.seam = null; $('#seam-result').replaceChildren();
+  if (leavingWallpaper) {
+    state.wallpaperScreen = 'editor';
+    if (state.mode === 'composition' && state.tab !== 'layers') { preview.setMode('source'); return; }
+  }
+  refresh();
 }
 function restore(value) {
   const searchChanged = JSON.stringify(state.opts) !== JSON.stringify(value.opts);
   state.s = value.s; state.opts = value.opts;
   if (searchChanged) clearCandidates();
   clearSeam();
-  if (searchChanged && state.tab === 'find') preview.setMode('source');
+  if (state.s.preset !== 'iphone') state.wallpaperScreen = 'editor';
+  if ((searchChanged && state.tab === 'find') || (state.s.preset !== 'iphone' && state.mode === 'composition' && state.tab !== 'layers')) preview.setMode('source');
   else refresh();
 }
 function undo() { if (busy() || !history.past.length) return; history.future.push(snapshot()); restore(history.past.pop()); }
@@ -111,7 +161,7 @@ function syncDisabled() {
   $$('[data-action="open"], [data-action="reset"], [data-action="proxy"]').forEach(el => { el.disabled = busy(); });
   $('[data-action="undo"]').disabled = busy() || !history.past.length;
   $('[data-action="redo"]').disabled = busy() || !history.future.length;
-  $$('[data-action="play"], [data-action="previous-frame"], [data-action="next-frame"]').forEach(el => { el.disabled = disabled; });
+  $$('[data-action="play"], [data-action="previous-frame"], [data-action="next-frame"]').forEach(el => { el.disabled = disabled || staticHome(); });
   $('[data-action="alternate"]').disabled = disabled;
   $$('[data-action="mark-in"], [data-action="mark-out"], [data-action="zoom"]').forEach(button => {
     button.hidden = rendered; button.disabled = disabled || rendered;
@@ -120,6 +170,9 @@ function syncDisabled() {
   $('.render-btn').disabled = $('.export-btn').disabled = busy() || invalid;
   $('[data-mode="loop"]').disabled = !state.renderURL;
   $('[data-audio="strip"]').disabled = state.s.format === 'gif';
+  $('[data-action="open-photo"]').disabled = busy();
+  $('[data-setting="preset"]').disabled = busy();
+  $$('[data-wallpaper-screen]').forEach(button => { button.disabled = busy(); });
 }
 function refreshBindings() {
   $$('[data-setting], [data-search]').forEach(input => {
@@ -142,6 +195,7 @@ function refreshBindings() {
   $('[data-search="from"]').max = Math.max(0, state.opts.to - gap); $('[data-search="to"]').max = state.info.duration;
   $('[data-search="from"]').step = $('[data-search="to"]').step = 1 / rate;
   $('[data-search="to"]').min = state.opts.from + gap; $('[data-search="max"]').min = state.opts.min;
+  $('[data-wallpaper="kind"]').value = state.wallpaperDownload;
 }
 function refreshHeaderHint(issues, plan) {
   const { s, info } = state, issue = info.duration ? issues[0] : '';
@@ -176,6 +230,9 @@ function refreshHeaderHint(issues, plan) {
       : 'Use Rotation animation to spin clockwise or counterclockwise. Movement controls the element’s path.';
   } else if (state.tab === 'find') {
     message = 'Auto find searches for loopable clips anywhere inside the highlighted range. Set the range here or drag its timeline handles.';
+  } else if (s.preset === 'iphone') {
+    message = staticHome() ? 'Home Screen wallpaper is still. The selected key photo is used; phone icons are preview overlays.'
+      : 'iPhone Lock Screen motion uses Live Photos. Export a wallpaper kit or an MP4 for conversion; iOS decides whether motion is available.';
   } else if (state.tab === 'inspect') {
     message = 'Compare the last and first frames, then watch a few repeats to check the join in motion.';
   } else if (state.render && dirty()) {
@@ -201,7 +258,7 @@ function refreshHeaderHint(issues, plan) {
 }
 function refresh() {
   const { s, info } = state, plan = framePlan(s), issues = info.duration ? [...validate(s, info), ...validateLayers(s.layers, s)] : ['Open a playable video to begin.'];
-  const isGif = s.format === 'gif';
+  const isGif = s.format === 'gif', wallpaper = s.preset === 'iphone';
   const rendered = state.mode === 'loop' && state.render;
   const timelineInfo = rendered || info;
   refreshStatus(); refreshBindings(); syncDisabled(); refreshHeaderHint(issues, plan);
@@ -218,7 +275,7 @@ function refresh() {
   $$('[data-tab]').forEach(button => { const active = button.dataset.tab === state.tab; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
   ['edit', 'find', 'inspect', 'layers'].forEach(tab => { $(`#panel-${tab}`).hidden = tab !== state.tab; });
   $('#tool-title').textContent = state.tab === 'layers' ? 'Layers' : state.tab === 'find' ? 'Find loops' : state.tab === 'inspect' ? 'Inspect seam' : 'Loop method';
-  $('[data-mode="composition"]').hidden = state.tab !== 'layers';
+  $('[data-mode="composition"]').hidden = state.tab !== 'layers' && !wallpaper;
   if (!s.layers.some(layer => layer.id === state.activeLayerId)) state.activeLayerId = s.layers.at(-1)?.id || '';
   layerPanel?.render();
   $$('[data-method]').forEach(button => { const active = button.dataset.method === s.method; button.classList.toggle('selected', active); button.setAttribute('aria-pressed', String(active)); });
@@ -240,19 +297,23 @@ function refresh() {
   $('#gif-playback-settings').hidden = !isGif;
   $('#gif-pingpong-note').hidden = !pingpong;
   $('#quality-field').hidden = $('#video-export-options').hidden = isGif;
+  $('#video-export-options').hidden = isGif || wallpaper;
+  $('#audio-fields').hidden = wallpaper;
+  $('#wallpaper-settings').hidden = !wallpaper;
   $('#output-settings').dataset.format = s.format;
   $('[data-audio="strip"]').checked = s.audio === 'strip' || s.format === 'gif';
   $('[data-audio="smooth"]').checked = s.audio === 'smooth';
   $('#field-audio-smooth').hidden = s.audio === 'strip' || s.format === 'gif';
   $('#pingpong-audio-note').hidden = !pingpong || s.audio === 'strip' || s.format === 'gif';
-  $('#preset-hint').textContent = s.preset === 'spotify' ? '3–8s · 9:16 · 720–1080px tall' : s.preset === 'vertical' ? '9:16 · short loops up to 15s suggested' : 'Set your own dimensions and duration';
-  $('#format-badge').textContent = s.format.toUpperCase();
+  $('#preset-hint').textContent = s.preset === 'spotify' ? '3–8s · 9:16 · 720–1080px tall' : s.preset === 'vertical' ? '9:16 · short loops up to 15s suggested' : wallpaper ? 'Portrait · one silent cycle · 3 seconds recommended for conversion' : 'Set your own dimensions and duration';
+  $('#format-badge').textContent = wallpaper ? 'IPHONE' : s.format.toUpperCase();
   const aspect = selectedAspect(s);
   $('#dimension-fields').hidden = $('#dimension-note').hidden = aspect !== 'custom';
   $$('[data-aspect]').forEach(button => { const active = button.dataset.aspect === aspect; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   $$('[data-fit]').forEach(button => { const active = button.dataset.fit === s.fit; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   $('#dimension-caption').textContent = `${s.width} × ${s.height}`;
-  $('#destination-label').textContent = s.preset === 'spotify' ? 'Spotify Canvas' : s.preset === 'vertical' ? 'Music visual' : 'Custom';
+  $('#destination-label').textContent = s.preset === 'spotify' ? 'Spotify Canvas' : s.preset === 'vertical' ? 'Music visual' : wallpaper ? 'iPhone wallpaper' : 'Custom';
+  $('.alternate-format').hidden = wallpaper;
   const alternate = alternateFormat(s);
   $('#alternate-label').textContent = alternate.aspect;
   $('#alternate-dimensions').textContent = `${alternate.width} × ${alternate.height}`;
@@ -272,7 +333,7 @@ function refresh() {
   $('#export-valid').innerHTML = icon('Check', 14) + (s.preset === 'spotify' ? 'Canvas format checks passed' : 'Ready to export')
     + (isGif ? s.gifLoop ? ' · loops forever · silent' : ' · plays once · silent' : s.audio === 'strip' ? ' · silent' : '');
   $('#long-loop-warning').hidden = plan.totalDuration <= 30;
-  $('#export-label').textContent = `Export ${s.format.toUpperCase()}`;
+  $('#export-label').textContent = wallpaper ? state.wallpaperDownload === 'kit' ? 'Download wallpaper kit' : state.wallpaperDownload === 'image' ? 'Download wallpaper JPG' : 'Download wallpaper MP4' : `Export ${s.format.toUpperCase()}`;
   $('#download-result').hidden = !state.lastExport;
   if (state.lastExport) $('#download-meta').textContent = `${humanSize(state.lastExport.blob.size)} · ${state.lastExport.hasAudio ? 'With audio' : 'No audio track'}`;
   $$('[data-mode]').forEach(button => { const active = button.dataset.mode === state.mode; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
@@ -280,6 +341,17 @@ function refresh() {
   $('#preview-foot-message').textContent = state.mode === 'composition' ? 'Live layer draft. Render preview to check the finished loop.' : state.mode === 'source' ? state.tab === 'find' ? 'Find loopable clips inside the highlighted range' : 'Render to check the finished seam' : dirty() ? 'Settings changed. Render again.' : 'Playing the actual encoded loop';
   $('#inspection-mode').textContent = state.mode === 'loop' ? 'Rendered preview' : 'Selected source range';
   $('#timeline-fieldset').hidden = !info.duration;
+  const profile = phoneProfile(s);
+  const posterReady = state.wallpaperPosterSignature === posterSignature() && !dirty();
+  wallpaperPreview?.refresh({ enabled: wallpaper, screen: state.wallpaperScreen, width: profile.width, height: profile.height,
+    device: profile.chrome, posterURL: posterReady ? state.wallpaperPosterURL : '', disabled: busy(), draft: state.mode !== 'loop' || dirty() });
+  $('#wallpaper-key-time').textContent = `${keyPhotoTime(plan.duration, s.fps, s.wallpaperPoster).toFixed(3)}s`;
+  $('#wallpaper-range-note').textContent = `Finished cycle: ${plan.duration.toFixed(3)}s. A short 3-second cycle is recommended; this is preparation guidance, not a universal iOS limit.`;
+  $('#wallpaper-download-note').textContent = state.wallpaperDownload === 'kit' ? 'Includes MP4, a still JPG, an experimental Live Photo pair, and installation instructions.'
+    : state.wallpaperDownload === 'image' ? 'A static wallpaper from the chosen frame. Render preview to inspect the key photo.' : 'Transfer this MP4 to your iPhone and convert it using a compatible Live Photo wallpaper app.';
+  if (staticHome()) $('#preview-foot-message').textContent = posterReady ? 'Selected key photo. Home Screen wallpaper stays still.' : 'Draft still. Render preview to see the selected key photo.';
+  $('[data-action="frame-png"]').hidden = staticHome();
+  void prepareWallpaperPoster();
   timeline?.render(); preview?.refresh();
 }
 
@@ -289,6 +361,7 @@ async function loadFile(file, sample = false) {
   if (!sample) { sampleController?.abort(); sampleController = undefined; }
   state.fileController?.abort(); state.controller?.abort(); preview.pause();
   renderFilmstripController?.abort();
+  clearWallpaperPoster(); state.wallpaperScreen = 'editor';
   const controller = new AbortController(); state.fileController = controller;
   if (state.sourceURL) URL.revokeObjectURL(state.sourceURL);
   if (state.renderURL) URL.revokeObjectURL(state.renderURL);
@@ -302,9 +375,11 @@ async function loadFile(file, sample = false) {
     const info = { name: file.name, size: file.size, width: video.videoWidth, height: video.videoHeight, duration: video.duration, fps: sample ? 24 : 0, hasAudio: true };
     releaseVideo(video); if (controller.signal.aborted || state.file !== file) return;
     state.info = info; state.s = { ...state.s, start: 0, end: Math.min(info.duration, 6), repeats: 1 };
+    if (state.s.preset === 'iphone') state.s = { ...state.s, ...wallpaperRange(state.s, info) };
     if (state.s.aspect === 'original') state.s = { ...state.s, ...dimensionsForAspect('original', info, state.s.rotate) };
     state.opts = { ...state.opts, from: 0, to: info.duration, max: Math.min(state.opts.max, info.duration) };
     history.past = []; history.future = []; refresh();
+    if (state.s.preset === 'iphone') setWallpaperScreen('lock');
     thumbnails(state.sourceURL, 10, controller.signal).then(frames => { if (!controller.signal.aborted) { state.filmstrip = frames; timeline.render(); } }).catch(() => {});
   } catch (error) { if (!controller.signal.aborted) { state.nativeError = error.message || String(error); refresh(); } }
 }
@@ -320,6 +395,36 @@ async function loadInitialSample() {
     await loadFile(new File([blob], 'prism-motion-sample.mp4', { type: 'video/mp4' }), true);
   } catch (error) { if (!controller.signal.aborted) report(error); }
   finally { if (sampleController === controller) sampleController = undefined; }
+}
+async function openPhoto(file) {
+  if (!file || !startJob('photo', 'Reading your photo…')) return;
+  const controller = state.controller;
+  let bitmap, result;
+  try {
+    if (!/\.(png|jpe?g|webp)$/i.test(file.name) && !/^image\/(png|jpeg|webp)$/i.test(file.type)) throw new Error('Choose a JPEG, PNG, or WebP photo.');
+    bitmap = await createImageBitmap(file);
+    if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    const scale = Math.min(1, 1920 / bitmap.width, 1920 / bitmap.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(16, Math.round(bitmap.width * scale / 2) * 2);
+    canvas.height = Math.max(16, Math.round(bitmap.height * scale / 2) * 2);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    if (!blob) throw new Error('The photo could not be decoded.');
+    const png = new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.png`, { type: 'image/png' });
+    result = await engine.makePhotoVideo(png, progress('photo'));
+  } catch (error) { report(error); }
+  finally { bitmap?.close(); finishJob(); }
+  if (!result || controller.signal.aborted) return;
+  const converted = new File([result.blob], result.name, { type: 'video/mp4' });
+  await loadFile(converted);
+  if (state.file !== converted || !state.info.duration) return;
+  state.info.fps = result.fps; state.info.hasAudio = false;
+  state.s = wallpaperPreset({ ...state.s, start: 0, method: 'natural', speed: 1 }, state.info);
+  history.past = []; history.future = [];
+  setWallpaperScreen('lock');
+  notice('Photo motion ready: a gentle 3-second zoom cycle. Add text or images in Layers, then render the finished wallpaper.');
 }
 async function makeProxy() {
   if (!state.file || !startJob('proxy', 'Preparing a compatible proxy…')) return;
@@ -377,14 +482,18 @@ function chooseCandidate(id) {
 }
 async function runRender(isPreview) {
   if (!state.file || validate(state.s, state.info).length || validateLayers(state.s.layers, state.s).length || !startJob(isPreview ? 'preview' : 'export', 'Preparing render…')) return;
-  preview.pause(); const settings = { ...state.s };
+  preview.pause(); const settings = { ...state.s }, wallpaper = settings.preset === 'iphone';
+  const kind = state.wallpaperDownload, controller = state.controller;
   try {
-    const result = await engine.render(state.file, settings, state.info, progress(isPreview ? 'preview' : 'export'), isPreview);
+    const result = await engine.render(state.file, settings, state.info, progress(isPreview ? 'preview' : 'export'), isPreview,
+      wallpaper && !isPreview && kind !== 'video' ? { posterPercent: settings.wallpaperPoster } : null);
+    if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     if (result.sourceFps) state.info.fps = result.sourceFps;
     if (isPreview) {
       renderFilmstripController?.abort();
+      clearWallpaperPoster();
       if (state.renderURL) URL.revokeObjectURL(state.renderURL);
-      state.renderURL = URL.createObjectURL(result.blob); state.render = result; state.renderSignature = JSON.stringify(settings);
+      state.renderURL = URL.createObjectURL(result.blob); state.render = result; state.renderSignature = videoSignature(settings);
       state.renderSettings = settings; state.renderPlayhead = 0; state.renderFilmstrip = [];
       clearSeam(); preview.setOutput(state.renderURL); preview.setMode('loop');
       const controller = new AbortController(), url = state.renderURL;
@@ -395,7 +504,11 @@ async function runRender(isPreview) {
       notice('Loop preview ready. Watch several repeats and inspect the seam.');
       if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
     } else {
-      state.lastExport = result; download(result.blob, result.name);
+      const exported = wallpaper ? await wallpaperDownload(result, kind, controller.signal) : result;
+      if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      state.lastExport = exported; download(exported.blob, exported.name);
+      if (wallpaper) { notice(kind === 'kit' ? 'Wallpaper kit downloaded. Unzip and read README.txt for Live Photo import or MP4 conversion. iOS wallpaper motion still needs verification on your iPhone.'
+        : kind === 'image' ? 'Still wallpaper downloaded. Save the JPG to Photos to use it as a static wallpaper.' : 'Wallpaper video downloaded. Convert the MP4 to a Live Photo with a compatible iOS wallpaper app.'); return; }
       notice(`Exported ${result.duration.toFixed(3)}s · ${result.width} × ${result.height} · ${result.hasAudio ? 'Audio included' : 'No audio track'}.${settings.format === 'gif' ? settings.gifLoop ? ' GIF loops forever.' : ' GIF plays once.' : settings.targetMB && result.blob.size > settings.targetMB * 1024 ** 2 ? ' The result exceeds the approximate size target; lower the resolution or increase compression.' : ''}`);
     }
   } catch (error) { report(error); }
@@ -430,8 +543,10 @@ async function inspect() {
   finally { finishJob(); }
 }
 function setPreset(preset) {
-  update(preset === 'spotify' ? { preset, aspect: '9:16', width: 576, height: 1024, fps: 30, format: 'mp4', audio: 'strip', repeats: 1 } : preset === 'vertical' ? { preset, aspect: '9:16', width: 720, height: 1280, fps: 30 } : { preset, aspect: 'custom' });
+  update(preset === 'iphone' ? wallpaperPreset(state.s, state.info) : preset === 'spotify' ? { preset, aspect: '9:16', width: 576, height: 1024, fps: 30, format: 'mp4', audio: 'strip', repeats: 1 } : preset === 'vertical' ? { preset, aspect: '9:16', width: 720, height: 1280, fps: 30 } : { preset, aspect: 'custom' });
   updateSearch({ min: 3, max: preset === 'spotify' ? 8 : 15 }, false);
+  if (preset === 'iphone') setWallpaperScreen('lock');
+  else { state.wallpaperScreen = 'editor'; if (state.mode === 'composition' && state.tab !== 'layers') preview.setMode('source'); else refresh(); }
 }
 function setAspect(aspect, dimensions) {
   if (!state.info.duration || busy()) return;
@@ -445,7 +560,9 @@ function setAspect(aspect, dimensions) {
   update({ ...(dimensions || (keepVerticalPreset ? verticalDimensions : dimensionsForAspect(aspect, state.info, state.s.rotate))), aspect, preset: keepVerticalPreset ? state.s.preset : 'custom' });
 }
 function fitDuration() {
-  const s = state.s, seconds = s.preset === 'spotify' ? 6 : 10;
+  const s = state.s;
+  if (s.preset === 'iphone') { update({ ...wallpaperRange(s, state.info), repeats: 1 }); return; }
+  const seconds = s.preset === 'spotify' ? 6 : 10;
   const duration = (s.method.includes('pingpong') ? (seconds + 2 / s.fps) / 2 : ['crossfade', 'offset'].includes(s.method) ? seconds + s.transition : seconds) * s.speed;
   const start = Math.max(0, Math.min(s.start, state.info.duration - duration)); update({ start, end: Math.min(state.info.duration, start + duration), repeats: 1 });
 }
@@ -579,13 +696,21 @@ async function addFonts(files) {
 
 initializeFields();
 $('#methods').innerHTML = METHODS.map((method, index) => `<button class="method-card" data-method="${method.id}" aria-pressed="false" title="${escapeHTML(method.short)}"><span class="method-icon">${icon(['Scissors', 'Blend', 'Layers', 'Play', 'SmoothWave', 'FadeCircle'][index], 25)}</span><span><b>${method.name}</b><small>${method.short}</small></span></button>`).join('');
-preview = new Preview(() => state, mode => { state.mode = mode; clearSeam(); refresh(); }, (time, mode) => {
+preview = new Preview(() => state, mode => { state.mode = mode; if (mode === 'source') state.wallpaperScreen = 'editor'; clearSeam(); refresh(); }, (time, mode) => {
   if (mode === 'loop') state.renderPlayhead = time;
   else state.playhead = time;
   timeline?.renderPlayhead(time);
+  if (staticHome() && (!state.wallpaperPosterURL || state.wallpaperPosterSignature !== posterSignature() || dirty())) {
+    const key = `${videoSignature(state.s)}:${preview?.lastFrame}`;
+    if (key !== wallpaperDraftFrame) { wallpaperDraftFrame = key; wallpaperPreview?.captureStill(); }
+  }
 });
 timeline = new Timeline(() => state, updateActiveRange, time => { preview.seek(time, state.mode); }, remember);
 layerPanel = new LayerPanel(() => state, editLayer, layerAction);
+wallpaperPreview = new WallpaperPreview($('#wallpaper-screen-controls'), $('#preview-stage'), setWallpaperScreen);
+$('#wallpaper-photo-input').addEventListener('change', event => {
+  const file = event.target.files[0]; event.target.value = ''; void openPhoto(file);
+});
 $('#layer-image-input').addEventListener('change', event => {
   const file = event.target.files[0]; event.target.value = ''; void addImage(file);
 });
@@ -599,6 +724,7 @@ function changeField(event) {
   if (busy()) return;
   if (input.dataset.candidateCheck) { input.checked ? state.selected.add(input.dataset.candidateCheck) : state.selected.delete(input.dataset.candidateCheck); renderCandidates(); return; }
   if (input.dataset.audio) { update({ audio: input.dataset.audio === 'strip' ? input.checked ? 'strip' : 'keep' : input.checked ? 'smooth' : 'keep' }); return; }
+  if (input.dataset.wallpaper === 'kind') { state.wallpaperDownload = input.value; refresh(); return; }
   if (!input.dataset.setting && !input.dataset.search) return;
   if (input.type === 'number' && input.value === '') return;
   const value = input.type === 'checkbox' ? input.checked : input.hasAttribute('data-number') ? Number(input.value) : input.value;
@@ -606,28 +732,39 @@ function changeField(event) {
   if (input.dataset.search) updateSearch({ [input.dataset.search]: value });
   else if (['start', 'end'].includes(input.dataset.setting)) updateActiveRange({ [input.dataset.setting]: value });
   else if (input.dataset.setting === 'preset') setPreset(value);
-  else if (input.dataset.setting === 'format' && value !== 'mp4' && state.s.preset === 'spotify') {
-    update({ format: value, preset: 'custom' });
-    notice('Switched to Custom because Spotify Canvas requires MP4.');
+  else if (input.dataset.setting === 'wallpaperDevice') {
+    const profile = phoneProfile({ ...state.s, wallpaperDevice: value });
+    update({ wallpaperDevice: value, aspect: 'custom', width: profile.width, height: profile.height });
   }
-  else if (['width', 'height'].includes(input.dataset.setting)) update({ [input.dataset.setting]: value, aspect: 'custom', preset: 'custom' });
+  else if (input.dataset.setting === 'format' && value !== 'mp4' && ['spotify', 'iphone'].includes(state.s.preset)) {
+    const destination = state.s.preset;
+    update({ format: value, preset: 'custom' });
+    state.wallpaperScreen = 'editor'; refresh();
+    notice(`Switched to Custom because ${destination === 'iphone' ? 'iPhone wallpaper preparation uses' : 'Spotify Canvas requires'} MP4.`);
+  }
+  else if (['width', 'height'].includes(input.dataset.setting)) update({ [input.dataset.setting]: value, aspect: 'custom',
+    preset: state.s.preset === 'iphone' ? 'iphone' : 'custom', ...(state.s.preset === 'iphone' ? { wallpaperDevice: 'custom' } : {}) });
   else update({ [input.dataset.setting]: value });
 }
 document.addEventListener('input', changeField);
 document.addEventListener('change', event => { if (event.target.tagName === 'SELECT' || event.target.type === 'checkbox') changeField(event); });
 document.addEventListener('focusout', event => { if (event.target.matches('[data-setting], [data-search]')) refreshBindings(); });
-$('#file-input').addEventListener('change', event => { const file = event.target.files[0]; if (file) void loadFile(file); event.target.value = ''; });
+$('#file-input').addEventListener('change', event => {
+  const file = event.target.files[0];
+  if (file) /^image\/(png|jpeg|webp)$/i.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name) ? void openPhoto(file) : void loadFile(file);
+  event.target.value = '';
+});
 
 const actions = {
   'layer-add-text': () => addLayer(createTextLayer(state.s)),
   'layer-add-image': () => $('#layer-image-input').click(),
   'layer-upload-fonts': () => $('#layer-font-input').click(),
   'layer-device-fonts': useDeviceFonts,
-  open: () => $('#file-input').click(), help: () => $('#help-dialog').showModal(), 'close-help': () => $('#help-dialog').close(),
+  open: () => $('#file-input').click(), 'open-photo': () => $('#wallpaper-photo-input').click(), help: () => $('#help-dialog').showModal(), 'close-help': () => $('#help-dialog').close(),
   undo, redo, reset: () => update({ ...DEFAULTS, end: Math.min(state.info.duration || 6, 6) }),
   proxy: makeProxy, search: runSearch, render: () => runRender(true), export: () => runRender(false), inspect, batch: batchExport, cancel,
   'dismiss-error': () => { state.error = ''; refreshStatus(); }, 'dismiss-notice': () => notice(''),
-  play: () => preview.play(), 'previous-frame': () => preview.step(-1), 'next-frame': () => preview.step(1),
+  play: () => staticHome() ? undefined : preview.play(), 'previous-frame': () => { if (!staticHome()) preview.step(-1); }, 'next-frame': () => { if (!staticHome()) preview.step(1); },
   mute: () => preview.toggleMute(), guides: () => preview.toggleGuides(), fullscreen: () => preview.fullscreen(), 'frame-png': () => preview.saveFrame(),
   zoom: () => timeline.toggleZoom(), 'mark-in': () => mark('start'), 'mark-out': () => mark('end'), 'fit-duration': fitDuration,
   alternate: () => { const { aspect, width, height } = alternateFormat(state.s); setAspect(aspect, { width, height }); },
@@ -658,6 +795,7 @@ document.addEventListener('keydown', event => {
     tabs[next].focus(); tabs[next].click(); return;
   }
   if (busy() || $('#help-dialog').open || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'SUMMARY'].includes(event.target.tagName)) return;
+  if (staticHome() && [' ', 'ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); return; }
   if (event.key === ' ') { event.preventDefault(); void preview.play(); }
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); preview.step(event.key === 'ArrowRight' ? 1 : -1); }
   if (event.key.toLowerCase() === 'i') mark('start'); if (event.key.toLowerCase() === 'o') mark('end');
@@ -677,6 +815,7 @@ app.addEventListener('drop', event => {
   } else void loadFile(file);
 });
 window.addEventListener('beforeunload', () => {
+  clearWallpaperPoster(); wallpaperPreview?.destroy();
   sampleController?.abort();
   renderFilmstripController?.abort();
   clearLayerAssets();
