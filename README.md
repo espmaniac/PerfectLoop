@@ -56,6 +56,10 @@ Both speed sliders use whole passes or turns so the loop ends at its starting po
 
 Images are read locally as PNG, JPEG, WebP, or GIF; animated images use their first frame. Layers and image assets remain in this page session and support Undo/Redo. Up to eight layers are supported.
 
+Text layers include Inter, Noto Serif, Roboto Mono, Oswald, Lobster, and Pacifico, all with Latin and Cyrillic support, alongside generic system families. These fonts are bundled with the editor and load when selected. **Use device fonts** adds the installed font faces provided by the browser, including bold and italic variants, after you grant permission. Device font enumeration requires a supporting browser such as desktop Chrome or Edge and a secure origin (HTTPS or localhost); other browsers can use **Upload fonts** instead.
+
+**Upload fonts** accepts one or more TTF, OTF, WOFF, or WOFF2 files, up to 20 MB per file. Font files stay on your device and remain available for this page session, including after Undo/Redo or opening another video. Preview and export wait for the selected font to load before measuring or rendering the text. See [bundled font licenses and sources](./vendor/fonts/README.md).
+
 The displayed **Finished loop** duration includes the loop method, speed, overlap, and repeats. In/out points describe the source range; a dissolve shortens it, while ping-pong extends it.
 
 ## Output presets

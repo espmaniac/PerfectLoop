@@ -1,6 +1,7 @@
 import { $, escapeHTML, icon } from './ui.js';
 import { MAX_LAYERS, MAX_ANIMATION_CYCLES, animationCycles } from './layers.js';
 import { framePlan } from './logic.js';
+import { fontOptions, deviceFontsSupported } from './fonts.js';
 
 const MOTIONS = [
   ['none', 'Static'],
@@ -63,6 +64,8 @@ export class LayerPanel {
     this.controls = $('#layer-controls');
     this.listKey = '';
     this.controlsKey = '';
+    this.fontOptionsKey = '';
+    this.fontSelect = null;
     this.panel.addEventListener('click', event => {
       const button = event.target.closest('[data-layer-action]');
       if (!button || button.disabled || this.getState().job) return;
@@ -77,6 +80,11 @@ export class LayerPanel {
       if (numeric && input.value === '') return;
       const value = numeric ? Number(input.value) : input.value;
       if (typeof value === 'number' && !Number.isFinite(value)) return;
+      if (key === 'fontFamily') {
+        this.action('font', state.activeLayerId, value);
+        this.refreshBindings();
+        return;
+      }
       this.updateLayer(state.activeLayerId, { [key]: value });
     };
     this.panel.addEventListener('input', event => {
@@ -129,13 +137,26 @@ export class LayerPanel {
     this.panel.querySelectorAll('[data-layer-action]').forEach(button => {
       button.disabled = Boolean(state.job) || button.hasAttribute('data-order-disabled');
     });
+    const deviceFonts = this.controls.querySelector('[data-action="layer-device-fonts"]');
+    if (deviceFonts) {
+      deviceFonts.disabled = Boolean(state.job) || !deviceFontsSupported();
+      deviceFonts.title = deviceFontsSupported()
+        ? 'Allow this browser to list installed fonts.'
+        : 'This browser cannot list installed fonts. Upload font files instead.';
+    }
+    const uploadFonts = this.controls.querySelector('[data-action="layer-upload-fonts"]');
+    if (uploadFonts) uploadFonts.disabled = Boolean(state.job);
     this.refreshBindings();
   }
 
   fields(type) {
     const content = type === 'text'
       ? `<label class="field layer-text-field"><span>Text</span><textarea data-layer-setting="text" aria-label="Text" maxlength="500" rows="3" spellcheck="false"></textarea></label>`
-        + selectField('fontFamily', 'Font', [['sans-serif', 'Sans serif'], ['serif', 'Serif'], ['monospace', 'Monospace']])
+        + `<label class="field"><span>Font</span><select aria-label="Font" aria-describedby="layer-font-help" data-layer-setting="fontFamily"></select></label>`
+        + `<div class="layer-font-actions"><button class="btn secondary" type="button" data-action="layer-device-fonts" aria-describedby="layer-font-help">Use device fonts</button><button class="btn secondary" type="button" data-action="layer-upload-fonts">Upload fonts</button></div>`
+        + `<p class="micro" id="layer-font-help">${deviceFontsSupported()
+          ? 'Device fonts require browser permission. Upload TTF, OTF, WOFF, or WOFF2 files to add other fonts.'
+          : 'This browser cannot list installed fonts. Upload TTF, OTF, WOFF, or WOFF2 files instead.'}</p>`
         + `<div class="fields two">${numberField('fontSize', 'Font size', 8, 256, 'px')}<label class="field"><span>Text color</span><input type="color" data-layer-setting="color" aria-label="Text color"></label></div>`
         + selectField('align', 'Alignment', [['left', 'Left'], ['center', 'Center'], ['right', 'Right']])
       : numberField('width', 'Image width', 1, 100, '%');
@@ -149,10 +170,42 @@ export class LayerPanel {
       + animationSpeedField('motion', 'Movement speed');
   }
 
+  refreshFontOptions() {
+    const select = this.controls.querySelector('[data-layer-setting="fontFamily"]');
+    if (!select) return;
+    const options = fontOptions();
+    const key = JSON.stringify(options.map(({ id, label, source }) => [id, label, source]));
+    if (this.fontOptionsKey === key && this.fontSelect === select) return;
+    const previous = select.value;
+    const groups = [
+      ['Built-in', ['generic', 'bundled']],
+      ['Device', ['device']],
+      ['Uploaded', ['uploaded']],
+    ].map(([label, sources]) => {
+      const entries = options.filter(option => sources.includes(option.source));
+      if (!entries.length) return null;
+      const group = document.createElement('optgroup');
+      group.label = label;
+      entries.forEach(({ id, label }) => {
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = label;
+        group.append(option);
+      });
+      return group;
+    }).filter(Boolean);
+    select.replaceChildren(...groups);
+    if (previous) select.value = previous;
+    this.fontOptionsKey = key;
+    this.fontSelect = select;
+  }
+
   refreshBindings() {
     const state = this.getState();
     const layer = (state.s.layers || []).find(item => item.id === state.activeLayerId);
     if (!layer) return;
+    this.refreshFontOptions();
+    const font = this.controls.querySelector('[data-layer-setting="fontFamily"]');
     const movement = this.controls.querySelector('[data-layer-setting="motion"]');
     const spin = this.controls.querySelector('[data-layer-setting="spin"]');
     const rotated = Number.isFinite(layer.rotation) && layer.rotation % 360 !== 0;
@@ -166,7 +219,7 @@ export class LayerPanel {
       } else if (!rotated && existing) existing.remove();
     });
     this.controls.querySelectorAll('[data-layer-setting]').forEach(input => {
-      if (input === document.activeElement && input !== movement && input !== spin && input.type !== 'range') return;
+      if (input === document.activeElement && input !== movement && input !== spin && input !== font && input.type !== 'range') return;
       const key = input.dataset.layerSetting;
       const value = String(key === 'motionCycles' || key === 'spinCycles'
         ? animationCycles(layer, key === 'motionCycles' ? 'motion' : 'spin')
