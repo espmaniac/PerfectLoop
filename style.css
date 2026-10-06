@@ -382,7 +382,7 @@ input[type=range]::-moz-range-progress { background: #d4d5d9; border-radius: 999
 .selection-outline { position: absolute; inset-block: -1px; border: 2px solid #e3e5e8; border-radius: 11px; pointer-events: none; z-index: 2; }
 .trim-handle { position: absolute; width: 18px; height: 49px; top: 50%; transform: translate(-50%,-50%); border-radius: 9px; background: #eaebee; color: #34363b; z-index: 4; cursor: ew-resize; padding: 0; display: grid; place-items: center; touch-action: none; }
 .trim-handle > span { width: 3px; height: 18px; background: #53565c; border-radius: 3px; }
-.playhead { position: absolute; top: -9px; bottom: 0; width: 2px; background: #f6f6f7; transform: translateX(-50%); z-index: 3; pointer-events: none; }
+.playhead { position: absolute; top: -9px; bottom: 0; width: 2px; background: #f6f6f7; transform: translateX(-50%); z-index: 3; cursor: ew-resize; touch-action: none; }
 .playhead:before { content: ""; position: absolute; top: -9px; left: -5px; width: 12px; height: 14px; background: #f6f6f7; clip-path: polygon(0 0,100% 0,100% 45%,50% 100%,0 45%); border-radius: 3px; }
 .trim-fields { display: flex; align-items: center; gap: 22px; margin-top: 15px; }
 .trim-fields .field { display: flex; align-items: center; gap: 12px; margin: 0; flex: 0 1 204px; min-width: 0; }
