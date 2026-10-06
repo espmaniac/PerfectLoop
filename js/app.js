@@ -302,6 +302,7 @@ function refresh() {
   $('#video-export-options').hidden = isGif || wallpaper;
   $('#audio-fields').hidden = wallpaper;
   $('#wallpaper-settings').hidden = !wallpaper;
+  $('#field-setting-format').hidden = wallpaper;
   $('#output-settings').dataset.format = s.format;
   $('[data-audio="strip"]').checked = s.audio === 'strip' || s.format === 'gif';
   $('[data-audio="smooth"]').checked = s.audio === 'smooth';
