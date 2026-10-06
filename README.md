@@ -60,6 +60,8 @@ Text layers include Inter, Noto Serif, Roboto Mono, Oswald, Lobster, and Pacific
 
 **Upload fonts** accepts one or more TTF, OTF, WOFF, or WOFF2 files, up to 20 MB per file. Font files stay on your device and remain available for this page session, including after Undo/Redo or opening another video. Preview and export wait for the selected font to load before measuring or rendering the text. See [bundled font licenses and sources](./vendor/fonts/README.md).
 
+Text colors use an embedded picker with hue, saturation, brightness, HEX, RGB, and color opacity controls, so selecting a color stays inside the editor. Text fills support solid colors and linear, radial, or conic gradients. Add any number of color stops, edit their positions and opacity, and set the gradient angle or center and radius. Equal stop positions create hard color transitions. One gradient covers the whole text block, including multiple lines, and moves and rotates with the text in Composition, rendered previews, and exports. Layer Opacity applies to the entire text layer in addition to each color's opacity. Picker drags form one Undo step.
+
 The displayed **Finished loop** duration includes the loop method, speed, overlap, and repeats. In/out points describe the source range; a dissolve shortens it, while ping-pong extends it.
 
 ## Output presets
