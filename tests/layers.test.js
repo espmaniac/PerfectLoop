@@ -20,6 +20,48 @@ test('Layers retain their settings when duplicated and receive independent IDs',
     assert.equal(imageCopy.assetId, image.assetId, 'Duplicating an image retains its pixels');
 });
 
+test('Duplicated gradient layers own separate fill and stop settings', () => {
+    const fill = Object.freeze({ type: 'linear', angle: 37, stops: Object.freeze([
+        Object.freeze({ color: '#ff0000', opacity: 50, position: 0 }),
+        Object.freeze({ color: '#0000ff', opacity: 100, position: 100 }),
+    ]) });
+    const original = Object.freeze({ ...createTextLayer(), fill, spin: 'clockwise', motion: 'along-angle', motionCycles: 2, spinCycles: 3 });
+    const copy = duplicateLayer(original);
+    assert.notEqual(copy.fill, original.fill);
+    assert.notEqual(copy.fill.stops, original.fill.stops);
+    assert.notEqual(copy.fill.stops[0], original.fill.stops[0]);
+    assert.deepEqual(copy.fill, original.fill);
+    copy.fill.angle = 90;
+    copy.fill.stops[0].color = '#00ff00';
+    copy.fill.stops[0].opacity = 0;
+    copy.fill.stops.push({ color: '#ffffff', opacity: 100, position: 50 });
+    assert.equal(original.fill.angle, 37);
+    assert.equal(original.fill.stops[0].color, '#ff0000');
+    assert.equal(original.fill.stops[0].opacity, 50);
+    assert.equal(original.fill.stops.length, 2);
+    assert.equal(copy.motionCycles, 2);
+    assert.equal(copy.spinCycles, 3);
+    assert.deepEqual(validateLayers([original, copy]), []);
+});
+
+test('Text fill validation preserves legacy color settings and protects inactive malformed fills', async () => {
+    const initial = createTextLayer();
+    assert.deepEqual(validateLayers([initial]), []);
+    assert.ok(validateLayers([{ ...initial, color: 'invalid' }]).some(issue => /color/i.test(issue)));
+    const solid = { type: 'solid', color: '#0080ff', opacity: 50 };
+    assert.deepEqual(validateLayers([{ ...initial, color: 'unused legacy value', fill: solid }]), [], 'An explicit fill controls its own color');
+    const withoutLegacyColor = { ...initial, fill: solid };
+    delete withoutLegacyColor.color;
+    assert.deepEqual(validateLayers([withoutLegacyColor]), []);
+    const gradient = { type: 'radial', centerX: 20, centerY: 80, radius: 125, stops: Array.from({ length: 257 }, (_, index) => ({ color: index % 2 ? '#ff0000' : '#0000ff', opacity: index % 2 ? 0 : 100, position: index / 256 * 100 })) };
+    assert.deepEqual(validateLayers([{ ...initial, fill: gradient }]), [], 'Layers retain every user-added color stop');
+    for (const fill of [null, { ...solid, opacity: NaN }, { ...gradient, radius: 0 }, { ...gradient, stops: [] }, { ...gradient, stops: [{ color: '#ff0000', opacity: 100, position: 0 }, null] }]) {
+        const invalid = { ...initial, visible: false, opacity: 0, fill };
+        assert.ok(validateLayers([invalid]).length > 0);
+        await assert.rejects(rasterizeLayers([invalid], { width: 96, height: 72 }), /fill|color|opacity|gradient/i, 'Export cannot preserve an invalid hidden fill');
+    }
+});
+
 test('Text and image movement follow all four frame directions independently of rotation', () => {
     const width = 320, height = 180, period = 4;
     const expected = {

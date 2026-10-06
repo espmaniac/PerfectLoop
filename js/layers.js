@@ -1,5 +1,6 @@
 // Layer pixels and movement geometry are shared by canvas previews and exports.
 import { isFontAvailable, isFontReady, fontFamilyCSS, loadFont } from './fonts.js';
+import { effectiveFill, validateFill, fillCacheKey, textPaint } from './text-fill.js';
 
 export const MAX_LAYERS = 8;
 export const MAX_TEXT_LENGTH = 500;
@@ -41,7 +42,13 @@ export function createTextLayer(settings = { width: 576, height: 1024 }) {
 }
 
 export function duplicateLayer(layer) {
-    return Object.freeze({ ...layer, id: id(), name: `${layer.name || (layer.type === 'text' ? 'Text' : 'Image')} copy` });
+    const copy = { ...layer, id: id(), name: `${layer.name || (layer.type === 'text' ? 'Text' : 'Image')} copy` };
+    if (layer.fill && typeof layer.fill === 'object') {
+        copy.fill = { ...layer.fill };
+        if (Array.isArray(layer.fill.stops))
+            copy.fill.stops = layer.fill.stops.map(stop => stop && typeof stop === 'object' ? { ...stop } : stop);
+    }
+    return Object.freeze(copy);
 }
 
 function canvas(width, height) {
@@ -142,8 +149,7 @@ export function validateLayers(layers, settings) {
                 issues.push(`${label} font is invalid.`);
             if (!finite(layer.fontSize, 8, 256))
                 issues.push(`${label} font size must be between 8 and 256 px.`);
-            if (!/^#[0-9a-f]{6}$/i.test(layer.color || ''))
-                issues.push(`${label} text color is invalid.`);
+            issues.push(...validateFill(effectiveFill(layer)).map(issue => `${label} ${issue}`));
             if (!alignments.has(layer.align))
                 issues.push(`${label} text alignment is invalid.`);
         }
@@ -292,7 +298,7 @@ function spriteGeometry(layer, settings, originalDimensions = settings) {
 function prepareSprite(layer, settings, originalDimensions = settings) {
     const scale = settings.width / originalDimensions.width;
     const spinning = spinsLayer(layer);
-    const signature = JSON.stringify([layer.type, layer.text, layer.fontFamily, layer.fontSize, layer.color, layer.align, layer.assetId, layer.width, spinning ? 'spin' : layer.rotation, layer.opacity, settings.width, settings.height, scale]);
+    const signature = JSON.stringify([layer.type, layer.text, layer.fontFamily, layer.fontSize, layer.type === 'text' ? fillCacheKey(effectiveFill(layer)) : null, layer.align, layer.assetId, layer.width, spinning ? 'spin' : layer.rotation, layer.opacity, settings.width, settings.height, scale]);
     const cached = sprites.get(layer.id);
     if (cached?.signature === signature) {
         sprites.delete(layer.id);
@@ -309,7 +315,7 @@ function prepareSprite(layer, settings, originalDimensions = settings) {
     ctx.globalAlpha = layer.opacity / 100;
     if (layer.type === 'text') {
         ctx.font = font;
-        ctx.fillStyle = layer.color;
+        ctx.fillStyle = textPaint(ctx, effectiveFill(layer), width, height);
         ctx.textBaseline = 'alphabetic';
         ctx.textAlign = 'left';
         for (const [index, line] of lines.entries()) {

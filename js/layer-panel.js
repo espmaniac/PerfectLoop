@@ -2,6 +2,7 @@ import { $, escapeHTML, icon } from './ui.js';
 import { MAX_LAYERS, MAX_ANIMATION_CYCLES, animationCycles } from './layers.js';
 import { framePlan } from './logic.js';
 import { fontOptions, deviceFontsSupported } from './fonts.js';
+import { TextFillEditor } from './text-fill-editor.js';
 
 const MOTIONS = [
   ['none', 'Static'],
@@ -66,6 +67,7 @@ export class LayerPanel {
     this.controlsKey = '';
     this.fontOptionsKey = '';
     this.fontSelect = null;
+    this.fillEditor = null;
     this.panel.addEventListener('click', event => {
       const button = event.target.closest('[data-layer-action]');
       if (!button || button.disabled || this.getState().job) return;
@@ -131,8 +133,12 @@ export class LayerPanel {
     this.controls.hidden = !selected;
     const controlsKey = selected ? `${selected.id}:${selected.type}` : '';
     if (this.controlsKey !== controlsKey) {
+      this.fillEditor?.destroy();
+      this.fillEditor = null;
       this.controlsKey = controlsKey;
       this.controls.innerHTML = selected ? this.fields(selected.type) : '';
+      const fillHost = this.controls.querySelector('[data-text-fill-editor]');
+      if (fillHost) this.fillEditor = new TextFillEditor(fillHost, this.getState, this.updateLayer);
     }
     this.panel.querySelectorAll('[data-layer-action]').forEach(button => {
       button.disabled = Boolean(state.job) || button.hasAttribute('data-order-disabled');
@@ -157,7 +163,8 @@ export class LayerPanel {
         + `<p class="micro" id="layer-font-help">${deviceFontsSupported()
           ? 'Device fonts require browser permission. Upload TTF, OTF, WOFF, or WOFF2 files to add other fonts.'
           : 'This browser cannot list installed fonts. Upload TTF, OTF, WOFF, or WOFF2 files instead.'}</p>`
-        + `<div class="fields two">${numberField('fontSize', 'Font size', 8, 256, 'px')}<label class="field"><span>Text color</span><input type="color" data-layer-setting="color" aria-label="Text color"></label></div>`
+        + numberField('fontSize', 'Font size', 8, 256, 'px')
+        + `<div class="text-fill-editor" data-text-fill-editor></div>`
         + selectField('align', 'Alignment', [['left', 'Left'], ['center', 'Center'], ['right', 'Right']])
       : numberField('width', 'Image width', 1, 100, '%');
     return content
@@ -205,6 +212,7 @@ export class LayerPanel {
     const layer = (state.s.layers || []).find(item => item.id === state.activeLayerId);
     if (!layer) return;
     this.refreshFontOptions();
+    this.fillEditor?.refresh(layer, { disabled: Boolean(state.job) });
     const font = this.controls.querySelector('[data-layer-setting="fontFamily"]');
     const movement = this.controls.querySelector('[data-layer-setting="motion"]');
     const spin = this.controls.querySelector('[data-layer-setting="spin"]');

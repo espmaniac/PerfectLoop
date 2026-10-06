@@ -410,7 +410,7 @@ function mark(edge) {
   update(edge === 'start' ? { start: Math.min(time, state.s.end - 0.1) } : { end: Math.max(time, state.s.start + 0.1) });
 }
 
-function editLayer(id, partial) {
+function editLayer(id, partial, saveHistory = true) {
   const layer = state.s.layers.find(item => item.id === id);
   if (layer && 'rotation' in partial && Number.isFinite(partial.rotation) && partial.rotation % 360 === 0) {
     const motion = partial.motion ?? layer.motion;
@@ -418,7 +418,7 @@ function editLayer(id, partial) {
       partial = { ...partial, motion: motion === 'along-angle' ? 'right' : 'left' };
   }
   if (!layer || busy() || Object.entries(partial).every(([key, value]) => layer[key] === value)) return;
-  update({ layers: state.s.layers.map(item => item.id === id ? { ...item, ...partial } : item) });
+  update({ layers: state.s.layers.map(item => item.id === id ? { ...item, ...partial } : item) }, saveHistory);
   if (state.mode !== 'composition') preview.setMode('composition');
 }
 function addLayer(layer) {
