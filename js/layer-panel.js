@@ -8,6 +8,10 @@ const MOTIONS = [
   ['down', 'Top to bottom'],
   ['up', 'Bottom to top'],
 ];
+const ROTATED_MOTIONS = [
+  ['along-angle', 'Along rotation'],
+  ['against-angle', 'Against rotation'],
+];
 
 function numberField(key, label, min, max, suffix, step = 1) {
   return `<label class="field"><span>${label}</span><div class="input-unit"><input type="number" aria-label="${label}" data-layer-setting="${key}" min="${min}" max="${max}" step="${step}"><span>${suffix}</span></div></label>`;
@@ -116,8 +120,19 @@ export class LayerPanel {
     const state = this.getState();
     const layer = (state.s.layers || []).find(item => item.id === state.activeLayerId);
     if (!layer) return;
+    const movement = this.controls.querySelector('[data-layer-setting="motion"]');
+    const rotated = Number.isFinite(layer.rotation) && layer.rotation % 360 !== 0;
+    ROTATED_MOTIONS.forEach(([value, label]) => {
+      const existing = movement.querySelector(`option[value="${value}"]`);
+      if (rotated && !existing) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        movement.append(option);
+      } else if (!rotated && existing) existing.remove();
+    });
     this.controls.querySelectorAll('[data-layer-setting]').forEach(input => {
-      if (input === document.activeElement) return;
+      if (input === document.activeElement && input !== movement) return;
       const value = String(layer[input.dataset.layerSetting] ?? '');
       if (input.value !== value) input.value = value;
     });

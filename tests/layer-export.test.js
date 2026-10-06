@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { DEFAULTS } from '../js/constants.js';
 import { framePlan, videoGraph } from '../js/logic.js';
 import { layerOverlayGraph } from '../js/layer-export.js';
+import { angleTrajectory } from '../js/layers.js';
 
 let native = true;
 try {
@@ -21,7 +22,7 @@ const settings = { ...DEFAULTS, preset: 'custom', width, height, fps, start: 0, 
 const layer = { type: 'text', x: 50, y: 50, visible: true, opacity: 100, rotation: 45, motion: 'none' };
 const run = (args, options = {}) => execFileSync('ffmpeg', ['-v', 'error', '-y', '-threads', '1', '-filter_threads', '1', '-filter_complex_threads', '1', ...args], { maxBuffer: 8 * 1024 ** 2, ...options });
 
-function sprite(dir, index, color, rotated = true) {
+function sprite(dir, index, color, rotated = true, rotation = 45) {
     const pixels = Buffer.alloc(spriteSide * spriteSide * 4);
     const rect = rotated ? { x: 10, y: 14, width: 12, height: 4 } : { x: 4, y: 4, width: 24, height: 24 };
     for (let y = rect.y; y < rect.y + rect.height; y++) {
@@ -31,33 +32,33 @@ function sprite(dir, index, color, rotated = true) {
         }
     }
     const path = join(dir, `layer-${index}.png`);
-    run(['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${spriteSide}x${spriteSide}`, '-i', 'pipe:0', ...(rotated ? ['-vf', 'rotate=PI/4:c=none'] : []), '-frames:v', '1', path], { input: pixels });
+    run(['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${spriteSide}x${spriteSide}`, '-i', 'pipe:0', ...(rotated ? ['-vf', `rotate=${rotation}*PI/180:c=none`] : []), '-frames:v', '1', path], { input: pixels });
     return { width: spriteSide, height: spriteSide, png: path };
 }
 
-function render(dir, s, sprites) {
-    const frame = Buffer.alloc(width * height * 3);
+function render(dir, s, sprites, extraFrames = 0) {
+    const frame = Buffer.alloc(s.width * s.height * 3);
     for (let offset = 0; offset < frame.length; offset += 3) {
         frame[offset] = 8;
         frame[offset + 1] = 16;
         frame[offset + 2] = 24;
     }
-    const input = Buffer.concat(Array.from({ length: framePlan(s).frames }, () => frame));
+    const input = Buffer.concat(Array.from({ length: framePlan(s).frames + extraFrames }, () => frame));
     const overlay = layerOverlayGraph(s, sprites);
     const graph = [videoGraph(s), overlay.graph].filter(Boolean).join(';');
-    const output = run(['-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${width}x${height}`, '-r', String(fps), '-i', 'pipe:0', ...overlay.inputs, '-filter_complex', graph, '-map', `[${overlay.outputLabel}]`, '-an', '-fps_mode', 'passthrough', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'], { input, cwd: dir });
-    const bytes = width * height * 3;
+    const output = run(['-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${s.width}x${s.height}`, '-r', String(s.fps), '-i', 'pipe:0', ...overlay.inputs, '-filter_complex', graph, '-map', `[${overlay.outputLabel}]`, '-an', '-fps_mode', 'passthrough', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'], { input, cwd: dir });
+    const bytes = s.width * s.height * 3;
     assert.equal(output.length % bytes, 0);
     return Array.from({ length: output.length / bytes }, (_, index) => output.subarray(index * bytes, (index + 1) * bytes));
 }
 
-function redMask(frame) {
+function redMask(frame, frameWidth = width, frameHeight = height) {
     const mask = new Set();
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const offset = (y * width + x) * 3;
+    for (let y = 0; y < frameHeight; y++) {
+        for (let x = 0; x < frameWidth; x++) {
+            const offset = (y * frameWidth + x) * 3;
             if (frame[offset] > 100 && frame[offset] > frame[offset + 1] * 1.5 && frame[offset] > frame[offset + 2] * 1.5)
-                mask.add(y * width + x);
+                mask.add(y * frameWidth + x);
         }
     }
     return mask;
@@ -171,6 +172,56 @@ test('Sprites wider or taller than two video frames retain every periodic copy',
             for (const index of [6, 12, 18, 23]) {
                 const expected = translated(initial, horizontal ? index * 4 : 0, horizontal ? 0 : index * 3);
                 assert.ok(maskOverlap(redMask(frames[index]), expected) > 0.75, `${motion}: long sprites remain periodic at frame ${index}`);
+            }
+        }
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('FFmpeg exports angle motion in physical pixel directions with invisible re-entry and a continuous cycle', { skip: !native }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'layer-angle-motion-'));
+    const center = (mask, frameWidth) => {
+        assert.ok(mask.size > 15, 'The rotated sprite is visible');
+        let x = 0, y = 0;
+        for (const value of mask) {
+            x += value % frameWidth;
+            y += Math.floor(value / frameWidth);
+        }
+        return { x: x / mask.size, y: y / mask.size };
+    };
+    try {
+        for (const scenario of [
+            { width: 96, height: 72, rotation: 37, x: 50, y: 50, type: 'text' },
+            { width: 72, height: 96, rotation: 37, x: 30, y: 60, type: 'image' },
+            { width: 96, height: 72, rotation: 135, x: 25, y: 35, type: 'image' },
+            { width: 72, height: 96, rotation: 90, x: 50, y: 50, type: 'text' },
+        ]) {
+            const s = { ...settings, width: scenario.width, height: scenario.height };
+            const png = sprite(dir, 0, [255, 0, 0, 255], true, scenario.rotation);
+            for (const [motion, sign] of [['along-angle', 1], ['against-angle', -1]]) {
+                const moving = { ...layer, ...scenario, motion };
+                // One additional diagnostic frame observes t=period without
+                // changing the period computed from the production settings.
+                const frames = render(dir, s, [{ ...png, layer: moving }], 1);
+                assert.equal(frames.length, fps + 1);
+                assert.deepEqual(frames[fps], frames[0], `${motion}, ${scenario.rotation}°: the exact end of the cycle meets its first frame`);
+                const masks = frames.map(frame => redMask(frame, s.width, s.height));
+                const first = center(masks[0], s.width), next = center(masks[1], s.width), last = center(masks[fps - 1], s.width);
+                const radians = scenario.rotation * Math.PI / 180;
+                const direction = { x: sign * Math.cos(radians), y: sign * Math.sin(radians) };
+                for (const step of [{ x: next.x - first.x, y: next.y - first.y }, { x: first.x - last.x, y: first.y - last.y }]) {
+                    const length = Math.hypot(step.x, step.y);
+                    assert.ok(length > 1);
+                    const alignment = (step.x * direction.x + step.y * direction.y) / length;
+                    assert.ok(alignment > 0.985, `${motion}, ${scenario.width}×${scenario.height}, ${scenario.rotation}°: exported pixels follow the visible rotation`);
+                }
+                assert.ok(Math.abs(Math.hypot(next.x - first.x, next.y - first.y) - Math.hypot(first.x - last.x, first.y - last.y)) < 1.6, 'The final-to-first motion is one ordinary frame step');
+                const trajectory = angleTrajectory(moving, s.width, s.height, png.width, png.height);
+                const wrapFrame = (trajectory.min + trajectory.distance) / trajectory.distance * fps;
+                for (const index of [Math.floor(wrapFrame), Math.ceil(wrapFrame)])
+                    assert.equal(masks[index].size, 0, `${motion}, ${scenario.rotation}°: the sprite is invisible at the expanded-boundary wrap`);
             }
         }
     }
