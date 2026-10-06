@@ -40,7 +40,7 @@ export function initializeFields() {
     + numberField('shift', 'Seam position', { min: 0, max: 99, step: 1, suffix: '%' });
   $('#loop-settings').prepend($('#field-setting-shift'));
   $('#framing-fields').innerHTML = selectField('fit', 'Fit mode', [['cover', 'Fill & crop'], ['contain', 'Fit with borders'], ['stretch', 'Stretch']])
-    + rangeField('cropX', 'Horizontal crop') + rangeField('cropY', 'Vertical crop')
+    + rangeField('cropX', 'Horizontal position') + rangeField('cropY', 'Vertical position')
     + `<div class="fields two">${selectField('rotate', 'Rotation', [[0, '0°'], [90, '90°'], [180, '180°'], [270, '270°']], { numeric: true })}<label class="field"><span>Border color</span><input type="color" data-setting="background" aria-label="Border color"></label></div>`
     + toggleField('mirror', 'Mirror horizontally')
     + toggleField('interpolate', 'Motion interpolation', { detail: 'Smoother speed changes; significantly slower to render.' });

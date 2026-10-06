@@ -229,9 +229,10 @@ export class LayerPanel {
     this.controls.querySelectorAll('[data-layer-setting]').forEach(input => {
       if (input === document.activeElement && input !== movement && input !== spin && input !== font && input.type !== 'range') return;
       const key = input.dataset.layerSetting;
-      const value = String(key === 'motionCycles' || key === 'spinCycles'
+      const raw = key === 'motionCycles' || key === 'spinCycles'
         ? animationCycles(layer, key === 'motionCycles' ? 'motion' : 'spin')
-        : layer[key] ?? (key === 'spin' ? 'none' : ''));
+        : layer[key] ?? (key === 'spin' ? 'none' : '');
+      const value = String(typeof raw === 'number' ? Math.round(raw * 1000) / 1000 : raw);
       if (input.value !== value) input.value = value;
     });
     const duration = framePlan(state.s).duration;

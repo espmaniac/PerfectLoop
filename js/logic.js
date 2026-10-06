@@ -1,3 +1,5 @@
+import { videoTransform } from './framing.js';
+
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 export const seconds = (n) => Math.max(0, n).toFixed(3);
 export function timecode(n) {
@@ -25,6 +27,11 @@ export function validate(s, info) {
         if (!Number.isFinite(s[k]))
             issues.push(`Invalid ${k} value.`);
     }
+    const zoom = s.zoom === undefined ? 100 : s.zoom;
+    if (!Number.isFinite(zoom))
+        issues.push('Invalid zoom value.');
+    else if (zoom < 25 || zoom > 400)
+        issues.push('Video zoom must be between 25% and 400%.');
     if (s.start < 0 || s.end > info.duration + 0.002 || s.end <= s.start)
         issues.push('Choose a valid start and end inside the source video.');
     if (s.end - s.start < 3 / s.fps * s.speed)
@@ -65,10 +72,16 @@ export function validate(s, info) {
     }
     if ((s.method === 'pingpong' || s.method === 'smooth-pingpong') && p.frames * s.width * s.height * 1.5 > 900 * 1024 ** 2)
         issues.push('Ping-pong would use too much memory. Shorten the range or lower the resolution/frame rate.');
+    if (Number.isFinite(info.width) && info.width > 0 && Number.isFinite(info.height) && info.height > 0) {
+        const framing = videoTransform(s, info.width, info.height);
+        if (framing.scaledWidth * framing.scaledHeight > 64 * 1024 ** 2)
+            issues.push('This video framing would use too much memory. Lower the zoom or output resolution.');
+    }
     return [...new Set(issues)];
 }
 export function geometry(s) {
     const f = [];
+    const zoom = (s.zoom === undefined ? 100 : s.zoom) / 100;
     if (s.rotate === 90)
         f.push('transpose=1');
     if (s.rotate === 180)
@@ -77,12 +90,28 @@ export function geometry(s) {
         f.push('transpose=2');
     if (s.mirror)
         f.push('hflip');
-    if (s.fit === 'cover')
+    if (zoom === 1 && s.fit === 'cover')
         f.push(`scale=${s.width}:${s.height}:force_original_aspect_ratio=increase`, `crop=${s.width}:${s.height}:(iw-ow)*${s.cropX / 100}:(ih-oh)*${s.cropY / 100}`);
-    else if (s.fit === 'contain')
-        f.push(`scale=${s.width}:${s.height}:force_original_aspect_ratio=decrease`, `pad=${s.width}:${s.height}:(ow-iw)/2:(oh-ih)/2:color=0x${s.background.slice(1)}`);
-    else
+    else if (zoom === 1 && s.fit === 'contain') {
+        const x = s.cropX === 50 ? '(ow-iw)/2' : `(ow-iw)*${s.cropX / 100}`;
+        const y = s.cropY === 50 ? '(oh-ih)/2' : `(oh-ih)*${s.cropY / 100}`;
+        f.push(`scale=${s.width}:${s.height}:force_original_aspect_ratio=decrease`, `pad=${s.width}:${s.height}:${x}:${y}:color=0x${s.background.slice(1)}`);
+    }
+    else if (zoom === 1)
         f.push(`scale=${s.width}:${s.height}`);
+    else {
+        // Keep the full source until scaling so zoomed crops retain the same
+        // sampling and position as the canvas preview. Crop and pad independently
+        // on each axis: a zoomed cover or contain frame can need both operations.
+        if (s.fit === 'cover' || s.fit === 'contain') {
+            const factor = `${s.fit === 'cover' ? 'max' : 'min'}(${s.width}/iw,${s.height}/ih)*${zoom}`;
+            f.push(`scale=w='max(1,round(iw*${factor}))':h='max(1,round(ih*${factor}))'`);
+        }
+        else
+            f.push(`scale=w='max(1,round(${s.width}*${zoom}))':h='max(1,round(${s.height}*${zoom}))'`);
+        f.push(`crop=w='min(iw,${s.width})':h='min(ih,${s.height})':x='(iw-ow)*${s.cropX / 100}':y='(ih-oh)*${s.cropY / 100}':exact=1`,
+            `pad=${s.width}:${s.height}:(ow-iw)*${s.cropX / 100}:(oh-ih)*${s.cropY / 100}:color=0x${s.background.slice(1)}`);
+    }
     f.push('setsar=1');
     return f.join(',');
 }
