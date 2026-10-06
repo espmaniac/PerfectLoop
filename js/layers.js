@@ -1,5 +1,4 @@
-// Layer pixels are shared by the canvas preview and FFmpeg exports. Movement is
-// measured in output-frame coordinates, independently of a layer's rotation.
+// Layer pixels and movement geometry are shared by canvas previews and exports.
 export const MAX_LAYERS = 8;
 export const MAX_TEXT_LENGTH = 500;
 const MAX_IMAGE_BYTES = 20 * 1024 ** 2;
@@ -8,7 +7,7 @@ const MAX_SPRITE_SIDE = 4096;
 const MAX_SPRITE_PIXELS = 16 * 1024 ** 2;
 const assets = new Map();
 const sprites = new Map();
-const motions = new Set(['none', 'right', 'left', 'down', 'up']);
+const motions = new Set(['none', 'right', 'left', 'down', 'up', 'along-angle', 'against-angle']);
 const fonts = new Set(['sans-serif', 'serif', 'monospace']);
 const alignments = new Set(['left', 'center', 'right']);
 let sequence = 0;
@@ -142,13 +141,46 @@ export function validateLayers(layers, settings) {
     return issues;
 }
 
-export function layerPosition(layer, width, height, time, period) {
+export function angleTrajectory(layer, frameWidth, frameHeight, spriteWidth = 0, spriteHeight = 0) {
+    if (!['along-angle', 'against-angle'].includes(layer.motion))
+        return null;
+    if (![frameWidth, frameHeight].every(value => Number.isFinite(value) && value > 0) || ![layer.x, layer.y, layer.rotation].every(Number.isFinite))
+        return null;
+    const x = layer.x / 100 * frameWidth, y = layer.y / 100 * frameHeight;
+    const radians = layer.rotation * Math.PI / 180;
+    const direction = layer.motion === 'against-angle' ? -1 : 1;
+    // Snap trigonometric residuals to zero so cardinal angles use one slab.
+    const dx = direction * Math.round(Math.cos(radians) * 1e12) / 1e12;
+    const dy = direction * Math.round(Math.sin(radians) * 1e12) / 1e12;
+    let min = -Infinity, max = Infinity;
+    for (const [anchor, unit, extent, size] of [[x, dx, frameWidth, spriteWidth], [y, dy, frameHeight, spriteHeight]]) {
+        if (unit === 0)
+            continue;
+        const padding = Number.isFinite(size) && size > 0 ? size / 2 : 0;
+        const first = (-padding - anchor) / unit;
+        const last = (extent + padding - anchor) / unit;
+        min = Math.max(min, Math.min(first, last));
+        max = Math.min(max, Math.max(first, last));
+    }
+    // A line through the anchor crosses this expanded frame. Its endpoints
+    // place the whole rotated sprite outside the video before wrapping.
+    const distance = max - min;
+    return Number.isFinite(distance) && distance > 0 ? { x, y, dx, dy, min, distance } : null;
+}
+
+export function layerPosition(layer, width, height, time, period, spriteBounds = { width: 0, height: 0 }) {
     let x = layer.x / 100 * width, y = layer.y / 100 * height;
     if (!(period > 0) || !Number.isFinite(period) || !Number.isFinite(time))
         return { x, y };
     // Reducing time before calculating distance also keeps long playback stable.
     const progress = mod(time, period) / period;
-    if (layer.motion === 'right' || layer.motion === 'left')
+    const trajectory = angleTrajectory(layer, width, height, spriteBounds?.width, spriteBounds?.height);
+    if (trajectory) {
+        const displacement = trajectory.min + mod(-trajectory.min + trajectory.distance * progress, trajectory.distance);
+        x = trajectory.x + trajectory.dx * displacement;
+        y = trajectory.y + trajectory.dy * displacement;
+    }
+    else if (layer.motion === 'right' || layer.motion === 'left')
         x = mod(x + (layer.motion === 'right' ? 1 : -1) * progress * width, width);
     else if (layer.motion === 'down' || layer.motion === 'up')
         y = mod(y + (layer.motion === 'down' ? 1 : -1) * progress * height, height);
@@ -265,7 +297,7 @@ export function drawLayers(ctx, layers, settings, time, period) {
         catch {
             continue; // Partially edited layers remain fixable in the editor.
         }
-        const position = layerPosition(layer, dimensions.width, dimensions.height, time, period);
+        const position = layerPosition(layer, dimensions.width, dimensions.height, time, period, sprite);
         const horizontal = layer.motion === 'left' || layer.motion === 'right';
         const vertical = layer.motion === 'up' || layer.motion === 'down';
         const extent = horizontal ? dimensions.width : dimensions.height;

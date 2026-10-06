@@ -48,7 +48,7 @@ Both ping-pong methods work with MP4, WebM, and GIF. GIF has no playback-directi
 
 The **Source** preview keeps the original video's proportions. **Loop preview** shows the rendered output, including its framing, at a smaller resolution. Render again after changing settings.
 
-The **Layers** tab opens a live **Composition** draft with output framing. Each moving layer completes one pass per processed loop cycle and wraps across the frame edges. Direction follows the frame axes regardless of layer rotation. **Render preview** and exports include the same layers and motion; video repeats repeat the entire composed cycle, and GIF **Loop forever** repeats that cycle automatically.
+The **Layers** tab opens a live **Composition** draft with output framing. Each moving layer completes one pass per processed loop cycle. The four screen directions follow the frame axes. Rotating a text or image layer adds **Along rotation** and **Against rotation** to **Movement**; these follow the element's angle in either direction. An angled path exits the frame before returning at the opposite end, so it repeats without a visible jump. Resetting Rotation to 0° (or a full turn) converts these choices to Left to right or Right to left. **Render preview** and exports include the same layers and motion; video repeats repeat the entire composed cycle, and GIF **Loop forever** repeats that cycle automatically.
 
 Images are read locally as PNG, JPEG, WebP, or GIF; animated images use their first frame. Layers and image assets remain in this page session and support Undo/Redo. Up to eight layers are supported.
 

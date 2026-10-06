@@ -121,9 +121,12 @@ function refreshHeaderHint(issues, plan) {
       message = issue;
     }
   } else if (state.tab === 'layers') {
-    message = s.layers.length
-      ? 'Layer motion repeats once per finished loop. A rotated element keeps its angle while it moves.'
-      : 'Add text or an image, then choose its position, angle, and movement direction.';
+    const layer = s.layers.find(item => item.id === state.activeLayerId) || s.layers.at(-1);
+    message = !layer ? 'Add text or an image, then choose its position, angle, and movement direction.'
+      : layer.motion === 'along-angle' ? 'Along rotation moves in the direction of this element’s angle. Movement repeats once per finished loop.'
+      : layer.motion === 'against-angle' ? 'Against rotation moves opposite this element’s angle. Movement repeats once per finished loop.'
+      : layer.rotation % 360 ? 'Along rotation and Against rotation follow the element’s angle; screen directions follow the frame.'
+      : 'Rotate this element to add Along rotation and Against rotation to the Movement menu.';
   } else if (state.tab === 'find') {
     message = 'Auto find looks for matching moments. Preview a candidate to check whether the motion joins smoothly.';
   } else if (state.tab === 'inspect') {
@@ -402,6 +405,11 @@ function mark(edge) {
 
 function editLayer(id, partial) {
   const layer = state.s.layers.find(item => item.id === id);
+  if (layer && 'rotation' in partial && Number.isFinite(partial.rotation) && partial.rotation % 360 === 0) {
+    const motion = partial.motion ?? layer.motion;
+    if (motion === 'along-angle' || motion === 'against-angle')
+      partial = { ...partial, motion: motion === 'along-angle' ? 'right' : 'left' };
+  }
   if (!layer || busy() || Object.entries(partial).every(([key, value]) => layer[key] === value)) return;
   update({ layers: state.s.layers.map(item => item.id === id ? { ...item, ...partial } : item) });
   if (state.mode !== 'composition') preview.setMode('composition');
