@@ -8,6 +8,7 @@ import { Preview } from './preview.js';
 import { Timeline } from './timeline.js';
 import { createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, MAX_LAYERS } from './layers.js';
 import { LayerPanel } from './layer-panel.js';
+import { loadFont, importFontFile, discoverDeviceFonts, clearFonts } from './fonts.js';
 import { $, $$, decorateIcons, escapeHTML, icon, initializeFields } from './ui.js';
 
 // All application state is local to this page. No file is uploaded or persisted.
@@ -429,8 +430,9 @@ function addLayer(layer) {
   preview.setMode('composition');
   return true;
 }
-function layerAction(action, id) {
+function layerAction(action, id, value) {
   if (busy()) return;
+  if (action === 'font') { void selectLayerFont(id, value); return; }
   const layers = state.s.layers, index = layers.findIndex(layer => layer.id === id), layer = layers[index];
   if (!layer) return;
   if (action === 'select') { state.activeLayerId = id; preview.setMode('composition'); return; }
@@ -462,6 +464,73 @@ async function addImage(file) {
   }
 }
 
+async function waitForFont(promise, signal) {
+  let abort;
+  try {
+    return await Promise.race([promise, new Promise((resolve, reject) => {
+      abort = () => reject(new DOMException('Cancelled', 'AbortError'));
+      if (signal.aborted) abort();
+      else signal.addEventListener('abort', abort, { once: true });
+    })]);
+  } finally { signal.removeEventListener('abort', abort); }
+}
+
+async function selectLayerFont(id, fontFamily) {
+  const layer = state.s.layers.find(item => item.id === id);
+  if (layer?.type !== 'text' || layer.fontFamily === fontFamily || !startJob('font', 'Loading font…')) return;
+  const controller = state.controller;
+  let loaded = false;
+  try {
+    await waitForFont(loadFont(fontFamily), controller.signal);
+    if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    loaded = true;
+  } catch (error) { report(error); }
+  finally { finishJob(); }
+  if (loaded) editLayer(id, { fontFamily });
+}
+
+async function useDeviceFonts() {
+  if (busy()) return;
+  // Invoke the browser permission request directly from the button's gesture.
+  const discovery = discoverDeviceFonts();
+  if (!startJob('fonts', 'Reading device fonts…')) return;
+  const controller = state.controller;
+  try {
+    const fonts = await waitForFont(discovery, controller.signal);
+    if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    notice(fonts.length
+      ? `${fonts.length} device fonts are available in the Font menu.`
+      : 'No device fonts were provided. You can upload font files instead.');
+  } catch (error) { report(error); }
+  finally { finishJob(); }
+}
+
+async function addFonts(files) {
+  if (!files.length || !startJob('fonts', 'Opening font files…')) return;
+  const controller = state.controller;
+  const selected = state.s.layers.find(layer => layer.id === state.activeLayerId && layer.type === 'text');
+  const imported = [], errors = [];
+  try {
+    for (const file of files) {
+      if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      try {
+        const font = await waitForFont(importFontFile(file), controller.signal);
+        if (!imported.some(item => item.id === font.id)) imported.push(font);
+      }
+      catch (error) { errors.push(`${file.name}: ${error.message || String(error)}`); }
+    }
+    if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+  } catch (error) { report(error); }
+  finally { finishJob(); }
+  if (controller.signal.aborted) return;
+  if (imported.length) {
+    if (selected) editLayer(selected.id, { fontFamily: imported[0].id });
+    else addLayer({ ...createTextLayer(state.s), fontFamily: imported[0].id });
+    notice(`${imported.length} ${imported.length === 1 ? 'font is' : 'fonts are'} ready in the Font menu. Uploaded fonts stay available until this page is closed.`);
+  }
+  if (errors.length) report(new Error(errors.join('\n')));
+}
+
 initializeFields();
 $('#methods').innerHTML = METHODS.map((method, index) => `<button class="method-card" data-method="${method.id}" aria-pressed="false" title="${escapeHTML(method.short)}"><span class="method-icon">${icon(['Scissors', 'Blend', 'Layers', 'Play', 'SmoothWave', 'FadeCircle'][index], 25)}</span><span><b>${method.name}</b><small>${method.short}</small></span></button>`).join('');
 preview = new Preview(() => state, mode => { state.mode = mode; clearSeam(); refresh(); }, (time, mode) => {
@@ -473,6 +542,9 @@ timeline = new Timeline(() => state, update, time => { preview.seek(time, state.
 layerPanel = new LayerPanel(() => state, editLayer, layerAction);
 $('#layer-image-input').addEventListener('change', event => {
   const file = event.target.files[0]; event.target.value = ''; void addImage(file);
+});
+$('#layer-font-input').addEventListener('change', event => {
+  const files = Array.from(event.target.files); event.target.value = ''; void addFonts(files);
 });
 
 // Event delegation keeps native inputs and pointer-captured trim handles stable.
@@ -502,6 +574,8 @@ $('#file-input').addEventListener('change', event => { const file = event.target
 const actions = {
   'layer-add-text': () => addLayer(createTextLayer(state.s)),
   'layer-add-image': () => $('#layer-image-input').click(),
+  'layer-upload-fonts': () => $('#layer-font-input').click(),
+  'layer-device-fonts': useDeviceFonts,
   open: () => $('#file-input').click(), help: () => $('#help-dialog').showModal(), 'close-help': () => $('#help-dialog').close(),
   undo, redo, reset: () => update({ ...DEFAULTS, end: Math.min(state.info.duration || 6, 6) }),
   proxy: makeProxy, search: runSearch, render: () => runRender(true), export: () => runRender(false), inspect, batch: batchExport, cancel,
@@ -551,12 +625,15 @@ app.addEventListener('drop', event => {
   if (busy() || !file) return;
   if (/^image\//i.test(file.type) || /\.(png|jpe?g|webp|gif)$/i.test(file.name)) {
     state.tab = 'layers'; refresh(); void addImage(file);
+  } else if (/\.(ttf|otf|woff2?)$/i.test(file.name)) {
+    state.tab = 'layers'; refresh(); void addFonts(Array.from(event.dataTransfer.files));
   } else void loadFile(file);
 });
 window.addEventListener('beforeunload', () => {
   sampleController?.abort();
   renderFilmstripController?.abort();
   clearLayerAssets();
+  clearFonts();
   state.fileController?.abort(); state.controller?.abort(); engine.cancel(); preview.destroy();
   if (state.sourceURL) URL.revokeObjectURL(state.sourceURL); if (state.renderURL) URL.revokeObjectURL(state.renderURL);
 });

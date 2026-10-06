@@ -1,4 +1,6 @@
 // Layer pixels and movement geometry are shared by canvas previews and exports.
+import { isFontAvailable, isFontReady, fontFamilyCSS, loadFont } from './fonts.js';
+
 export const MAX_LAYERS = 8;
 export const MAX_TEXT_LENGTH = 500;
 export const MAX_ANIMATION_CYCLES = 10;
@@ -10,7 +12,6 @@ const assets = new Map();
 const sprites = new Map();
 const motions = new Set(['none', 'right', 'left', 'down', 'up', 'along-angle', 'against-angle']);
 const spins = new Set(['none', 'clockwise', 'counterclockwise']);
-const fonts = new Set(['sans-serif', 'serif', 'monospace']);
 const alignments = new Set(['left', 'center', 'right']);
 let sequence = 0;
 let measurementContext;
@@ -137,7 +138,7 @@ export function validateLayers(layers, settings) {
         if (layer.type === 'text') {
             if (typeof layer.text !== 'string' || !layer.text.trim() || layer.text.length > MAX_TEXT_LENGTH)
                 issues.push(`${label} text must contain 1–${MAX_TEXT_LENGTH} characters.`);
-            if (!fonts.has(layer.fontFamily))
+            if (!isFontAvailable(layer.fontFamily))
                 issues.push(`${label} font is invalid.`);
             if (!finite(layer.fontSize, 8, 256))
                 issues.push(`${label} font size must be between 8 and 256 px.`);
@@ -155,7 +156,7 @@ export function validateLayers(layers, settings) {
         // Read text metrics on a tiny measurement canvas, using exactly the
         // geometry that rasterization uses. Pure Node schema checks still work
         // without a browser or a canvas implementation.
-        if (issues.length === previousIssues && Number.isFinite(settings?.width) && settings.width > 0 && (layer.type === 'image' || textMeasurementContext())) {
+        if (issues.length === previousIssues && Number.isFinite(settings?.width) && settings.width > 0 && (layer.type === 'image' || isFontReady(layer.fontFamily) && textMeasurementContext())) {
             const geometry = spriteGeometry(layer, settings);
             if (!fitsSprite(geometry) || !fitsSprite(geometry.size))
                 issues.push(spriteSizeIssue(layer, label));
@@ -253,7 +254,9 @@ function spriteGeometry(layer, settings, originalDimensions = settings) {
     const padding = 2 * scale;
     const image = layer.type === 'image' ? assets.get(layer.assetId) : undefined;
     if (layer.type === 'text') {
-        font = `${layer.fontSize * scale}px ${layer.fontFamily}`;
+        if (!isFontReady(layer.fontFamily))
+            throw new Error('This font is still loading. Wait for the font before rendering.');
+        font = `${layer.fontSize * scale}px ${fontFamilyCSS(layer.fontFamily)}`;
         const measure = textMeasurementContext();
         if (!measure)
             throw new Error('Text layers need a browser with canvas support.');
@@ -329,7 +332,7 @@ function prepareSprite(layer, settings, originalDimensions = settings) {
 export function drawLayers(ctx, layers, settings, time, period) {
     const dimensions = { width: ctx.canvas.width, height: ctx.canvas.height };
     for (const layer of layers || []) {
-        if (!layer?.visible || layer.opacity === 0 || validateLayers([layer]).length)
+        if (!layer?.visible || layer.opacity === 0 || validateLayers([layer]).length || layer.type === 'text' && !isFontReady(layer.fontFamily))
             continue;
         let sprite;
         try {
@@ -366,7 +369,12 @@ async function pngBytes(surface) {
 }
 
 export async function rasterizeLayers(layers, settings, originalDimensions = settings) {
-    const issues = validateLayers(layers, originalDimensions);
+    let issues = validateLayers(layers, originalDimensions);
+    if (issues.length)
+        throw new Error(issues[0]);
+    await Promise.all(layers.filter(layer => layer.type === 'text' && layer.visible && layer.opacity !== 0).map(layer => loadFont(layer.fontFamily)));
+    // Font metrics become authoritative only after the selected face loads.
+    issues = validateLayers(layers, originalDimensions);
     if (issues.length)
         throw new Error(issues[0]);
     const result = [];

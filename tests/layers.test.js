@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createTextLayer, duplicateLayer, importImageLayer, discardImportedImageLayer, clearLayerAssets, angleTrajectory, layerPosition, layerRotation, animationCycles, animationProgress, rasterizeLayers, validateLayers, MAX_LAYERS, MAX_TEXT_LENGTH, MAX_ANIMATION_CYCLES } from '../js/layers.js';
+import { importFontFile, clearFonts, fontOptions } from '../js/fonts.js';
 
 test('Layers retain their settings when duplicated and receive independent IDs', () => {
     const original = Object.freeze({ ...createTextLayer(), text: 'Rotating title', rotation: 37, opacity: 65, x: 20, y: 80, motion: 'up' });
@@ -319,6 +320,93 @@ test('Validation prevents duplicate layer IDs, excessive layer counts and unsupp
     assert.deepEqual(validateLayers([{ ...first, fontSize: 256, opacity: 100, rotation: 360, text: 'a'.repeat(MAX_TEXT_LENGTH) }]), []);
     await assert.rejects(importImageLayer({ name: 'vector.svg', type: 'image/svg+xml', size: 10 }), /PNG, JPEG, WebP, or GIF/i);
     await assert.rejects(importImageLayer({ name: 'huge.png', type: 'image/png', size: 21 * 1024 ** 2 }), /smaller than 20 MB/i);
+});
+
+test('Text layers accept registered fonts through duplication and reject unavailable font IDs', async () => {
+    const previousFace = Object.getOwnPropertyDescriptor(globalThis, 'FontFace'), previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+    class Face {
+        constructor(family) { this.family = family; }
+        async load() { return this; }
+    }
+    Object.defineProperty(globalThis, 'FontFace', { configurable: true, writable: true, value: Face });
+    Object.defineProperty(globalThis, 'document', { configurable: true, writable: true, value: { fonts: { add() {}, delete() {} } } });
+    clearFonts();
+    try {
+        for (const option of fontOptions())
+            assert.deepEqual(validateLayers([{ ...createTextLayer(), fontFamily: option.id }]), [], 'Known generic and bundled IDs remain valid settings before decoding');
+        const font = await importFontFile({ name: 'Layer title.woff2', size: 4, arrayBuffer: async () => Uint8Array.from([1, 2, 3, 4]).buffer });
+        const original = Object.freeze({ ...createTextLayer(), fontFamily: font.id });
+        const copy = duplicateLayer(original);
+        assert.equal(copy.fontFamily, original.fontFamily);
+        assert.deepEqual(validateLayers([original, copy]), [], 'The retained registry supports original and duplicated layer settings');
+        assert.ok(validateLayers([{ ...original, fontFamily: 'unregistered-family' }]).some(issue => /font/i.test(issue)));
+        assert.ok(validateLayers([{ ...original, fontFamily: 'serif; url(example)' }]).some(issue => /font/i.test(issue)));
+        clearFonts();
+        assert.ok(validateLayers([original]).some(issue => /font/i.test(issue)), 'A stale font reference cannot silently select a fallback');
+        assert.deepEqual(validateLayers([createTextLayer()]), [], 'Legacy generic defaults remain usable after cleanup');
+    }
+    finally {
+        clearFonts();
+        if (previousFace)
+            Object.defineProperty(globalThis, 'FontFace', previousFace);
+        else
+            delete globalThis.FontFace;
+        if (previousDocument)
+            Object.defineProperty(globalThis, 'document', previousDocument);
+        else
+            delete globalThis.document;
+    }
+});
+
+test('Export awaits font decoding before measuring text and a failed decode cannot cache fallback pixels', async () => {
+    const previousFace = Object.getOwnPropertyDescriptor(globalThis, 'FontFace'), previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+    let rejectDecode, notifyStarted, measurements = 0, installed = false, retry = false;
+    const decoding = new Promise((resolve, reject) => { rejectDecode = reject; });
+    const started = new Promise(resolve => { notifyStarted = resolve; });
+    class Face {
+        async load() {
+            notifyStarted();
+            if (!retry)
+                await decoding;
+            return this;
+        }
+    }
+    Object.defineProperty(globalThis, 'FontFace', { configurable: true, writable: true, value: Face });
+    Object.defineProperty(globalThis, 'document', { configurable: true, writable: true, value: {
+        fonts: { add() { installed = true; }, delete() {} },
+        createElement() {
+            measurements++;
+            assert.ok(installed, 'Text metrics are requested only after the font is installed');
+            throw new Error('This test does not provide a canvas');
+        },
+    } });
+    clearFonts();
+    try {
+        const id = fontOptions().find(option => option.source === 'bundled').id;
+        const text = { ...createTextLayer(), fontFamily: id };
+        const exportPromise = rasterizeLayers([text], { width: 96, height: 72 });
+        const rejected = assert.rejects(exportPromise, /font.*could not be loaded/i);
+        await started;
+        assert.equal(measurements, 0, 'Pending decoding does not measure a fallback font');
+        rejectDecode(new SyntaxError('Corrupt font bytes'));
+        await rejected;
+        assert.equal(measurements, 0, 'A failed font cannot create a sprite or cache fallback metrics');
+        retry = true;
+        await assert.rejects(rasterizeLayers([text], { width: 96, height: 72 }), /canvas/i);
+        assert.ok(measurements > 0, 'A successful retry reaches text measurement instead of reusing fallback pixels');
+    }
+    finally {
+        clearFonts();
+        clearLayerAssets();
+        if (previousFace)
+            Object.defineProperty(globalThis, 'FontFace', previousFace);
+        else
+            delete globalThis.FontFace;
+        if (previousDocument)
+            Object.defineProperty(globalThis, 'document', previousDocument);
+        else
+            delete globalThis.document;
+    }
 });
 
 test('Cancelled image imports release their bitmap once while retained duplicates share their asset', async () => {

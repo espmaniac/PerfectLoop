@@ -3,6 +3,11 @@ Perfect Loop — third-party notices
 Application source is GPL-3.0-or-later.
 The included demo footage is an original animation generated for this application.
 
+Inter, Noto Serif, Roboto Mono, Oswald, Lobster, and Pacifico — SIL Open Font License 1.1
+Unmodified font files from Google Fonts, bundled for text layers.
+Source references and checksums: vendor/fonts/README.md
+Original license texts: vendor/fonts/*.OFL.txt
+
 @ffmpeg/core 0.12.10 — GPL-2.0-or-later
 Unmodified, single-thread ESM assets. Includes FFmpeg and codec libraries.
 Source/build references: vendor/ffmpeg/SOURCES.txt
@@ -72,4 +77,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
