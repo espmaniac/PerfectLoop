@@ -6,6 +6,7 @@ import { VideoEngine } from './engine.js';
 import { capture, inspectSeam, openVideo, releaseVideo, searchVideo, seekVideo, thumbnails } from './media.js';
 import { prepareVideoFile } from './source-file.js';
 import { Preview } from './preview.js';
+import { PreviewEditor } from './preview-editor.js';
 import { Timeline } from './timeline.js';
 import { WallpaperPreview } from './wallpaper-preview.js';
 import { keyPhotoTime, phoneProfile, wallpaperCompatibilityProfile, wallpaperExportSettings, wallpaperPreset, wallpaperRange } from './wallpaper.js';
@@ -29,7 +30,9 @@ const state = {
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
-let preview, timeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
+let preview, previewEditor, timeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
+let selectionSignature = '', scaleGesture = null;
+const framingSettings = new Set(['zoom', 'cropX', 'cropY', 'rotate', 'mirror', 'fit', 'background']);
 const videoSignature = settings => JSON.stringify({ ...settings, wallpaperPoster: undefined, wallpaperDevice: undefined });
 const pairedWallpaperKind = kind => ['pvt', 'live-photo', 'kit'].includes(kind);
 const downloadSettings = settings => settings.preset === 'iphone' && pairedWallpaperKind(state.wallpaperDownload)
@@ -88,7 +91,6 @@ function update(partial, saveHistory = true) {
   state.s = { ...state.s, ...partial }; state.seam = null; $('#seam-result').replaceChildren();
   if (leavingWallpaper) {
     state.wallpaperScreen = 'editor';
-    if (state.mode === 'composition' && state.tab !== 'layers') { preview.setMode('source'); return; }
   }
   refresh();
 }
@@ -98,11 +100,48 @@ function restore(value) {
   if (searchChanged) clearCandidates();
   clearSeam();
   if (state.s.preset !== 'iphone') state.wallpaperScreen = 'editor';
-  if ((searchChanged && state.tab === 'find') || (state.s.preset !== 'iphone' && state.mode === 'composition' && state.tab !== 'layers')) preview.setMode('source');
+  if (searchChanged && state.tab === 'find') preview.setMode('source');
   else refresh();
 }
-function undo() { if (busy() || !history.past.length) return; history.future.push(snapshot()); restore(history.past.pop()); }
-function redo() { if (busy() || !history.future.length) return; history.past.push(snapshot()); restore(history.future.pop()); }
+function undo() {
+  if (busy()) return;
+  previewEditor?.finish(); scaleGesture = null;
+  if (!history.past.length) return;
+  history.future.push(snapshot()); restore(history.past.pop());
+}
+function redo() {
+  if (busy()) return;
+  previewEditor?.finish(); scaleGesture = null;
+  if (!history.future.length) return;
+  history.past.push(snapshot()); restore(history.future.pop());
+}
+function beginPreviewEdit() {
+  if (busy() || !state.info.duration || staticWallpaperLayout() || !['edit', 'layers'].includes(state.tab)) return false;
+  if (state.mode !== 'composition') preview.setMode('composition');
+  else preview.pause();
+  return true;
+}
+function updateFraming(partial, saveHistory = true) {
+  if (busy()) return;
+  beginPreviewEdit();
+  update(partial, saveHistory);
+}
+function refreshPreviewEditor() {
+  if (!previewEditor) return;
+  previewEditor.refresh();
+  const overlay = $('#preview-selection'), shapes = previewEditor.selection();
+  overlay.toggleAttribute('hidden', !shapes.length);
+  if (!shapes.length) { selectionSignature = ''; return; }
+  const canvas = preview.canvas, box = canvas.getBoundingClientRect(), stage = $('#preview-stage').getBoundingClientRect();
+  const polygons = shapes.map(shape => shape.corners.map(point => `${point.x},${point.y}`).join(' '));
+  const signature = JSON.stringify([box.left, box.top, box.width, box.height, stage.left, stage.top, canvas.width, canvas.height, polygons]);
+  if (signature === selectionSignature) return;
+  selectionSignature = signature;
+  overlay.style.left = `${box.left - stage.left}px`; overlay.style.top = `${box.top - stage.top}px`;
+  overlay.style.width = `${box.width}px`; overlay.style.height = `${box.height}px`;
+  overlay.setAttribute('viewBox', `0 0 ${canvas.width} ${canvas.height}`);
+  overlay.innerHTML = polygons.map(points => `<polygon points="${points}"></polygon>`).join('');
+}
 function activeRange() {
   return state.tab === 'find' ? { start: state.opts.from, end: state.opts.to } : state.s;
 }
@@ -190,7 +229,7 @@ function refreshBindings() {
     if (input.type === 'checkbox') input.checked = Boolean(value);
     else if (document.activeElement !== input) input.value = typeof value === 'number' ? String(Math.round(value * 1000) / 1000) : value;
   });
-  $$('[data-value]').forEach(el => { el.textContent = `${state.s[el.dataset.value]}%`; });
+  $$('[data-value]').forEach(el => { el.textContent = `${Math.round((state.s[el.dataset.value] ?? 100) * 1000) / 1000}%`; });
   const rate = state.info.fps || 30;
   const range = activeRange(), searching = state.tab === 'find', gap = Math.min(state.info.duration, 1 / rate);
   $('[data-setting="start"]').max = Math.max(0, range.end - (searching ? gap : 0)); $('[data-setting="start"]').step = 1 / rate;
@@ -293,7 +332,11 @@ function refresh() {
   $$('[data-tab]').forEach(button => { const active = button.dataset.tab === state.tab; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
   ['edit', 'find', 'inspect', 'layers'].forEach(tab => { $(`#panel-${tab}`).hidden = tab !== state.tab; });
   $('#tool-title').textContent = state.tab === 'layers' ? 'Layers' : state.tab === 'find' ? 'Find loops' : state.tab === 'inspect' ? 'Inspect seam' : 'Loop method';
-  $('[data-mode="composition"]').hidden = state.tab !== 'layers' && !wallpaper;
+  $('[data-mode="composition"]').hidden = !info.duration || (!['edit', 'layers'].includes(state.tab) && !wallpaper);
+  $('#preview-framing').hidden = !info.duration || staticWallpaperLayout() || !['edit', 'layers'].includes(state.tab);
+  $('#preview-edit-hint').textContent = state.tab === 'layers'
+    ? 'Drag text or images to move them. Drag the background to reposition the video. Video scale changes only the video.'
+    : 'Drag the video to reposition it. Open Layers to move text and images.';
   if (!s.layers.some(layer => layer.id === state.activeLayerId)) state.activeLayerId = s.layers.at(-1)?.id || '';
   layerPanel?.render();
   $$('[data-method]').forEach(button => { const active = button.dataset.method === s.method; button.classList.toggle('selected', active); button.setAttribute('aria-pressed', String(active)); });
@@ -310,7 +353,7 @@ function refresh() {
   $('#field-setting-curve').hidden = !blending;
   $('#overlap-note').hidden = !blending;
   $('#overlap-note').textContent = `Actual overlap: ${(plan.overlap / s.fps).toFixed(3)}s (${plan.overlap} frames). Overlap is limited to less than half the selected clip.`;
-  $('#field-setting-cropX').hidden = $('#field-setting-cropY').hidden = s.fit !== 'cover';
+  $('#field-setting-cropX').hidden = $('#field-setting-cropY').hidden = false;
   $('#field-audio-strip').hidden = isGif;
   $('#gif-playback-settings').hidden = !isGif;
   $('#gif-pingpong-note').hidden = !pingpong;
@@ -357,7 +400,7 @@ function refresh() {
   if (state.lastExport) $('#download-meta').textContent = `${humanSize(state.lastExport.blob.size)} · ${state.lastExport.hasAudio ? 'With audio' : 'No audio track'}`;
   $$('[data-mode]').forEach(button => { const active = button.dataset.mode === state.mode; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   $('#preview-tag').textContent = state.mode === 'composition' ? 'COMPOSITION DRAFT' : state.mode === 'source' ? state.tab === 'find' ? 'SEARCH RANGE' : 'SOURCE RANGE' : dirty() ? 'LAST RENDER' : 'ENCODED LOOP';
-  $('#preview-foot-message').textContent = state.mode === 'composition' ? 'Live layer draft. Render preview to check the finished loop.' : state.mode === 'source' ? state.tab === 'find' ? 'Find loopable clips inside the highlighted range' : 'Render to check the finished seam' : dirty() ? 'Settings changed. Render again.' : 'Playing the actual encoded loop';
+  $('#preview-foot-message').textContent = state.mode === 'composition' ? 'Live framing and layer draft. Render preview to check the finished loop.' : state.mode === 'source' ? state.tab === 'find' ? 'Find loopable clips inside the highlighted range' : 'Render to check the finished seam' : dirty() ? 'Settings changed. Render again.' : 'Playing the actual encoded loop';
   $('#inspection-mode').textContent = state.mode === 'loop' ? 'Rendered preview' : 'Selected source range';
   $('#timeline-fieldset').hidden = !info.duration;
   const profile = phoneProfile(s);
@@ -386,6 +429,7 @@ function refresh() {
   $('#transport-time').hidden = staticWallpaperLayout();
   void prepareWallpaperPoster();
   timeline?.render(); preview?.refresh();
+  refreshPreviewEditor();
 }
 
 async function loadFile(file, sample = false) {
@@ -600,7 +644,7 @@ function setPreset(preset) {
   update(preset === 'iphone' ? wallpaperPreset(state.s, state.info) : preset === 'spotify' ? { preset, aspect: '9:16', width: 576, height: 1024, fps: 30, format: 'mp4', audio: 'strip', repeats: 1 } : preset === 'vertical' ? { preset, aspect: '9:16', width: 720, height: 1280, fps: 30 } : { preset, aspect: 'custom' });
   updateSearch({ min: 3, max: preset === 'spotify' ? 8 : 15 }, false);
   if (preset === 'iphone') setWallpaperScreen('lock');
-  else { state.wallpaperScreen = 'editor'; if (state.mode === 'composition' && state.tab !== 'layers') preview.setMode('source'); else refresh(); }
+  else { state.wallpaperScreen = 'editor'; refresh(); }
 }
 function setAspect(aspect, dimensions) {
   if (!state.info.duration || busy()) return;
@@ -754,6 +798,7 @@ preview = new Preview(() => state, mode => { state.mode = mode; if (mode === 'so
   if (mode === 'loop') state.renderPlayhead = time;
   else state.playhead = time;
   timeline?.renderPlayhead(time);
+  refreshPreviewEditor();
   if (staticWallpaperLayout() && (!state.wallpaperPosterURL || state.wallpaperPosterSignature !== posterSignature() || dirty())) {
     const key = `${videoSignature(state.s)}:${preview?.lastFrame}`;
     if (key !== wallpaperDraftFrame) { wallpaperDraftFrame = key; wallpaperPreview?.captureStill(); }
@@ -765,6 +810,17 @@ timeline = new Timeline(() => state, updateActiveRange, time => {
 }, remember);
 layerPanel = new LayerPanel(() => state, editLayer, layerAction);
 wallpaperPreview = new WallpaperPreview($('#wallpaper-screen-controls'), $('#preview-stage'), setWallpaperScreen);
+previewEditor = new PreviewEditor(preview.canvas, () => state, {
+  beginEdit: beginPreviewEdit, editVideo: partial => update(partial, false),
+  selectLayer: id => layerAction('select', id), editLayer: (id, partial) => editLayer(id, partial, false),
+  remember, getTime: () => preview.compositionTime,
+});
+const scaleInput = $('[data-setting="zoom"]');
+scaleInput.addEventListener('pointerdown', () => { scaleGesture = { saved: false }; });
+scaleInput.addEventListener('keydown', event => {
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) scaleGesture ??= { saved: false };
+});
+for (const name of ['pointerup', 'pointercancel', 'keyup', 'blur']) scaleInput.addEventListener(name, () => { scaleGesture = null; });
 $('#wallpaper-photo-input').addEventListener('change', event => {
   const file = event.target.files[0]; event.target.value = ''; void openPhoto(file);
 });
@@ -795,6 +851,13 @@ function changeField(event) {
     updateActiveRange({ [input.dataset.setting]: value });
     timeline.previewEdge(input.dataset.setting);
   }
+  else if (input.dataset.setting === 'zoom') {
+    const zoom = clamp(value, 25, 400);
+    if (zoom === (state.s.zoom ?? 100) || busy()) return;
+    if (scaleGesture && !scaleGesture.saved) { remember(); scaleGesture.saved = true; }
+    updateFraming({ zoom }, !scaleGesture);
+  }
+  else if (framingSettings.has(input.dataset.setting)) updateFraming({ [input.dataset.setting]: value });
   else if (input.dataset.setting === 'preset') setPreset(value);
   else if (input.dataset.setting === 'wallpaperDevice') {
     const profile = phoneProfile({ ...state.s, wallpaperDevice: value });
@@ -823,6 +886,7 @@ $('#file-input').addEventListener('change', event => {
 });
 
 const actions = {
+  'reset-framing': () => updateFraming({ zoom: 100, cropX: 50, cropY: 50 }),
   'layer-add-text': () => addLayer(createTextLayer(state.s)),
   'layer-add-image': () => $('#layer-image-input').click(),
   'layer-upload-fonts': () => $('#layer-font-input').click(),
@@ -842,11 +906,11 @@ document.addEventListener('click', event => {
   const button = event.target.closest('button'); if (!button || button.matches(':disabled')) return;
   if (button.dataset.method) update({ method: button.dataset.method, shift: button.dataset.method === 'offset' ? 50 : 0 });
   else if (button.dataset.aspect) setAspect(button.dataset.aspect);
-  else if (button.dataset.fit) update({ fit: button.dataset.fit });
+  else if (button.dataset.fit) updateFraming({ fit: button.dataset.fit });
   else if (button.dataset.tab) {
     state.tab = button.dataset.tab;
     if (state.tab === 'layers') { state.wallpaperScreen = 'editor'; preview.setMode('composition'); }
-    else if (state.tab === 'find' || state.mode === 'composition') preview.setMode('source');
+    else if (state.tab === 'find' || (state.tab === 'inspect' && state.mode === 'composition')) preview.setMode('source');
     else refresh();
     if (matchMedia('(max-width: 739px)').matches) $('.controls-panel').scrollIntoView({ block: 'start' });
   }

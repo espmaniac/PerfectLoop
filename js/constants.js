@@ -9,7 +9,7 @@ export const METHODS = [
 export const DEFAULTS = {
     start: 0, end: 6, method: 'crossfade', transition: 0.5, curve: 'smooth', shift: 0,
     speed: 1, preset: 'spotify', aspect: '9:16', width: 576, height: 1024, fps: 30,
-    fit: 'cover', cropX: 50, cropY: 50, rotate: 0, mirror: false,
+    fit: 'cover', zoom: 100, cropX: 50, cropY: 50, rotate: 0, mirror: false,
     background: '#000000', interpolate: false, audio: 'strip', format: 'mp4',
     quality: 'balanced', repeats: 1, targetMB: 0, gifLoop: true, layers: [],
     wallpaperDevice: 'notch', wallpaperPoster: 50,

@@ -94,6 +94,22 @@ function fixture(t) {
     };
 }
 
+test('Composition positions and scales the rotated video while Source and Loop retain their encoded frames', t => {
+    const f = fixture(t), transforms = [];
+    f.state.mode = 'composition';
+    Object.assign(f.state.s, { width: 180, height: 180, fit: 'contain', zoom: 50, cropX: 0, cropY: 100, rotate: 90, mirror: true });
+    f.canvas.context.translate = (...values) => transforms.push(['translate', ...values]);
+    f.canvas.context.scale = (...values) => transforms.push(['scale', ...values]);
+    f.canvas.context.rotate = angle => transforms.push(['rotate', angle]);
+    f.preview.refresh(); f.tick();
+    assert.deepEqual(transforms, [['translate', 135, 720], ['scale', -0.75, 0.75], ['rotate', Math.PI / 2]]);
+    for (const mode of ['source', 'loop']) {
+        transforms.length = 0;
+        f.state.mode = mode; f.preview.refresh(); f.tick();
+        assert.deepEqual(transforms, [], `${mode} uses its original pixels rather than applying framing twice`);
+    }
+});
+
 test('Loop preview keeps its last decoded frame while the next frame is unavailable', t => {
     const f = fixture(t);
     f.tick();

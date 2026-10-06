@@ -326,7 +326,7 @@ function prepareSprite(layer, settings, originalDimensions = settings) {
     }
     else
         ctx.drawImage(image, -width / 2, -height / 2, width, height);
-    const sprite = { signature, surface, width: size.width, height: size.height, png: undefined };
+    const sprite = { signature, surface, width: size.width, height: size.height, contentWidth: width, contentHeight: height, png: undefined };
     // Cache one version per layer, so repeated slider changes do not retain old
     // full-resolution surfaces. Duplicates share only their imported image.
     sprites.set(layer.id, sprite);
@@ -335,27 +335,131 @@ function prepareSprite(layer, settings, originalDimensions = settings) {
     return sprite;
 }
 
+function drawableSprite(layer, settings, dimensions) {
+    if (!(dimensions?.width > 0 && dimensions?.height > 0) || !Number.isFinite(dimensions.width) || !Number.isFinite(dimensions.height)
+        || !layer?.visible || layer.opacity === 0 || validateLayers([layer]).length || layer.type === 'text' && !isFontReady(layer.fontFamily))
+        return null;
+    try {
+        return prepareSprite(layer, dimensions, settings);
+    }
+    catch {
+        return null; // Partially edited layers remain fixable in the editor.
+    }
+}
+
+function spriteCopies(layer, sprite, dimensions, time, period) {
+    const position = layerPosition(layer, dimensions.width, dimensions.height, time, period, sprite);
+    const horizontal = layer.motion === 'left' || layer.motion === 'right';
+    const vertical = layer.motion === 'up' || layer.motion === 'down';
+    const extent = horizontal ? dimensions.width : dimensions.height;
+    const count = horizontal || vertical ? Math.max(1, Math.ceil((horizontal ? sprite.width : sprite.height) / (2 * extent))) : 0;
+    return Array.from({ length: count * 2 + 1 }, (_, index) => {
+        const offset = (index - count) * extent;
+        const left = Math.round(position.x - sprite.width / 2 + (horizontal ? offset : 0));
+        const top = Math.round(position.y - sprite.height / 2 + (vertical ? offset : 0));
+        return { left, top, centerX: left + sprite.width / 2, centerY: top + sprite.height / 2 };
+    });
+}
+
+function selectionCopy(layer, sprite, copy, time, period) {
+    const rotation = layerRotation(layer, time, period), radians = rotation * Math.PI / 180;
+    const cosine = Math.cos(radians), sine = Math.sin(radians);
+    const width = sprite.contentWidth, height = sprite.contentHeight;
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => ({
+        x: copy.centerX + x * width / 2 * cosine - y * height / 2 * sine,
+        y: copy.centerY + x * width / 2 * sine + y * height / 2 * cosine,
+    }));
+    return { centerX: copy.centerX, centerY: copy.centerY, width, height, rotation, corners };
+}
+
+// Editor outlines use content bounds, rather than the large transparent square
+// reserved for a spinning sprite. Copy placement matches drawing pixel for pixel.
+export function layerSelectionGeometry(layer, settings, time, period, dimensions = settings) {
+    const sprite = drawableSprite(layer, settings, dimensions);
+    if (!sprite)
+        return [];
+    return spriteCopies(layer, sprite, dimensions, time, period)
+        .map(copy => selectionCopy(layer, sprite, copy, time, period))
+        .filter(copy => Math.max(...copy.corners.map(point => point.x)) > 0 && Math.min(...copy.corners.map(point => point.x)) < dimensions.width
+            && Math.max(...copy.corners.map(point => point.y)) > 0 && Math.min(...copy.corners.map(point => point.y)) < dimensions.height);
+}
+
+// At a paused animation phase, changing an angled path's anchor can also change
+// its travel distance. Solve the anchor from the desired displayed position so
+// the painted layer follows the pointer without changing its animation.
+export function layerDragPosition(layer, settings, time, period, deltaX, deltaY, dimensions = settings) {
+    const direct = { x: Math.max(0, Math.min(100, layer.x + deltaX / dimensions.width * 100)),
+        y: Math.max(0, Math.min(100, layer.y + deltaY / dimensions.height * 100)) };
+    if (!['along-angle', 'against-angle'].includes(layer.motion) || !(period > 0) || !Number.isFinite(time) || deltaX === 0 && deltaY === 0)
+        return direct;
+    const sprite = drawableSprite(layer, settings, dimensions);
+    if (!sprite)
+        return direct;
+    const initial = layerPosition(layer, dimensions.width, dimensions.height, time, period, sprite);
+    const target = { x: initial.x + deltaX, y: initial.y + deltaY };
+    const trajectory = angleTrajectory({ ...layer, x: target.x / dimensions.width * 100, y: target.y / dimensions.height * 100 },
+        dimensions.width, dimensions.height, sprite.width, sprite.height);
+    if (!trajectory)
+        return direct;
+    const progress = animationProgress(time, period, animationCycles(layer, 'motion'));
+    const candidates = [direct];
+    for (const wrap of [0, 1]) {
+        const displacement = trajectory.distance * (progress - wrap);
+        candidates.push({
+            x: Math.max(0, Math.min(100, (target.x - trajectory.dx * displacement) / dimensions.width * 100)),
+            y: Math.max(0, Math.min(100, (target.y - trajectory.dy * displacement) / dimensions.height * 100)),
+        });
+    }
+    let nearest = direct, bestDistance = Infinity;
+    for (const candidate of candidates) {
+        const displayed = layerPosition({ ...layer, ...candidate }, dimensions.width, dimensions.height, time, period, sprite);
+        const distance = (displayed.x - target.x) ** 2 + (displayed.y - target.y) ** 2;
+        if (distance < bestDistance) {
+            nearest = candidate;
+            bestDistance = distance;
+        }
+    }
+    return nearest;
+}
+
+// Hit the actual painted pixel in the topmost visible copy. Transparent image
+// areas, text gaps, and the empty padding around spinning layers pass through.
+export function hitTestLayers(layers, settings, time, period, x, y, dimensions = settings) {
+    if (!(x >= 0 && x < dimensions.width && y >= 0 && y < dimensions.height))
+        return null;
+    for (let index = (layers || []).length - 1; index >= 0; index--) {
+        const layer = layers[index], sprite = drawableSprite(layer, settings, dimensions);
+        if (!sprite)
+            continue;
+        const copies = spriteCopies(layer, sprite, dimensions, time, period);
+        for (let copyIndex = copies.length - 1; copyIndex >= 0; copyIndex--) {
+            const copy = copies[copyIndex];
+            let pixelX = x - copy.left, pixelY = y - copy.top;
+            if (spinsLayer(layer)) {
+                const radians = layerRotation(layer, time, period) * Math.PI / 180;
+                const dx = x - copy.centerX, dy = y - copy.centerY;
+                pixelX = dx * Math.cos(radians) + dy * Math.sin(radians) + sprite.width / 2;
+                pixelY = -dx * Math.sin(radians) + dy * Math.cos(radians) + sprite.height / 2;
+            }
+            if (!(pixelX >= 0 && pixelX < sprite.width && pixelY >= 0 && pixelY < sprite.height))
+                continue;
+            try {
+                if (sprite.surface.getContext('2d').getImageData(Math.floor(pixelX), Math.floor(pixelY), 1, 1).data[3] > 0)
+                    return { layer, copy: selectionCopy(layer, sprite, copy, time, period) };
+            }
+            catch { /* A sprite without readable pixels cannot be selected. */ }
+        }
+    }
+    return null;
+}
+
 export function drawLayers(ctx, layers, settings, time, period) {
     const dimensions = { width: ctx.canvas.width, height: ctx.canvas.height };
     for (const layer of layers || []) {
-        if (!layer?.visible || layer.opacity === 0 || validateLayers([layer]).length || layer.type === 'text' && !isFontReady(layer.fontFamily))
+        const sprite = drawableSprite(layer, settings, dimensions);
+        if (!sprite)
             continue;
-        let sprite;
-        try {
-            sprite = prepareSprite(layer, dimensions, settings);
-        }
-        catch {
-            continue; // Partially edited layers remain fixable in the editor.
-        }
-        const position = layerPosition(layer, dimensions.width, dimensions.height, time, period, sprite);
-        const horizontal = layer.motion === 'left' || layer.motion === 'right';
-        const vertical = layer.motion === 'up' || layer.motion === 'down';
-        const extent = horizontal ? dimensions.width : dimensions.height;
-        const copies = horizontal || vertical ? Math.max(1, Math.ceil((horizontal ? sprite.width : sprite.height) / (2 * extent))) : 0;
-        const offsets = Array.from({ length: copies * 2 + 1 }, (_, index) => (index - copies) * extent);
-        for (const offset of offsets) {
-            const left = Math.round(position.x - sprite.width / 2 + (horizontal ? offset : 0));
-            const top = Math.round(position.y - sprite.height / 2 + (vertical ? offset : 0));
+        for (const { left, top } of spriteCopies(layer, sprite, dimensions, time, period)) {
             if (spinsLayer(layer)) {
                 ctx.save();
                 ctx.translate(left + sprite.width / 2, top + sprite.height / 2);

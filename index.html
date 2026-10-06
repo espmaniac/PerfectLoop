@@ -164,10 +164,16 @@
           <div id="wallpaper-screen-controls" hidden></div>
           <div class="preview-stage" id="preview-stage">
             <span class="preview-tag" id="preview-tag">SOURCE RANGE</span>
-            <canvas id="preview-canvas" aria-label="Video frame preview"></canvas>
+            <canvas id="preview-canvas" tabindex="0" aria-label="Video frame preview"></canvas>
+            <svg id="preview-selection" class="preview-selection" aria-hidden="true" hidden></svg>
             <div class="safe-guides" id="safe-guides" hidden><span>COMPOSITION SAFE AREA</span></div>
             <video id="source-video" class="decoder" playsinline muted preload="auto"></video>
             <video id="loop-video" class="decoder" playsinline muted loop preload="auto"></video>
+          </div>
+          <div class="preview-framing" id="preview-framing" hidden>
+            <label class="preview-scale"><span>Video scale</span><input type="range" min="25" max="400" step="1" value="100" data-setting="zoom" data-number data-disable aria-label="Video scale" aria-describedby="preview-edit-hint"><output data-value="zoom">100%</output></label>
+            <button class="icon-btn" data-action="reset-framing" data-disable aria-label="Reset video scale and position" title="Reset video scale and position"><span data-icon="RotateCcw" data-size="17"></span></button>
+            <p class="micro" id="preview-edit-hint">Drag the video to reposition it. Open Layers to move text and images.</p>
           </div>
           <div class="transport">
             <div class="segmented preview-mode"><button data-mode="source" class="active" aria-pressed="true">Source</button><button data-mode="composition" aria-pressed="false" hidden>Composition</button><button data-mode="loop" aria-pressed="false" disabled>Loop preview</button></div>

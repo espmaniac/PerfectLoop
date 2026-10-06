@@ -2,6 +2,7 @@ import { clamp, download, timecode, framePlan } from './logic.js';
 import { drawLayers } from './layers.js';
 import { $, icon } from './ui.js';
 import { alternateFormat } from './aspect.js';
+import { videoTransform } from './framing.js';
 
 function drawFrame(canvas, video, settings, rendered) {
   // Keep the last frame while the decoder seeks across the loop boundary.
@@ -10,13 +11,8 @@ function drawFrame(canvas, video, settings, rendered) {
   ctx.fillStyle = settings.background; ctx.fillRect(0, 0, w, h);
   if (rendered) { ctx.drawImage(video, 0, 0, w, h); return true; }
   const sw = video.videoWidth, sh = video.videoHeight;
-  const quarter = settings.rotate % 180 !== 0, rw = quarter ? sh : sw, rh = quarter ? sw : sh;
-  let sx, sy;
-  if (settings.fit === 'stretch') { sx = w / rw; sy = h / rh; }
-  else sx = sy = settings.fit === 'cover' ? Math.max(w / rw, h / rh) : Math.min(w / rw, h / rh);
-  const ox = settings.fit === 'cover' ? (rw * sx - w) * (0.5 - settings.cropX / 100) : 0;
-  const oy = settings.fit === 'cover' ? (rh * sy - h) * (0.5 - settings.cropY / 100) : 0;
-  ctx.save(); ctx.translate(w / 2 + ox, h / 2 + oy); ctx.scale(settings.mirror ? -sx : sx, sy);
+  const { sx, sy, offsetX, offsetY } = videoTransform(settings, sw, sh, w, h);
+  ctx.save(); ctx.translate(w / 2 + offsetX, h / 2 + offsetY); ctx.scale(settings.mirror ? -sx : sx, sy);
   ctx.rotate(settings.rotate * Math.PI / 180); ctx.drawImage(video, -sw / 2, -sh / 2); ctx.restore();
   return true;
 }
