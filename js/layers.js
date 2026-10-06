@@ -8,6 +8,7 @@ const MAX_SPRITE_PIXELS = 16 * 1024 ** 2;
 const assets = new Map();
 const sprites = new Map();
 const motions = new Set(['none', 'right', 'left', 'down', 'up', 'along-angle', 'against-angle']);
+const spins = new Set(['none', 'clockwise', 'counterclockwise']);
 const fonts = new Set(['sans-serif', 'serif', 'monospace']);
 const alignments = new Set(['left', 'center', 'right']);
 let sequence = 0;
@@ -16,7 +17,7 @@ let measurementContext;
 const id = () => globalThis.crypto?.randomUUID?.() || `layer-${Date.now().toString(36)}-${++sequence}`;
 const mod = (value, extent) => ((value % extent) + extent) % extent;
 const finite = (value, min, max) => Number.isFinite(value) && value >= min && value <= max;
-const base = () => ({ id: id(), visible: true, x: 50, y: 50, rotation: 0, opacity: 100, motion: 'none' });
+const base = () => ({ id: id(), visible: true, x: 50, y: 50, rotation: 0, opacity: 100, motion: 'none', spin: 'none' });
 
 export function createTextLayer(settings = { width: 576, height: 1024 }) {
     const fontSize = Math.max(8, Math.floor(Math.min(64, settings.width / 8, settings.height / 6)));
@@ -111,6 +112,8 @@ export function validateLayers(layers, settings) {
             issues.push(`${label} opacity must be between 0% and 100%.`);
         if (!motions.has(layer.motion))
             issues.push(`${label} animation direction is invalid.`);
+        if (!spins.has(layer.spin === undefined ? 'none' : layer.spin))
+            issues.push(`${label} spin direction is invalid.`);
         if (layer.type === 'text') {
             if (typeof layer.text !== 'string' || !layer.text.trim() || layer.text.length > MAX_TEXT_LENGTH)
                 issues.push(`${label} text must contain 1–${MAX_TEXT_LENGTH} characters.`);
@@ -187,6 +190,18 @@ export function layerPosition(layer, width, height, time, period, spriteBounds =
     return { x, y };
 }
 
+export function layerRotation(layer, time, period) {
+    const rotation = Number.isFinite(layer?.rotation) ? layer.rotation : 0;
+    const direction = layer?.spin === 'clockwise' ? 1 : layer?.spin === 'counterclockwise' ? -1 : 0;
+    if (!direction || !(period > 0) || !Number.isFinite(period) || !Number.isFinite(time))
+        return mod(rotation, 360);
+    return mod(rotation + direction * 360 * mod(time, period) / period, 360);
+}
+
+function spinsLayer(layer) {
+    return layer.spin === 'clockwise' || layer.spin === 'counterclockwise';
+}
+
 function rotatedDimensions(width, height, rotation) {
     const radians = rotation * Math.PI / 180;
     // Rounding trigonometric noise avoids an extra pixel at right angles.
@@ -243,13 +258,19 @@ function spriteGeometry(layer, settings, originalDimensions = settings) {
         width = Math.max(1, Math.round(settings.width * layer.width / 100));
         height = Math.max(1, Math.round(width * image.height / image.width));
     }
-    const size = rotatedDimensions(width, height, layer.rotation);
+    // A single unrotated image serves every animated angle. Its safe square
+    // contains the content's diagonal plus two source pixels on each side,
+    // scaled with the preview, and at least one output pixel for interpolation.
+    // Corners remain visible throughout a full turn in canvas and FFmpeg.
+    const diameter = spinsLayer(layer) ? Math.ceil(Math.hypot(width, height)) + Math.max(2, Math.ceil(4 * scale)) : 0;
+    const size = diameter ? { width: diameter, height: diameter } : rotatedDimensions(width, height, layer.rotation);
     return { width, height, size, font, lines, lineHeight, bounds, padding, image };
 }
 
 function prepareSprite(layer, settings, originalDimensions = settings) {
     const scale = settings.width / originalDimensions.width;
-    const signature = JSON.stringify([layer.type, layer.text, layer.fontFamily, layer.fontSize, layer.color, layer.align, layer.assetId, layer.width, layer.rotation, layer.opacity, settings.width, settings.height, scale]);
+    const spinning = spinsLayer(layer);
+    const signature = JSON.stringify([layer.type, layer.text, layer.fontFamily, layer.fontSize, layer.color, layer.align, layer.assetId, layer.width, spinning ? 'spin' : layer.rotation, layer.opacity, settings.width, settings.height, scale]);
     const cached = sprites.get(layer.id);
     if (cached?.signature === signature) {
         sprites.delete(layer.id);
@@ -261,7 +282,8 @@ function prepareSprite(layer, settings, originalDimensions = settings) {
         throw new Error(spriteSizeIssue(layer, 'This'));
     const surface = canvas(size.width, size.height), ctx = surface.getContext('2d');
     ctx.translate(size.width / 2, size.height / 2);
-    ctx.rotate(layer.rotation * Math.PI / 180);
+    if (!spinning)
+        ctx.rotate(layer.rotation * Math.PI / 180);
     ctx.globalAlpha = layer.opacity / 100;
     if (layer.type === 'text') {
         ctx.font = font;
@@ -303,8 +325,19 @@ export function drawLayers(ctx, layers, settings, time, period) {
         const extent = horizontal ? dimensions.width : dimensions.height;
         const copies = horizontal || vertical ? Math.max(1, Math.ceil((horizontal ? sprite.width : sprite.height) / (2 * extent))) : 0;
         const offsets = Array.from({ length: copies * 2 + 1 }, (_, index) => (index - copies) * extent);
-        for (const offset of offsets)
-            ctx.drawImage(sprite.surface, Math.round(position.x - sprite.width / 2 + (horizontal ? offset : 0)), Math.round(position.y - sprite.height / 2 + (vertical ? offset : 0)));
+        for (const offset of offsets) {
+            const left = Math.round(position.x - sprite.width / 2 + (horizontal ? offset : 0));
+            const top = Math.round(position.y - sprite.height / 2 + (vertical ? offset : 0));
+            if (spinsLayer(layer)) {
+                ctx.save();
+                ctx.translate(left + sprite.width / 2, top + sprite.height / 2);
+                ctx.rotate(layerRotation(layer, time, period) * Math.PI / 180);
+                ctx.drawImage(sprite.surface, -sprite.width / 2, -sprite.height / 2);
+                ctx.restore();
+            }
+            else
+                ctx.drawImage(sprite.surface, left, top);
+        }
     }
 }
 

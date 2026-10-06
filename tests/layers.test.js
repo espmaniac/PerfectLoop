@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTextLayer, duplicateLayer, importImageLayer, discardImportedImageLayer, clearLayerAssets, angleTrajectory, layerPosition, rasterizeLayers, validateLayers, MAX_LAYERS, MAX_TEXT_LENGTH } from '../js/layers.js';
+import { createTextLayer, duplicateLayer, importImageLayer, discardImportedImageLayer, clearLayerAssets, angleTrajectory, layerPosition, layerRotation, rasterizeLayers, validateLayers, MAX_LAYERS, MAX_TEXT_LENGTH } from '../js/layers.js';
 
 test('Layers retain their settings when duplicated and receive independent IDs', () => {
     const original = Object.freeze({ ...createTextLayer(), text: 'Rotating title', rotation: 37, opacity: 65, x: 20, y: 80, motion: 'up' });
@@ -50,6 +50,84 @@ test('Static layers and an unavailable cycle preserve their configured position'
     for (const period of [0, -1, NaN, Infinity])
         assert.deepEqual(layerPosition({ ...base, motion: 'right' }, 640, 360, 1, period), { x: 640, y: 0 });
     assert.deepEqual(layerPosition({ ...base, motion: 'down' }, 640, 360, NaN, 3), { x: 640, y: 0 });
+});
+
+test('Spin completes one turn from the configured angle in either direction and accepts older layers', () => {
+    const initial = createTextLayer();
+    assert.equal(initial.spin, 'none');
+    const legacy = { ...initial, rotation: -37 };
+    delete legacy.spin;
+    assert.deepEqual(validateLayers([legacy]), []);
+    for (const time of [0, 1, 3.999, 4, 100]) {
+        assert.equal(layerRotation(legacy, time, 4), 323);
+        assert.equal(layerRotation({ ...legacy, spin: 'none' }, time, 4), 323);
+    }
+    for (const type of ['text', 'image']) {
+        for (const [spin, expected] of [['clockwise', [37, 127, 217, 307, 37]], ['counterclockwise', [37, 307, 217, 127, 37]]]) {
+            const layer = { ...initial, type, rotation: 37, spin };
+            for (const [index, time] of [0, 1, 2, 3, 4].entries())
+                assert.equal(layerRotation(layer, time, 4), expected[index]);
+            assert.equal(layerRotation(layer, 9, 4), expected[1], 'Repeated cycles retain their phase');
+            assert.equal(layerRotation(layer, -3, 4), expected[1], 'Negative seek time retains its periodic angle');
+            const before = layerRotation(layer, 3.999, 4), difference = Math.min(Math.abs(before - 37), 360 - Math.abs(before - 37));
+            assert.ok(difference < 0.091, 'The final angle approaches the starting angle continuously');
+            for (const period of [0, -1, NaN, Infinity])
+                assert.equal(layerRotation(layer, 1, period), 37);
+            for (const time of [NaN, Infinity, -Infinity])
+                assert.equal(layerRotation(layer, time, 4), 37);
+        }
+    }
+    for (const spin of ['clockwise', 'counterclockwise'])
+        assert.deepEqual(validateLayers([{ ...initial, spin }]), []);
+    assert.ok(validateLayers([{ ...initial, spin: 'random' }]).some(issue => /spin/i.test(issue)));
+});
+
+test('Spin is independent of movement and duplication preserves both animation settings', () => {
+    const initial = Object.freeze({ ...createTextLayer(), rotation: 37, spin: 'clockwise', motion: 'along-angle' });
+    const copy = duplicateLayer(initial);
+    assert.notEqual(copy.id, initial.id);
+    assert.equal(copy.spin, initial.spin);
+    assert.equal(copy.motion, initial.motion);
+    const edited = Object.freeze({ ...copy, spin: 'counterclockwise', motion: 'up' });
+    assert.equal(initial.spin, 'clockwise');
+    assert.equal(initial.motion, 'along-angle');
+    assert.equal(copy.spin, 'clockwise', 'Editing a duplicated layer leaves the stored original settings intact');
+    assert.equal(edited.rotation, 37);
+    for (const motion of ['none', 'right', 'left', 'down', 'up', 'along-angle', 'against-angle']) {
+        const moving = { ...initial, motion };
+        assert.equal(layerRotation(moving, 1, 4), 127, 'Movement never changes the spin phase');
+        const bounds = { width: 45, height: 45 };
+        const position = layerPosition(moving, 320, 180, 1, 4, bounds);
+        assert.deepEqual(layerPosition({ ...moving, spin: 'counterclockwise' }, 320, 180, 1, 4, bounds), position);
+        assert.deepEqual(layerPosition({ ...moving, spin: 'none' }, 320, 180, 1, 4, bounds), position, 'Spin never changes the movement phase for the same safe sprite bounds');
+    }
+});
+
+test('Image validation reserves the full diagonal for every angle of a spinning sprite', async () => {
+    const previousDecoder = globalThis.createImageBitmap;
+    let closes = 0;
+    globalThis.createImageBitmap = async () => ({ width: 4000, height: 2000, close() { closes++; } });
+    try {
+        const image = await importImageLayer({ name: 'wide.png', type: 'image/png', size: 100 });
+        assert.equal(image.spin, 'none');
+        const settings = { width: 3840, height: 2160 };
+        const staticImage = { ...image, width: 100 };
+        assert.deepEqual(validateLayers([staticImage], settings), [], 'The unrotated image fits within the sprite limit');
+        for (const spin of ['clockwise', 'counterclockwise']) {
+            const spinning = { ...staticImage, spin };
+            assert.ok(validateLayers([spinning], settings).some(issue => /too large/i.test(issue)), 'A full turn must fit its diagonal, even when the starting angle fits');
+            await assert.rejects(rasterizeLayers([spinning], settings), /too large/i);
+        }
+        assert.deepEqual(validateLayers([{ ...staticImage, width: 80, spin: 'clockwise' }], settings), [], 'Reducing the layer size makes the full rotation safe');
+    }
+    finally {
+        clearLayerAssets();
+        if (previousDecoder === undefined)
+            delete globalThis.createImageBitmap;
+        else
+            globalThis.createImageBitmap = previousDecoder;
+    }
+    assert.equal(closes, 1);
 });
 
 test('Along-angle and against-angle movement use the physical angle for text and images in every aspect ratio', () => {

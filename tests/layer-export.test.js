@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { DEFAULTS } from '../js/constants.js';
 import { framePlan, videoGraph } from '../js/logic.js';
 import { layerOverlayGraph } from '../js/layer-export.js';
-import { angleTrajectory } from '../js/layers.js';
+import { angleTrajectory, layerPosition } from '../js/layers.js';
 
 let native = true;
 try {
@@ -34,6 +34,21 @@ function sprite(dir, index, color, rotated = true, rotation = 45) {
     const path = join(dir, `layer-${index}.png`);
     run(['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${spriteSide}x${spriteSide}`, '-i', 'pipe:0', ...(rotated ? ['-vf', `rotate=${rotation}*PI/180:c=none`] : []), '-frames:v', '1', path], { input: pixels });
     return { width: spriteSide, height: spriteSide, png: path };
+}
+
+function spinSprite(dir, opacity = 255) {
+    const contentWidth = 40, contentHeight = 8, side = Math.ceil(Math.hypot(contentWidth, contentHeight)) + 4;
+    const pixels = Buffer.alloc(side * side * 4), left = Math.floor((side - contentWidth) / 2), top = Math.floor((side - contentHeight) / 2);
+    for (let y = top; y < top + contentHeight; y++) {
+        for (let x = left; x < left + contentWidth; x++) {
+            const offset = (y * side + x) * 4;
+            pixels[offset + (x >= left + contentWidth - 4 ? 2 : 0)] = 255;
+            pixels[offset + 3] = opacity;
+        }
+    }
+    const png = join(dir, 'layer-0.png');
+    run(['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${side}x${side}`, '-i', 'pipe:0', '-frames:v', '1', png], { input: pixels });
+    return { width: side, height: side, png };
 }
 
 function render(dir, s, sprites, extraFrames = 0) {
@@ -80,6 +95,36 @@ function maskOverlap(actual, expected) {
         if (expected.has(value))
             intersection++;
     return intersection / (actual.size + expected.size - intersection);
+}
+
+function blueMask(frame) {
+    const mask = new Set();
+    for (let index = 0; index < frame.length / 3; index++) {
+        const offset = index * 3;
+        if (frame[offset + 2] > 100 && frame[offset + 2] > frame[offset] * 1.5 && frame[offset + 2] > frame[offset + 1] * 1.5)
+            mask.add(index);
+    }
+    return mask;
+}
+
+function markerDirection(frame) {
+    const center = mask => {
+        assert.ok(mask.size > 5, 'Both ends of the transparent asymmetric sprite remain visible');
+        let x = 0, y = 0;
+        for (const value of mask) {
+            x += value % width;
+            y += Math.floor(value / width);
+        }
+        return { x: x / mask.size, y: y / mask.size };
+    };
+    const body = center(redMask(frame)), tip = center(blueMask(frame));
+    const dx = tip.x - body.x, dy = tip.y - body.y, distance = Math.hypot(dx, dy);
+    return { x: dx / distance, y: dy / distance };
+}
+
+function assertSpriteAngle(frame, degrees, message) {
+    const direction = markerDirection(frame), radians = degrees * Math.PI / 180;
+    assert.ok(direction.x * Math.cos(radians) + direction.y * Math.sin(radians) > 0.99, message);
 }
 
 test('No prepared layers preserve the original video graph and inputs', () => {
@@ -224,6 +269,94 @@ test('FFmpeg exports angle motion in physical pixel directions with invisible re
                     assert.equal(masks[index].size, 0, `${motion}, ${scenario.rotation}°: the sprite is invisible at the expanded-boundary wrap`);
             }
         }
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('FFmpeg spins raw sprites clockwise or counterclockwise from their starting angle without clipping or losing opacity', { skip: !native }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'layer-spin-'));
+    try {
+        for (const type of ['text', 'image']) {
+            const png = spinSprite(dir, type === 'image' ? 128 : 255);
+            for (const [spin, sign] of [['clockwise', 1], ['counterclockwise', -1]]) {
+                const spinning = { ...layer, type, rotation: -67, spin };
+                const frames = render(dir, settings, [{ ...png, layer: spinning }], 1);
+                assert.equal(frames.length, fps + 1);
+                assert.deepEqual(frames[fps], frames[0], `${type}, ${spin}: one full turn returns to the exact first frame`);
+                for (const index of [0, 6, 12, 18])
+                    assertSpriteAngle(frames[index], -67 + sign * index / fps * 360, `${type}, ${spin}: quarter turns preserve the starting angle and direction`);
+                const initialArea = redMask(frames[0]).size + blueMask(frames[0]).size;
+                for (const frame of frames) {
+                    const area = redMask(frame).size + blueMask(frame).size;
+                    assert.ok(Math.abs(area - initialArea) < initialArea * 0.25, `${type}: the entire long sprite remains inside its safe square at every angle`);
+                }
+                if (type === 'image') {
+                    for (const index of [0, 6, 12, 18]) {
+                        let maxRed = 0;
+                        for (let offset = 0; offset < frames[index].length; offset += 3)
+                            maxRed = Math.max(maxRed, frames[index][offset]);
+                        assert.ok(maxRed > 110 && maxRed < 170, `Half-opacity pixels survive rotation: maximum red ${maxRed}`);
+                    }
+                }
+            }
+        }
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('FFmpeg composes spin independently with screen-axis and angle-path movement', { skip: !native }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'layer-spin-movement-'));
+    try {
+        const png = spinSprite(dir);
+        const spinning = { ...layer, rotation: 37, spin: 'clockwise' };
+        const stationary = render(dir, settings, [{ ...png, layer: spinning }], 1);
+        const right = render(dir, settings, [{ ...png, layer: { ...spinning, motion: 'right' } }], 1);
+        for (const index of [1, 6, 12, 18, 23]) {
+            const expected = translated(redMask(stationary[index]), index * 4, 0);
+            assert.ok(maskOverlap(redMask(right[index]), expected) > 0.85, `Frame ${index}: screen-axis wrapping moves the already-spinning sprite`);
+        }
+        assert.deepEqual(right[fps], right[0]);
+
+        const moving = { ...spinning, motion: 'along-angle' };
+        const diagonal = render(dir, settings, [{ ...png, layer: moving }], 1);
+        for (const index of [0, 1, 6, 12, 18, 23]) {
+            const point = layerPosition(moving, width, height, index / fps, 1, png);
+            const dx = Math.round(point.x - png.width / 2) - Math.round(width / 2 - png.width / 2);
+            const dy = Math.round(point.y - png.height / 2) - Math.round(height / 2 - png.height / 2);
+            const expected = new Set();
+            for (const value of redMask(stationary[index])) {
+                const x = value % width + dx, y = Math.floor(value / width) + dy;
+                if (x >= 0 && x < width && y >= 0 && y < height)
+                    expected.add(y * width + x);
+            }
+            const actual = redMask(diagonal[index]);
+            if (expected.size > 10)
+                assert.ok(maskOverlap(actual, expected) > 0.7, `Frame ${index}: angle motion retains the same spin phase with one clipped sprite`);
+            else
+                assert.ok(actual.size <= 10, 'The spinning sprite is invisible at its expanded diagonal re-entry');
+        }
+        assert.deepEqual(diagonal[fps], diagonal[0]);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('FFmpeg spin follows the complete processed ping-pong period rather than the forward pass or export repeats', { skip: !native }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'layer-spin-period-'));
+    try {
+        const png = spinSprite(dir);
+        const spinning = { ...layer, type: 'image', rotation: 37, spin: 'counterclockwise' };
+        const s = { ...settings, method: 'pingpong', format: 'gif', repeats: 7 };
+        const frames = render(dir, s, [{ ...png, layer: spinning }]);
+        assert.equal(frames.length, 46);
+        assertSpriteAngle(frames[0], 37, 'The original starting angle is preserved');
+        assertSpriteAngle(frames[23], 37 - 180, 'Half of the forward-and-backward cycle is half of one spin');
+        assertSpriteAngle(frames[45], 37 - 360 * 45 / 46, 'The final frame approaches one complete turn');
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

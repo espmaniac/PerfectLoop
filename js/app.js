@@ -122,11 +122,14 @@ function refreshHeaderHint(issues, plan) {
     }
   } else if (state.tab === 'layers') {
     const layer = s.layers.find(item => item.id === state.activeLayerId) || s.layers.at(-1);
+    const spinning = layer?.spin === 'clockwise' || layer?.spin === 'counterclockwise';
     message = !layer ? 'Add text or an image, then choose its position, angle, and movement direction.'
+      : spinning && (layer.motion === 'along-angle' || layer.motion === 'against-angle') ? `This element spins once per loop while moving ${layer.motion === 'along-angle' ? 'along' : 'opposite'} its starting angle.`
+      : spinning ? `${layer.spin === 'clockwise' ? 'Clockwise' : 'Counterclockwise'} makes one full turn per finished loop. Rotation sets the starting angle; Movement controls its path.`
       : layer.motion === 'along-angle' ? 'Along rotation moves in the direction of this element’s angle. Movement repeats once per finished loop.'
       : layer.motion === 'against-angle' ? 'Against rotation moves opposite this element’s angle. Movement repeats once per finished loop.'
       : layer.rotation % 360 ? 'Along rotation and Against rotation follow the element’s angle; screen directions follow the frame.'
-      : 'Rotate this element to add Along rotation and Against rotation to the Movement menu.';
+      : 'Use Rotation animation to spin clockwise or counterclockwise. Movement controls the element’s path.';
   } else if (state.tab === 'find') {
     message = 'Auto find looks for matching moments. Preview a candidate to check whether the motion joins smoothly.';
   } else if (state.tab === 'inspect') {

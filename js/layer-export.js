@@ -1,8 +1,9 @@
 import { framePlan } from './logic.js';
-import { angleTrajectory } from './layers.js';
+import { angleTrajectory, layerRotation } from './layers.js';
 
-// PNG sprites already contain the layer's rotation and opacity. Composite them
-// after the video method so their motion follows one complete output cycle.
+// Static PNG sprites contain rotation and opacity; spinning sprites contain
+// opacity and a square safe for every angle. Composite after the video method
+// so movement and rotation follow one complete output cycle.
 export function layerOverlayGraph(settings, sprites, inputLabel = 'outv', outputLabel = 'layered') {
     if (!sprites.length)
         return { graph: '', inputs: [], outputLabel: inputLabel };
@@ -21,7 +22,9 @@ export function layerOverlayGraph(settings, sprites, inputLabel = 'outv', output
         const radius = horizontal ? Math.max(1, Math.ceil(width / (2 * settings.width))) : vertical ? Math.max(1, Math.ceil(height / (2 * settings.height))) : 0;
         const copies = Array.from({ length: 2 * radius + 1 }, (_, copy) => copy - radius);
         const labels = copies.map((_, copy) => `layer-${index}-${copy}`);
-        pieces.push(`[${index + 1}:v]format=rgba${animated ? `,split=${copies.length}` : ''}${labels.map(label => `[${label}]`).join('')}`);
+        const spinDirection = layer.spin === 'clockwise' ? 1 : layer.spin === 'counterclockwise' ? -1 : 0;
+        const rotation = spinDirection ? `,rotate=angle='${layerRotation(layer, 0, duration) * Math.PI / 180}+(${spinDirection})*2*PI*mod(t,${duration})/${duration}':ow=iw:oh=ih:c=none` : '';
+        pieces.push(`[${index + 1}:v]format=rgba${rotation}${animated ? `,split=${copies.length}` : ''}${labels.map(label => `[${label}]`).join('')}`);
         const centerX = layer.x / 100 * settings.width;
         const centerY = layer.y / 100 * settings.height;
         const sign = layer.motion === 'left' || layer.motion === 'up' ? -1 : 1;
