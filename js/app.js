@@ -21,7 +21,7 @@ const state = {
   sourceURL: '', renderURL: '', render: null, renderSignature: '', lastExport: null,
   mode: 'source', tab: 'edit', playhead: 0, filmstrip: [], activeLayerId: '',
   renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
-  wallpaperScreen: 'editor', wallpaperDownload: 'kit', wallpaperPosterURL: '', wallpaperPosterSignature: '',
+  wallpaperScreen: 'editor', wallpaperDownload: 'live-photo', wallpaperPosterURL: '', wallpaperPosterSignature: '',
   opts: { from: 0, to: 18, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true },
   candidates: [], selected: new Set(), seam: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
@@ -232,7 +232,7 @@ function refreshHeaderHint(issues, plan) {
     message = 'Auto find searches for loopable clips anywhere inside the highlighted range. Set the range here or drag its timeline handles.';
   } else if (s.preset === 'iphone') {
     message = staticHome() ? 'Home Screen wallpaper is still. The selected key photo is used; phone icons are preview overlays.'
-      : 'iPhone Lock Screen motion uses Live Photos. Export a wallpaper kit or an MP4 for conversion; iOS decides whether motion is available.';
+      : 'Live Photos are created here. Download the paired files, then import them into Apple Photos. iOS decides whether wallpaper motion is available.';
   } else if (state.tab === 'inspect') {
     message = 'Compare the last and first frames, then watch a few repeats to check the join in motion.';
   } else if (state.render && dirty()) {
@@ -305,7 +305,7 @@ function refresh() {
   $('[data-audio="smooth"]').checked = s.audio === 'smooth';
   $('#field-audio-smooth').hidden = s.audio === 'strip' || s.format === 'gif';
   $('#pingpong-audio-note').hidden = !pingpong || s.audio === 'strip' || s.format === 'gif';
-  $('#preset-hint').textContent = s.preset === 'spotify' ? '3–8s · 9:16 · 720–1080px tall' : s.preset === 'vertical' ? '9:16 · short loops up to 15s suggested' : wallpaper ? 'Portrait · one silent cycle · 3 seconds recommended for conversion' : 'Set your own dimensions and duration';
+  $('#preset-hint').textContent = s.preset === 'spotify' ? '3–8s · 9:16 · 720–1080px tall' : s.preset === 'vertical' ? '9:16 · short loops up to 15s suggested' : wallpaper ? 'Live Photo created in your browser · one silent cycle · 3 seconds suggested' : 'Set your own dimensions and duration';
   $('#format-badge').textContent = wallpaper ? 'IPHONE' : s.format.toUpperCase();
   const aspect = selectedAspect(s);
   $('#dimension-fields').hidden = $('#dimension-note').hidden = aspect !== 'custom';
@@ -333,7 +333,7 @@ function refresh() {
   $('#export-valid').innerHTML = icon('Check', 14) + (s.preset === 'spotify' ? 'Canvas format checks passed' : 'Ready to export')
     + (isGif ? s.gifLoop ? ' · loops forever · silent' : ' · plays once · silent' : s.audio === 'strip' ? ' · silent' : '');
   $('#long-loop-warning').hidden = plan.totalDuration <= 30;
-  $('#export-label').textContent = wallpaper ? state.wallpaperDownload === 'kit' ? 'Download wallpaper kit' : state.wallpaperDownload === 'image' ? 'Download wallpaper JPG' : 'Download wallpaper MP4' : `Export ${s.format.toUpperCase()}`;
+  $('#export-label').textContent = wallpaper ? state.wallpaperDownload === 'live-photo' ? 'Download Live Photo' : state.wallpaperDownload === 'kit' ? 'Download wallpaper kit' : state.wallpaperDownload === 'image' ? 'Download wallpaper JPG' : 'Download wallpaper MP4' : `Export ${s.format.toUpperCase()}`;
   $('#download-result').hidden = !state.lastExport;
   if (state.lastExport) $('#download-meta').textContent = `${humanSize(state.lastExport.blob.size)} · ${state.lastExport.hasAudio ? 'With audio' : 'No audio track'}`;
   $$('[data-mode]').forEach(button => { const active = button.dataset.mode === state.mode; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
@@ -347,8 +347,9 @@ function refresh() {
     device: profile.chrome, posterURL: posterReady ? state.wallpaperPosterURL : '', disabled: busy(), draft: state.mode !== 'loop' || dirty() });
   $('#wallpaper-key-time').textContent = `${keyPhotoTime(plan.duration, s.fps, s.wallpaperPoster).toFixed(3)}s`;
   $('#wallpaper-range-note').textContent = `Finished cycle: ${plan.duration.toFixed(3)}s. A short 3-second cycle is recommended; this is preparation guidance, not a universal iOS limit.`;
-  $('#wallpaper-download-note').textContent = state.wallpaperDownload === 'kit' ? 'Includes MP4, a still JPG, an experimental Live Photo pair, and installation instructions.'
-    : state.wallpaperDownload === 'image' ? 'A static wallpaper from the chosen frame. Render preview to inspect the key photo.' : 'Transfer this MP4 to your iPhone and convert it using a compatible Live Photo wallpaper app.';
+  $('#wallpaper-download-note').textContent = state.wallpaperDownload === 'live-photo' ? 'Created in this browser as a native Live Photo package. Open the Photos import guide below for the actions available on your system.'
+    : state.wallpaperDownload === 'kit' ? 'Includes the browser-created Live Photo, a regular MP4, a still JPG, and Photos import instructions.'
+      : state.wallpaperDownload === 'image' ? 'A static wallpaper from the chosen frame. Render preview to inspect the key photo.' : 'A regular silent video. Choose Live Photo to download the paired photo and motion files.';
   if (staticHome()) $('#preview-foot-message').textContent = posterReady ? 'Selected key photo. Home Screen wallpaper stays still.' : 'Draft still. Render preview to see the selected key photo.';
   $('[data-action="frame-png"]').hidden = staticHome();
   void prepareWallpaperPoster();
@@ -507,8 +508,9 @@ async function runRender(isPreview) {
       const exported = wallpaper ? await wallpaperDownload(result, kind, controller.signal) : result;
       if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
       state.lastExport = exported; download(exported.blob, exported.name);
-      if (wallpaper) { notice(kind === 'kit' ? 'Wallpaper kit downloaded. Unzip and read README.txt for Live Photo import or MP4 conversion. iOS wallpaper motion still needs verification on your iPhone.'
-        : kind === 'image' ? 'Still wallpaper downloaded. Save the JPG to Photos to use it as a static wallpaper.' : 'Wallpaper video downloaded. Convert the MP4 to a Live Photo with a compatible iOS wallpaper app.'); return; }
+      if (wallpaper) { notice(kind === 'live-photo' ? 'Live Photo created and downloaded. Follow the Photos import guide in Video settings. Check wallpaper motion on the target iPhone.'
+        : kind === 'kit' ? 'Wallpaper kit downloaded. The Live Photo was created here; read README.txt for Apple Photos import.'
+          : kind === 'image' ? 'Still wallpaper downloaded. Save the JPG to Photos to use it as a static wallpaper.' : 'Silent video downloaded. Choose Live Photo for a paired photo and motion download.'); return; }
       notice(`Exported ${result.duration.toFixed(3)}s · ${result.width} × ${result.height} · ${result.hasAudio ? 'Audio included' : 'No audio track'}.${settings.format === 'gif' ? settings.gifLoop ? ' GIF loops forever.' : ' GIF plays once.' : settings.targetMB && result.blob.size > settings.targetMB * 1024 ** 2 ? ' The result exceeds the approximate size target; lower the resolution or increase compression.' : ''}`);
     }
   } catch (error) { report(error); }
