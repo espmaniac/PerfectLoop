@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { distinctCandidates, pairScore, rankFrames } from '../js/ranking.js';
-import { searchSamplePlan } from '../js/media.js';
+import { searchSamplePlan, searchVideo } from '../js/media.js';
 
 const options = { from: 0, to: 60, min: 3, max: 8, precision: 'balanced', preferMotion: false, avoidCuts: true };
 const frame = (time, level) => ({ time, pixels: new Float32Array(32 * 32 * 3).fill(level) });
@@ -89,4 +89,57 @@ test('An exact minimum-length selection is searchable, while a shorter frame-ali
     assert.deepEqual(candidates.map(({ start, end }) => ({ start, end })), [{ start: 40, end: 43 }]);
     assert.throws(() => searchSamplePlan({ ...options, from: 40.01, to: 43.01 }, 30, 60), /frame rate/);
     assert.throws(() => searchSamplePlan(options, 0, 60), /frame rate/);
+});
+
+test('An exact-length selection at low frame rates refines its terminal seam without decoding outside the range', async t => {
+    const previous = new Map(['document', 'window', 'Worker'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+    t.after(() => {
+        for (const [key, descriptor] of previous) {
+            if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+            else delete globalThis[key];
+        }
+    });
+    const seeks = [], listeners = new Map();
+    let currentTime = 0;
+    const video = {
+        duration: 60, videoWidth: 32, videoHeight: 32, readyState: 2,
+        set src(value) { queueMicrotask(() => this.onloadeddata?.()); },
+        get currentTime() { return currentTime; },
+        set currentTime(value) {
+            currentTime = value;
+            seeks.push(value);
+            queueMicrotask(() => { for (const callback of [...(listeners.get('seeked') || [])]) callback(); });
+        },
+        addEventListener(name, callback) {
+            const callbacks = listeners.get(name) || new Set();
+            callbacks.add(callback);
+            listeners.set(name, callbacks);
+        },
+        removeEventListener(name, callback) { listeners.get(name)?.delete(callback); },
+        pause() {}, removeAttribute() {}, load() {},
+    };
+    // Constant decoded frames isolate terminal refinement from the ranking model.
+    const rgba = new Uint8ClampedArray(32 * 32 * 4);
+    for (let i = 0; i < rgba.length; i += 4) {
+        rgba[i] = rgba[i + 1] = rgba[i + 2] = 102;
+        rgba[i + 3] = 255;
+    }
+    globalThis.document = { createElement: tag => tag === 'video' ? video : {
+        getContext: () => ({ drawImage() {}, getImageData: () => ({ data: rgba }) }),
+        toDataURL: () => 'data:image/jpeg;base64,fixture',
+    } };
+    globalThis.window = { setTimeout };
+    globalThis.Worker = class {
+        postMessage({ frames, options }) {
+            queueMicrotask(() => this.onmessage({ data: { candidates: rankFrames(frames, options) } }));
+        }
+        terminate() {}
+    };
+    const result = await searchVideo('fixture.mp4', { ...options, from: 40, to: 56, min: 16, max: 16 }, 6, new AbortController().signal, () => {});
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].start, 40);
+    assert.equal(result.candidates[0].end, 56);
+    assert.equal(result.candidates[0].refined, true, 'The terminal candidate must receive frame-level refinement');
+    assert.ok(seeks.every(time => time >= 40 && time < 56));
+    assert.ok(seeks.some(time => Math.abs(time - (56 - 1.5 / 6)) < 1e-7), 'Boundary motion needs a real penultimate frame');
 });
