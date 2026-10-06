@@ -30,7 +30,7 @@ export class WallpaperPreview {
     this.canvas = stage.querySelector('#preview-canvas');
     this.options = { enabled: false, screen: 'editor', width: 1170, height: 2532, device: 'notch', posterURL: '' };
     this.controlsHost.classList.add('wallpaper-preview-controls');
-    this.controlsHost.innerHTML = '<div class="segmented wallpaper-screen-options" role="group" aria-label="Wallpaper screen preview"><button type="button" data-wallpaper-screen="editor" aria-pressed="true">Editor</button><button type="button" data-wallpaper-screen="lock" aria-pressed="false">Lock Screen</button><button type="button" data-wallpaper-screen="home" aria-pressed="false">Home Screen</button></div><p class="micro wallpaper-preview-note"></p>';
+    this.controlsHost.innerHTML = '<div class="segmented wallpaper-screen-options" role="group" aria-label="Video and wallpaper layout views"><button type="button" data-wallpaper-screen="editor" aria-pressed="true">Video</button><button type="button" data-wallpaper-screen="lock" aria-pressed="false">Lock Screen layout</button><button type="button" data-wallpaper-screen="home" aria-pressed="false">Home Screen layout</button></div><p class="micro wallpaper-preview-note"></p>';
     this.handleScreenClick = event => {
       const button = event.target.closest('[data-wallpaper-screen]');
       if (button && !button.disabled) this.onScreenChange(button.dataset.wallpaperScreen);
@@ -48,11 +48,11 @@ export class WallpaperPreview {
     if (guides) this.display.append(guides);
     this.poster = document.createElement('img');
     this.poster.className = 'wallpaper-poster';
-    this.poster.alt = 'Still Home Screen wallpaper preview';
+    this.poster.alt = 'Selected wallpaper key photo';
     this.poster.hidden = true;
     this.snapshot = document.createElement('canvas');
     this.snapshot.className = 'wallpaper-poster wallpaper-poster-snapshot';
-    this.snapshot.setAttribute('aria-label', 'Still Home Screen wallpaper preview');
+    this.snapshot.setAttribute('aria-label', 'Draft wallpaper layout snapshot');
     this.snapshot.hidden = true;
     this.display.append(this.poster, this.snapshot);
     this.chrome = document.createElement('div');
@@ -81,22 +81,25 @@ export class WallpaperPreview {
       button.setAttribute('aria-pressed', String(selected));
       button.disabled = Boolean(disabled);
     });
+    const layout = screen === 'home' ? 'Home Screen' : 'Lock Screen';
+    const imageLabel = draft || !posterURL ? 'Draft snapshot. Render preview to see the selected key photo.' : 'Selected key photo.';
     this.controlsHost.querySelector('.wallpaper-preview-note').textContent = screen === 'home'
-      ? `Approximate${draft || !posterURL ? ' draft' : ''} Home Screen · wallpaper stays still. Clock and icons are not exported.`
+      ? `${imageLabel} Approximate Home Screen layout; wallpaper stays still. Phone icons are not exported.`
       : screen === 'lock'
-        ? `Approximate${draft ? ' draft' : ''} Lock Screen · animation depends on iPhone and iOS support. Clock and controls are not exported.`
-        : 'Use Lock Screen or Home Screen to check the approximate layout on an iPhone.';
-    const home = active && screen === 'home';
-    this.poster.hidden = !home || !posterURL;
-    this.snapshot.hidden = !home || Boolean(posterURL);
-    this.canvas.classList.toggle('wallpaper-live-hidden', home);
+        ? `${imageLabel} Layout only. iOS creates a short wake effect and may use few frames or change their speed and smoothness. Phone controls are not exported.`
+        : 'Video shows the full clip. It does not simulate the short iOS wallpaper wake effect. Use the layout views to check the key photo.';
+    this.poster.alt = `Selected key photo in the ${layout} layout`;
+    this.snapshot.setAttribute('aria-label', `Draft snapshot in the ${layout} layout`);
+    this.poster.hidden = !active || !posterURL;
+    this.snapshot.hidden = !active || Boolean(posterURL);
+    this.canvas.classList.toggle('wallpaper-live-hidden', active);
     if (posterURL && this.poster.getAttribute('src') !== posterURL) this.poster.src = posterURL;
     if (!posterURL) this.poster.removeAttribute('src');
-    if (home && !posterURL && (previous.screen !== 'home' || previous.posterURL || !previous.enabled)) {
+    if (active && !posterURL && (previous.screen !== screen || previous.posterURL || !previous.enabled)) {
       this.captureStill();
       cancelAnimationFrame(this.captureRAF);
       this.captureRAF = requestAnimationFrame(() => {
-        if (this.options.enabled && this.options.screen === 'home' && !this.options.posterURL) this.captureStill();
+        if (this.options.enabled && this.options.screen !== 'editor' && !this.options.posterURL) this.captureStill();
       });
     }
     if (active) this.resize();

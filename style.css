@@ -181,7 +181,7 @@ main { padding-top: 0; }
 .preview-stage:fullscreen canvas { height: 100%; max-height: 100%; width: auto; }
 .wallpaper-preview-controls { margin: 0 0 13px; }
 .wallpaper-screen-options { display: flex; width: max-content; max-width: 100%; }
-.wallpaper-screen-options button { padding: 8px 14px; font-size: 12px; }
+.wallpaper-screen-options.segmented button { padding: 8px 12px; font-size: 12px; white-space: normal; }
 .wallpaper-preview-note { margin: 7px 3px 0; line-height: 1.5; }
 .wallpaper-device, .wallpaper-display { display: contents; }
 .wallpaper-screen-chrome { display: none; }

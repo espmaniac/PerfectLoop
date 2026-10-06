@@ -88,7 +88,9 @@ Review [Spotify's Canvas guidelines](https://support.spotify.com/us/artists/arti
 
 Select **iPhone wallpaper** in **Destination preset**. Choose a phone size or enter custom dimensions, then open a video or choose **Open photo** to make a gentle two-second zoom loop from a JPEG, PNG, or WebP photo. The preset suggests a two-second selection; **Fit to a 2-second cycle** adjusts the source range for the loop method and speed. Text and image layers, movement, rotation, and framing work with wallpaper exports.
 
-Use **Lock Screen** to preview the motion behind approximate clock and phone controls. **Home Screen** shows a still image behind approximate app icons. Select **Render preview** to see the processed video, then use **Key photo** to choose its still frame. Phone frames, clocks, and icons are preview overlays and never appear in downloaded media.
+Select **Render preview**, then use **Video** to play the processed clip. **Lock Screen layout** and **Home Screen layout** show the selected **Key photo** behind approximate phone controls and icons. They are static layout checks; before a current render, they show a labeled draft. Phone frames, clocks, and icons never appear in downloaded media.
+
+iOS creates its own short Lock Screen wake animation from motion near the key photo. It can select only a small part of the clip, change its speed, and interpolate or drop frames. The browser's full-video playback does not simulate that effect or establish its smoothness. Choose a key photo near the movement you want to highlight, then check the result on the target iPhone.
 
 PerfectLoop creates the paired JPEG/MOV, timed frame and key-photo metadata, and native `.pvt` package on this site, without a third-party converter. Live Photo exports use silent HEVC Main, 8-bit video at 60 fps, scaled down to at most 720 × 1560 while preserving the selected aspect ratio. They do not upscale smaller output sizes. The full kit's MP4 and JPG use this same size; standalone **Video · MP4** and **Still wallpaper · JPG** keep your selected dimensions.
 
