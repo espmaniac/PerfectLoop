@@ -3,6 +3,7 @@ import { gunzipSync } from '../vendor/fflate.js';
 import { audioGraph, framePlan, geometry, validate, videoGraph } from './logic.js';
 import { rasterizeLayers, validateLayers } from './layers.js';
 import { layerOverlayGraph } from './layer-export.js';
+import { captureWallpaperStill } from './wallpaper-still.js';
 const even = (n) => Math.max(16, Math.round(n / 2) * 2);
 const numberRate = (rate) => { const [a, b = '1'] = (rate || '0').split('/'); return Number(a) / Number(b) || 30; };
 export class VideoEngine {
@@ -15,6 +16,7 @@ export class VideoEngine {
     everLoaded = false;
     wasmPromise;
     logs = [];
+    renderController;
     constructor() { this.listeners(); }
     listeners() {
         this.ff.on('log', ({ message }) => { this.logs.push(message); if (this.logs.length > 80)
@@ -23,6 +25,7 @@ export class VideoEngine {
     }
     cancel() {
         this.cancelled = true;
+        this.renderController?.abort();
         this.resetWorker();
     }
     resetWorker() {
@@ -145,6 +148,32 @@ export class VideoEngine {
         this.resetWorker();
     }
     async render(file, original, info, onProgress, preview = false, wallpaperOptions = null) {
+        const controller = new AbortController();
+        this.renderController = controller;
+        try {
+            const result = await this.renderVideo(file, original, info, onProgress, preview, wallpaperOptions);
+            if (controller.signal.aborted)
+                throw new DOMException('Cancelled', 'AbortError');
+            if (result.wallpaper) {
+                // Release the WASM worker before decoding the key photo. Encoding
+                // another full-size frame in FFmpeg can exhaust Safari's heap.
+                onProgress(0.95, 'Preparing the wallpaper still frame…');
+                result.wallpaper.jpeg = await captureWallpaperStill(result.blob, {
+                    time: result.wallpaper.stillTime, fps: result.fps,
+                    width: result.width, height: result.height,
+                }, controller.signal);
+            }
+            if (controller.signal.aborted)
+                throw new DOMException('Cancelled', 'AbortError');
+            onProgress(1, 'Ready');
+            return result;
+        }
+        finally {
+            if (this.renderController === controller)
+                this.renderController = undefined;
+        }
+    }
+    async renderVideo(file, original, info, onProgress, preview = false, wallpaperOptions = null) {
         const issues = [...validate(original, info), ...validateLayers(original.layers || [], original)];
         if (issues.length)
             throw new Error(issues[0]);
@@ -235,21 +264,16 @@ export class VideoEngine {
                 const frameCount = Number(video.nb_frames) || Math.floor(duration * fps + 0.000001);
                 const lastFrame = Math.max(0, Math.min(frameCount - 1, Math.floor(duration * fps + 0.000001) - 1));
                 const stillTime = Math.round(lastFrame * Math.max(0, Math.min(100, percent)) / 100) / fps;
-                await this.exec(['-ss', String(stillTime), '-i', result, '-map', '0:v:0', '-an', '-frames:v', '1', '-c:v', 'mjpeg', '-q:v', '2', '-map_metadata', '-1', 'wallpaper.jpg'], 1 / fps, 0.9, 0.95, 'Preparing the wallpaper still frame…', onProgress);
-                checkCancelled();
                 // Copy the completed video, including its layers and loop method. A
                 // terminal moov atom lets the pairing writer append Live Photo metadata.
-                await this.exec(['-i', result, '-map', '0:v:0', '-c:v', 'copy', '-an', '-map_metadata', '-1', '-f', 'mov', '-brand', 'qt  ', 'wallpaper.mov'], duration, 0.95, 0.99, 'Preparing the Live Photo video…', onProgress);
-                checkCancelled();
-                const jpeg = await this.ff.readFile('wallpaper.jpg');
+                await this.exec(['-i', result, '-map', '0:v:0', '-c:v', 'copy', '-an', '-map_metadata', '-1', '-f', 'mov', '-brand', 'qt  ', 'wallpaper.mov'], duration, 0.9, 0.95, 'Preparing the Live Photo video…', onProgress);
                 checkCancelled();
                 const mov = await this.ff.readFile('wallpaper.mov');
                 checkCancelled();
-                if (!(jpeg instanceof Uint8Array) || !(mov instanceof Uint8Array) || !jpeg.length || !mov.length)
+                if (!(mov instanceof Uint8Array) || !mov.length)
                     throw new Error('The wallpaper files could not be read.');
-                wallpaper = { jpeg: new Blob([jpeg.slice().buffer], { type: 'image/jpeg' }), mov: new Blob([mov.slice().buffer], { type: 'video/quicktime' }), stillTime };
+                wallpaper = { mov: new Blob([mov.slice().buffer], { type: 'video/quicktime' }), stillTime };
             }
-            onProgress(1, 'Ready');
             return { blob, name: `${file.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]/gi, '-').slice(0, 60) || 'video'}-${s.method}-loop.${s.format}`, duration, width: video.width || s.width, height: video.height || s.height, fps, frames: Number(video.nb_frames || plan.totalFrames), hasAudio: output.streams.some(st => st.codec_type === 'audio'), sourceFps: numberRate(probe.streams.find(st => st.codec_type === 'video')?.avg_frame_rate), ...(wallpaper ? { wallpaper } : {}) };
         }
         catch (e) {
