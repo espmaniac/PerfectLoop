@@ -11,7 +11,7 @@ import { Timeline } from './timeline.js';
 import { WallpaperPreview } from './wallpaper-preview.js';
 import { keyPhotoTime, phoneProfile, wallpaperCompatibilityProfile, wallpaperExportSettings, wallpaperPreset, wallpaperRange } from './wallpaper.js';
 import { saveWallpaperPackage, wallpaperDownload } from './wallpaper-export.js';
-import { createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, MAX_LAYERS } from './layers.js';
+import { createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, hitTestLayers, MAX_LAYERS } from './layers.js';
 import { LayerPanel } from './layer-panel.js';
 import { loadFont, importFontFile, discoverDeviceFonts, clearFonts } from './fonts.js';
 import { $, $$, decorateIcons, escapeHTML, icon, initializeFields, supportsPackageSave } from './ui.js';
@@ -31,7 +31,7 @@ const state = {
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
 let preview, previewEditor, timeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
-let selectionSignature = '', scaleGesture = null;
+let selectionSignature = '';
 const framingSettings = new Set(['zoom', 'cropX', 'cropY', 'rotate', 'mirror', 'fit', 'background']);
 const videoSignature = settings => JSON.stringify({ ...settings, wallpaperPoster: undefined, wallpaperDevice: undefined });
 const pairedWallpaperKind = kind => ['pvt', 'live-photo', 'kit'].includes(kind);
@@ -105,13 +105,13 @@ function restore(value) {
 }
 function undo() {
   if (busy()) return;
-  previewEditor?.finish(); scaleGesture = null;
+  previewEditor?.finish();
   if (!history.past.length) return;
   history.future.push(snapshot()); restore(history.past.pop());
 }
 function redo() {
   if (busy()) return;
-  previewEditor?.finish(); scaleGesture = null;
+  previewEditor?.finish();
   if (!history.future.length) return;
   history.past.push(snapshot()); restore(history.future.pop());
 }
@@ -121,26 +121,49 @@ function beginPreviewEdit() {
   else preview.pause();
   return true;
 }
+function playPreview() { previewEditor?.finish(); return preview.play(); }
+function stepPreview(direction) { previewEditor?.finish(); preview.step(direction); }
 function updateFraming(partial, saveHistory = true) {
-  if (busy()) return;
+  if (busy() || state.tab === 'layers') return;
   beginPreviewEdit();
   update(partial, saveHistory);
 }
 function refreshPreviewEditor() {
   if (!previewEditor) return;
   previewEditor.refresh();
-  const overlay = $('#preview-selection'), shapes = previewEditor.selection();
-  overlay.toggleAttribute('hidden', !shapes.length);
+  const overlay = $('#preview-selection'), host = $('#preview-transform'), shapes = previewEditor.selection();
+  host.hidden = !shapes.length;
   if (!shapes.length) { selectionSignature = ''; return; }
   const canvas = preview.canvas, box = canvas.getBoundingClientRect(), stage = $('#preview-stage').getBoundingClientRect();
   const polygons = shapes.map(shape => shape.corners.map(point => `${point.x},${point.y}`).join(' '));
-  const signature = JSON.stringify([box.left, box.top, box.width, box.height, stage.left, stage.top, canvas.width, canvas.height, polygons]);
+  const signature = JSON.stringify([state.tab, state.activeLayerId, shapes.map(shape => shape.type), box.left, box.top, box.width, box.height, stage.left, stage.top, canvas.width, canvas.height, polygons]);
   if (signature === selectionSignature) return;
   selectionSignature = signature;
-  overlay.style.left = `${box.left - stage.left}px`; overlay.style.top = `${box.top - stage.top}px`;
-  overlay.style.width = `${box.width}px`; overlay.style.height = `${box.height}px`;
+  host.style.left = `${box.left - stage.left}px`; host.style.top = `${box.top - stage.top}px`;
+  host.style.width = `${box.width}px`; host.style.height = `${box.height}px`;
   overlay.setAttribute('viewBox', `0 0 ${canvas.width} ${canvas.height}`);
   overlay.innerHTML = polygons.map(points => `<polygon points="${points}"></polygon>`).join('');
+  const handles = [...host.querySelectorAll('button')];
+  const names = ['top left', 'top right', 'bottom right', 'bottom left'];
+  shapes.forEach((shape, copyIndex) => shape.corners.forEach((point, cornerIndex) => {
+    const index = copyIndex * 4 + cornerIndex;
+    const button = handles[index] || document.createElement('button');
+    if (!handles[index]) {
+      button.type = 'button'; button.className = 'preview-resize-handle'; host.append(button);
+    }
+    button.dataset.copyIndex = String(copyIndex); button.dataset.cornerIndex = String(cornerIndex);
+    button.setAttribute('aria-label', `Resize ${shape.type || (state.tab === 'edit' ? 'video' : 'layer')}, ${names[cornerIndex]} corner`);
+    const x = point.x / canvas.width * box.width, y = point.y / canvas.height * box.height;
+    const dx = x - shape.centerX / canvas.width * box.width, dy = y - shape.centerY / canvas.height * box.height;
+    const distance = Math.hypot(dx, dy) || 1;
+    // Keep grips outside small objects and reachable for oversized objects.
+    button.style.left = `${clamp(x + dx / distance * 10, 8, box.width - 8)}px`;
+    button.style.top = `${clamp(y + dy / distance * 10, 8, box.height - 8)}px`;
+    const opposite = shape.corners[(cornerIndex + 2) % 4];
+    const angle = ((Math.atan2(point.y - opposite.y, point.x - opposite.x) * 180 / Math.PI) % 180 + 180) % 180;
+    button.style.cursor = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'][Math.round(angle / 45) % 4];
+  }));
+  handles.slice(shapes.length * 4).forEach(button => button.remove());
 }
 function activeRange() {
   return state.tab === 'find' ? { start: state.opts.from, end: state.opts.to } : state.s;
@@ -221,6 +244,9 @@ function syncDisabled() {
   $('[data-action="open-photo"]').disabled = busy();
   $('[data-setting="preset"]').disabled = busy();
   $$('[data-wallpaper-screen]').forEach(button => { button.disabled = busy(); });
+  $$('[data-setting], [data-fit]').forEach(input => {
+    if (framingSettings.has(input.dataset.setting) || input.dataset.fit) input.disabled = disabled || state.tab === 'layers';
+  });
 }
 function refreshBindings() {
   $$('[data-setting], [data-search]').forEach(input => {
@@ -335,8 +361,9 @@ function refresh() {
   $('[data-mode="composition"]').hidden = !info.duration || (!['edit', 'layers'].includes(state.tab) && !wallpaper);
   $('#preview-framing').hidden = !info.duration || staticWallpaperLayout() || !['edit', 'layers'].includes(state.tab);
   $('#preview-edit-hint').textContent = state.tab === 'layers'
-    ? 'Drag text or images to move them. Drag the background to reposition the video. Video scale changes only the video.'
-    : 'Drag the video to reposition it. Open Layers to move text and images.';
+    ? 'Drag a text or image box to move it. Drag a corner to resize it. Video framing is locked in Layers.'
+    : 'Drag the video to move it. Drag a corner of its frame to resize it. Open Layers to edit text and images.';
+  $('#preview-video-scale').hidden = $('[data-action="reset-framing"]').hidden = state.tab === 'layers';
   if (!s.layers.some(layer => layer.id === state.activeLayerId)) state.activeLayerId = s.layers.at(-1)?.id || '';
   layerPanel?.render();
   $$('[data-method]').forEach(button => { const active = button.dataset.method === s.method; button.classList.toggle('selected', active); button.setAttribute('aria-pressed', String(active)); });
@@ -805,6 +832,7 @@ preview = new Preview(() => state, mode => { state.mode = mode; if (mode === 'so
   }
 });
 timeline = new Timeline(() => state, updateActiveRange, time => {
+  previewEditor?.finish();
   state.wallpaperScreen = 'editor';
   preview.seek(time, state.mode === 'loop' ? 'loop' : state.tab === 'find' ? 'source' : state.mode);
 }, remember);
@@ -815,12 +843,43 @@ previewEditor = new PreviewEditor(preview.canvas, () => state, {
   selectLayer: id => layerAction('select', id), editLayer: (id, partial) => editLayer(id, partial, false),
   remember, getTime: () => preview.compositionTime,
 });
-const scaleInput = $('[data-setting="zoom"]');
-scaleInput.addEventListener('pointerdown', () => { scaleGesture = { saved: false }; });
-scaleInput.addEventListener('keydown', event => {
-  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) scaleGesture ??= { saved: false };
+$('#preview-transform').addEventListener('pointerdown', event => {
+  if (!event.target.closest('[data-corner-index]')) return;
+  event.preventDefault(); event.stopPropagation();
+  // Large touch targets can overlap. Choose the nearest visible grip and let
+  // the object body remain draggable beneath their transparent hit areas.
+  const handles = [...$('#preview-transform').querySelectorAll('button')];
+  let handle, nearest = Infinity, grip;
+  for (const candidate of handles) {
+    const rect = candidate.getBoundingClientRect(), x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+    const distance = (event.clientX - x) ** 2 + (event.clientY - y) ** 2;
+    if (distance < nearest) { nearest = distance; handle = candidate; grip = { x, y }; }
+  }
+  if (!handle) return;
+  const onGrip = Math.abs(event.clientX - grip.x) <= 6 && Math.abs(event.clientY - grip.y) <= 6;
+  if (!onGrip) {
+    const box = preview.canvas.getBoundingClientRect(), dimensions = { width: preview.canvas.width, height: preview.canvas.height };
+    const x = (event.clientX - box.left) / box.width * dimensions.width, y = (event.clientY - box.top) / box.height * dimensions.height;
+    const inside = state.tab === 'layers'
+      ? hitTestLayers(state.s.layers, state.s, preview.compositionTime, framePlan(state.s).duration, x, y, dimensions)
+      : previewEditor.selection().some(shape => x > shape.corners[0].x && x < shape.corners[2].x && y > shape.corners[0].y && y < shape.corners[2].y);
+    if (inside) { previewEditor.pointerDown(event); return; }
+  }
+  previewEditor.startResize(event, Number(handle.dataset.copyIndex), Number(handle.dataset.cornerIndex));
 });
-for (const name of ['pointerup', 'pointercancel', 'keyup', 'blur']) scaleInput.addEventListener(name, () => { scaleGesture = null; });
+$('#preview-transform').addEventListener('keydown', event => {
+  const handle = event.target.closest('[data-corner-index]');
+  if (!handle) return;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+    event.preventDefault(); event.stopPropagation(); event.shiftKey ? redo() : undo(); return;
+  }
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+  event.preventDefault(); event.stopPropagation();
+  const step = event.shiftKey ? 10 : 2, box = preview.canvas.getBoundingClientRect();
+  const dx = (event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0) * preview.canvas.width / box.width;
+  const dy = (event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0) * preview.canvas.height / box.height;
+  previewEditor.resizeByKeyboard(Number(handle.dataset.copyIndex), Number(handle.dataset.cornerIndex), dx, dy);
+});
 $('#wallpaper-photo-input').addEventListener('change', event => {
   const file = event.target.files[0]; event.target.value = ''; void openPhoto(file);
 });
@@ -854,8 +913,7 @@ function changeField(event) {
   else if (input.dataset.setting === 'zoom') {
     const zoom = clamp(value, 25, 400);
     if (zoom === (state.s.zoom ?? 100) || busy()) return;
-    if (scaleGesture && !scaleGesture.saved) { remember(); scaleGesture.saved = true; }
-    updateFraming({ zoom }, !scaleGesture);
+    updateFraming({ zoom });
   }
   else if (framingSettings.has(input.dataset.setting)) updateFraming({ [input.dataset.setting]: value });
   else if (input.dataset.setting === 'preset') setPreset(value);
@@ -895,7 +953,7 @@ const actions = {
   undo, redo, reset: () => update({ ...DEFAULTS, end: Math.min(state.info.duration || 6, 6) }),
   proxy: makeProxy, search: runSearch, render: () => runRender(true), export: () => runRender(false), inspect, batch: batchExport, cancel,
   'dismiss-error': () => { state.error = ''; refreshStatus(); }, 'dismiss-notice': () => notice(''),
-  play: () => staticWallpaperLayout() ? undefined : preview.play(), 'previous-frame': () => { if (!staticWallpaperLayout()) preview.step(-1); }, 'next-frame': () => { if (!staticWallpaperLayout()) preview.step(1); },
+  play: () => staticWallpaperLayout() ? undefined : playPreview(), 'previous-frame': () => { if (!staticWallpaperLayout()) stepPreview(-1); }, 'next-frame': () => { if (!staticWallpaperLayout()) stepPreview(1); },
   mute: () => preview.toggleMute(), guides: () => preview.toggleGuides(), fullscreen: () => preview.fullscreen(), 'frame-png': () => { if (!staticWallpaperLayout()) preview.saveFrame(); },
   zoom: () => timeline.toggleZoom(), 'mark-in': () => mark('start'), 'mark-out': () => mark('end'), 'fit-duration': fitDuration,
   alternate: () => { const { aspect, width, height } = alternateFormat(state.s); setAspect(aspect, { width, height }); },
@@ -927,8 +985,8 @@ document.addEventListener('keydown', event => {
   }
   if (busy() || $('#help-dialog').open || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'SUMMARY'].includes(event.target.tagName)) return;
   if (staticWallpaperLayout() && [' ', 'ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); return; }
-  if (event.key === ' ') { event.preventDefault(); void preview.play(); }
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); preview.step(event.key === 'ArrowRight' ? 1 : -1); }
+  if (event.key === ' ') { event.preventDefault(); void playPreview(); }
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); stepPreview(event.key === 'ArrowRight' ? 1 : -1); }
   if (event.key.toLowerCase() === 'i') mark('start'); if (event.key.toLowerCase() === 'o') mark('end');
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); }
 });
