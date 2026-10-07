@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTextLayer, importImageLayer, clearLayerAssets, drawLayers, hitTestLayers, layerSelectionGeometry, layerResize } from '../js/layers.js';
+import { createTextLayer, importImageLayer, clearLayerAssets, drawLayers, hitTestLayers, layerSelectionGeometry, layerResize, layerRotate, validateLayers, rasterizeLayers } from '../js/layers.js';
 
 const settings = { width: 400, height: 240 };
 const identity = () => [1, 0, 0, 1, 0, 0];
@@ -12,6 +12,7 @@ const point = ([a, b, c, d, e, f], x, y) => ({ x: a * x + c * y + e, y: b * x + 
 class MetricContext {
     constructor(canvas) { this.canvas = canvas; this.matrix = identity(); this.paints = []; this.font = '20px sans-serif'; this.stack = []; }
     translate(x, y) { this.matrix = multiply(this.matrix, [1, 0, 0, 1, x, y]); }
+    scale(x, y) { this.matrix = multiply(this.matrix, [x, 0, 0, y, 0, 0]); }
     rotate(angle) { this.matrix = multiply(this.matrix, [Math.cos(angle), Math.sin(angle), -Math.sin(angle), Math.cos(angle), 0, 0]); }
     save() { this.stack.push([...this.matrix]); }
     restore() { this.matrix = this.stack.pop(); }
@@ -169,7 +170,7 @@ test('Size limits retain the fixed corner when possible and clamp layer position
     for (const layer of [text(), await image()]) {
         const [shape] = layerSelectionGeometry(layer, settings, 0, 4);
         const key = layer.type === 'text' ? 'fontSize' : 'width';
-        for (const [factor, expected] of [[0, layer.type === 'text' ? 8 : 1], [100, layer.type === 'text' ? 256 : 100]]) {
+        for (const [factor, expected] of [[0, layer.type === 'text' ? 8 : 1], [100, layer.type === 'text' ? 256 : 400]]) {
             const result = resize(layer, shape, 0, factor);
             assert.equal(result.partial[key], expected);
             assert.ok(result.partial.x >= 0 && result.partial.x <= 100 && result.partial.y >= 0 && result.partial.y <= 100);
@@ -182,4 +183,113 @@ test('Size limits retain the fixed corner when possible and clamp layer position
     const result = resize(edge, shape, 2, 2);
     assert.equal(result.partial.x, 0);
     assert.equal(result.partial.y, 0);
+});
+
+test('Images resize beyond the output frame with true corners and optional outside-frame hit testing', async t => {
+    fixture(t);
+    const layer = await image({ width: 100 });
+    const [shape] = layerSelectionGeometry(layer, settings, 0, 4);
+    const result = resize(layer, shape, 0, 2.5);
+    assert.equal(result.partial.width, 250);
+    assert.deepEqual(validateLayers([result.next], settings), []);
+    const [enlarged] = result.copies;
+    assert.equal(enlarged.width, 1000);
+    assert.ok(enlarged.corners.some(corner => corner.x < 0 || corner.x > settings.width), 'Selection follows the entire image, including its cropped area');
+    const outside = { x: enlarged.centerX - enlarged.width / 2 + 1, y: enlarged.centerY };
+    assert.equal(hitTestLayers([result.next], settings, 0, 4, outside.x, outside.y), null);
+    assert.equal(hitTestLayers([result.next], settings, 0, 4, outside.x, outside.y, settings, true)?.layer.id, layer.id);
+    assert.equal(hitTestLayers([result.next], settings, 0, 4, NaN, outside.y, settings, true), null);
+    assert.ok(validateLayers([{ ...layer, width: 401 }], settings).some(issue => /400%/.test(issue)));
+    assert.ok(validateLayers([{ ...layer, width: 400 }], { width: 2000, height: 1200 }).some(issue => /too large/i.test(issue)), 'Enlarging an image still respects the actual sprite memory limit');
+});
+
+test('Text and images rotate around their tight visible centers at output and preview dimensions', async t => {
+    fixture(t);
+    for (const layer of [text({ text: '\nj A\ng\n', rotation: 37 }), await image({ width: 150, rotation: -47 })]) {
+        for (const dimensions of [settings, { width: 200, height: 120 }]) {
+            const [shape] = layerSelectionGeometry(layer, settings, 0, 4, dimensions);
+            for (const angle of [-450, -90, 0, 47, 90, 190, 720]) {
+                const partial = layerRotate(layer, settings, 0, 4, angle, shape, dimensions);
+                const next = { ...layer, ...partial };
+                const after = layerSelectionGeometry(next, settings, 0, 4, dimensions);
+                const residual = Math.min(...after.map(copy => distance({ x: copy.centerX, y: copy.centerY }, { x: shape.centerX, y: shape.centerY })));
+                assert.ok(residual <= 1, `${layer.type}/${dimensions.width}/${angle}: content center residual ${residual}`);
+                assert.equal(next.rotation, ((angle + 180) % 360 + 360) % 360 - 180);
+                assert.equal(next[layer.type === 'text' ? 'fontSize' : 'width'], layer[layer.type === 'text' ? 'fontSize' : 'width']);
+            }
+            assert.deepEqual(layerRotate(layer, settings, 0, 4, layer.rotation + 360, shape, dimensions), { rotation: layer.rotation, x: layer.x, y: layer.y });
+            assert.deepEqual(layerRotate(layer, settings, 0, 4, NaN, shape, dimensions), {});
+        }
+    }
+});
+
+test('Rotation retains the paused spin and motion phases and the selected periodic copy', async t => {
+    fixture(t);
+    const source = await image();
+    let preserved = 0;
+    for (const original of [text({ text: 'j A\ng' }), source]) {
+        for (const motion of ['none', 'right', 'left', 'up', 'down', 'along-angle', 'against-angle']) {
+            for (const spin of ['none', 'clockwise', 'counterclockwise']) {
+                for (const time of [0.13, 1.91, 3.87]) {
+                    const layer = { ...original, rotation: 37, motion, spin, motionCycles: 2, spinCycles: 3 };
+                    for (const shape of layerSelectionGeometry(layer, settings, time, 4)) {
+                        for (const angle of [0, 90, -47]) {
+                            const partial = layerRotate(layer, settings, time, 4, angle, shape);
+                            const next = { ...layer, ...partial };
+                            const copies = layerSelectionGeometry(next, settings, time, 4);
+                            const residual = Math.min(...copies.map(copy => distance({ x: copy.centerX, y: copy.centerY }, { x: shape.centerX, y: shape.centerY })));
+                            assert.ok(partial.x >= 0 && partial.x <= 100 && partial.y >= 0 && partial.y <= 100);
+                            if (partial.x > 0 && partial.x < 100 && partial.y > 0 && partial.y < 100) {
+                                assert.ok(residual <= 1, `${layer.type}/${motion}/${spin}/${time}/${angle}: center residual ${residual}`);
+                                preserved++;
+                            }
+                            assert.equal(next.motion, motion);
+                            assert.equal(next.spin, spin);
+                            assert.equal(next.motionCycles, 2);
+                            assert.equal(next.spinCycles, 3);
+                            const expected = ((angle + (spin === 'clockwise' ? 1 : spin === 'counterclockwise' ? -1 : 0) * 360 * ((time * 3 / 4) % 1)) % 360 + 360) % 360;
+                            assert.ok(Math.abs(copies[0]?.rotation - expected) < 1e-10);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert.ok(preserved > 300, 'Center preservation is exercised across independent motion and spin phases');
+});
+
+test('Upscaled previews keep large rotated and spinning layers visible with bounded rasters and exact logical bounds', async t => {
+    fixture(t);
+    const output = { width: 96, height: 96 }, preview = { width: 960, height: 960 };
+    const imported = await importImageLayer({ name: 'large.png', type: 'image/png', size: 1, image: { width: 80, height: 50 } });
+    for (const spin of ['none', 'clockwise']) {
+        const layer = { ...imported, width: 400, rotation: 31, spin };
+        assert.deepEqual(validateLayers([layer], output), [], 'The actual output layer fits its export budget');
+        const [shape] = layerSelectionGeometry(layer, output, 0.2, 4, preview);
+        assert.ok(shape, 'Upscaling the editor preview never removes a valid layer or its handles');
+        assert.equal(shape.width, 3840);
+        assert.equal(shape.height, 2400);
+        assert.equal(hitTestLayers([layer], output, 0.2, 4, shape.centerX, shape.centerY, preview)?.layer.id, layer.id);
+        const frame = new MetricCanvas(preview.width, preview.height);
+        drawLayers(frame.context, [layer], output, 0.2, 4);
+        assert.equal(frame.context.paints.length, 1, 'The actual image is painted, not just its selection outline');
+        const paint = frame.context.paints[0], raster = paint.source;
+        assert.ok(raster.width <= 4096 && raster.height <= 4096 && raster.width * raster.height <= 16 * 1024 ** 2);
+        assert.ok(paint.width > raster.width || paint.height > raster.height, 'Only the backing surface is reduced; drawing restores the full logical size');
+        const innerPaint = raster.context.paints[0];
+        assert.equal(innerPaint.source.width, 80);
+        assert.equal(innerPaint.width, shape.width);
+        assert.equal(innerPaint.height, shape.height);
+        const projected = point(innerPaint.matrix, 0, 0);
+        assert.deepEqual(projected, { x: raster.width / 2, y: raster.height / 2 }, 'The bounded raster remains centered');
+        assert.ok(layerRotate(layer, output, 0.2, 4, -47, shape, preview).rotation === -47);
+        await assert.rejects(rasterizeLayers([layer], preview, output), /too large/i, 'Reduced preview cache entries cannot bypass strict export raster limits');
+    }
+    const title = { ...text({ text: 'j A\ng', fontSize: 256 }), rotation: 31 };
+    assert.deepEqual(validateLayers([title], output), []);
+    const [titleShape] = layerSelectionGeometry(title, output, 0, 4, preview);
+    const frame = new MetricCanvas(preview.width, preview.height);
+    drawLayers(frame.context, [title], output, 0, 4);
+    assert.ok(titleShape && frame.context.paints.length === 1, 'Large valid text stays selectable and painted in the larger editor preview');
+    assert.ok(frame.context.paints[0].source.width <= 4096 && frame.context.paints[0].source.height <= 4096);
 });

@@ -50,8 +50,8 @@ export function validate(s, info) {
         issues.push('Target size must be between 0 and 2000 MB.');
     if (s.cropX < 0 || s.cropX > 100 || s.cropY < 0 || s.cropY > 100 || s.shift < 0 || s.shift > 99)
         issues.push('Crop and seam positions are outside their allowed ranges.');
-    if (![0, 90, 180, 270].includes(s.rotate))
-        issues.push('Rotation must be 0, 90, 180, or 270 degrees.');
+    if (s.rotate < -360 || s.rotate > 360)
+        issues.push('Rotation must be between -360 and 360 degrees.');
     if (!/^#[0-9a-f]{6}$/i.test(s.background))
         issues.push('Choose a valid background color.');
     const p = framePlan(s);
@@ -82,12 +82,17 @@ export function validate(s, info) {
 export function geometry(s) {
     const f = [];
     const zoom = (s.zoom === undefined ? 100 : s.zoom) / 100;
-    if (s.rotate === 90)
+    const rotation = ((s.rotate % 360) + 360) % 360;
+    if (rotation === 90)
         f.push('transpose=1');
-    if (s.rotate === 180)
+    else if (rotation === 180)
         f.push('hflip', 'vflip');
-    if (s.rotate === 270)
+    else if (rotation === 270)
         f.push('transpose=2');
+    else if (rotation !== 0) {
+        const angle = `${s.rotate}*PI/180`;
+        f.push(`rotate=a='${angle}':ow='ceil(rotw(${angle}))':oh='ceil(roth(${angle}))':c=0x${s.background.slice(1)}`);
+    }
     if (s.mirror)
         f.push('hflip');
     if (zoom === 1 && s.fit === 'cover')

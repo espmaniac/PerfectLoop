@@ -407,22 +407,25 @@ test('Missed Layers clicks and empty Layers never move or resize the video', asy
     assert.equal(state.s.zoom, 100);
 });
 
-test('Cropped video exposes four inset handles inside the visible canvas and no handles in Layers', t => {
+test('Cropped video selection uses the real source corners beyond the output frame and no video handles in Layers', t => {
     const { canvas, state, editor } = fixture(t);
-    for (const partial of [{}, { zoom: 400 }, { rotate: 90 }, { fit: 'contain', zoom: 50, cropX: 0, cropY: 0 }]) {
-        state.s = { ...state.s, ...partial };
-        const [shape] = editor.selection();
-        assert.equal(shape.type, 'video');
-        assert.equal(shape.corners.length, 4);
-        for (const point of shape.corners) {
-            assert.ok(point.x >= 0 && point.x <= canvas.width && point.y >= 0 && point.y <= canvas.height);
-        }
-    }
+    const [shape] = editor.selection();
+    assert.equal(shape.type, 'video');
+    assert.deepEqual(shape.corners, [{ x: -100, y: 0 }, { x: 300, y: 0 }, { x: 300, y: 100 }, { x: -100, y: 100 }]);
+    state.s.zoom = 400;
+    const [large] = editor.selection();
+    assert.equal(large.width, 1600);
+    assert.equal(large.height, 400);
+    assert.ok(large.corners.every(point => point.x < 0 || point.x > canvas.width));
+    state.s = { ...state.s, zoom: 100, rotate: 37 };
+    const [rotated] = editor.selection();
+    const [first, second] = rotated.corners;
+    assert.ok(Math.abs(Math.atan2(second.y - first.y, second.x - first.x) * 180 / Math.PI - 37) < 1e-8);
     state.tab = 'layers';
     assert.deepEqual(editor.selection(), []);
 });
 
-test('Video corner resize scales uniformly around the opposite visible point with one undo entry', t => {
+test('Video corner resize scales uniformly around the real opposite source corner with one undo entry', t => {
     const { canvas, state, editor, calls } = fixture(t);
     const [shape] = editor.selection(), corner = shape.corners[2], anchor = shape.corners[0];
     const oldLeft = -100, oldTop = 0, sourceX = (anchor.x - oldLeft) / 400, sourceY = anchor.y / 100;
@@ -583,4 +586,145 @@ test('An angled layer gesture keeps the composition phase and a single undo snap
     assert.equal(calls.history, 1);
     assert.equal(state.s.layers[0].motion, layer.motion);
     assert.equal(state.s.layers[0].rotation, layer.rotation);
+});
+
+function rotatedPointer(canvas, shape, cornerIndex, angle, partial = {}) {
+    const radians = angle * Math.PI / 180;
+    const point = shape.corners[cornerIndex], x = point.x - shape.centerX, y = point.y - shape.centerY;
+    return canvas.event(shape.centerX + x * Math.cos(radians) - y * Math.sin(radians),
+        shape.centerY + x * Math.sin(radians) + y * Math.cos(radians), partial);
+}
+
+test('Video corner rotation preserves visual scale and center and creates one undo entry', t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    const [before] = editor.selection(), corner = before.corners[2];
+    assert.equal(editor.startRotate(canvas.event(corner.x, corner.y), 0, 2), true);
+    canvas.dispatch('pointermove', corner.x, corner.y);
+    assert.equal(calls.history, 0);
+    editor.pointerMove(rotatedPointer(canvas, before, 2, 37));
+    assert.ok(Math.abs(state.s.rotate - 37) < 1e-8);
+    const [after] = editor.selection();
+    assert.ok(Math.abs(after.centerX - before.centerX) < 1e-8);
+    assert.ok(Math.abs(after.centerY - before.centerY) < 1e-8);
+    assert.ok(Math.abs(after.width - before.width) < 1e-8);
+    assert.ok(Math.abs(after.height - before.height) < 1e-8);
+    assert.ok(editor.dragging, 'Own rotation, zoom and crop updates remain valid');
+    editor.pointerMove(rotatedPointer(canvas, before, 2, 64));
+    assert.ok(Math.abs(state.s.rotate - 64) < 1e-8);
+    assert.equal(calls.history, 1);
+    canvas.dispatch('pointerup');
+    assert.equal(editor.dragging, null);
+    assert.equal(canvas.captured.size, 0);
+});
+
+test('Rotation gestures unwrap angle boundaries, support Shift snapping, and restore exact initial values', t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    state.s = { ...state.s, fit: 'contain', zoom: 100, rotate: 175 };
+    const initial = { rotate: state.s.rotate, zoom: state.s.zoom, cropX: state.s.cropX, cropY: state.s.cropY };
+    const [shape] = editor.selection(), corner = shape.corners[2];
+    editor.startRotate(canvas.event(corner.x, corner.y), 0, 2);
+    for (const angle of [20, 150, 170, 190, 350, 370]) editor.pointerMove(rotatedPointer(canvas, shape, 2, angle));
+    assert.ok(Math.abs(state.s.rotate + 175) < 1e-8, 'A complete turn continues smoothly across atan2 boundaries');
+    editor.pointerMove(rotatedPointer(canvas, shape, 2, 378, { shiftKey: true }));
+    assert.equal(state.s.rotate, -165, 'Shift snaps the absolute rotation to 15 degrees');
+    editor.pointerMove(rotatedPointer(canvas, shape, 2, 360));
+    for (const [key, value] of Object.entries(initial)) assert.equal(state.s[key], value);
+    canvas.dispatch('pointerup');
+    assert.equal(calls.history, 1);
+});
+
+test('Mirrored video rotates in the displayed drag direction and keyboard changes its stored angle', t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    state.s.mirror = true;
+    const [shape] = editor.selection(), corner = shape.corners[1];
+    editor.startRotate(canvas.event(corner.x, corner.y), 0, 1);
+    editor.pointerMove(rotatedPointer(canvas, shape, 1, 30));
+    assert.ok(Math.abs(state.s.rotate + 30) < 1e-8);
+    const [after] = editor.selection();
+    const expected = rotatedPointer(canvas, shape, 1, 30);
+    assert.ok(Math.abs(after.corners[1].x - (expected.clientX - canvas.box.left) / canvas.box.width * canvas.width) < 1e-8);
+    assert.ok(Math.abs(after.corners[1].y - (expected.clientY - canvas.box.top) / canvas.box.height * canvas.height) < 1e-8);
+    canvas.dispatch('pointerup');
+    assert.equal(editor.rotateByKeyboard(0, 1, 15), true);
+    assert.ok(Math.abs(state.s.rotate + 15) < 1e-8);
+    assert.equal(canvas.captured.size, 0);
+    assert.equal(calls.history, 2);
+});
+
+test('Text and image rotation preserve the visible center and paused animation settings', async t => {
+    const { canvas, state, editor, calls, setTime } = fixture(t);
+    const layers = [
+        { ...createTextLayer(state.s), text: 'A A', fontSize: 16, rotation: 37, motion: 'along-angle', spin: 'clockwise', motionCycles: 2, spinCycles: 3 },
+        await imageLayer({ width: 20, rotation: 37, motion: 'right', spin: 'counterclockwise', motionCycles: 2, spinCycles: 3 }),
+    ];
+    state.tab = 'layers'; setTime(0.2);
+    for (const layer of layers) {
+        state.s.layers = [layer]; state.activeLayerId = layer.id;
+        const [before] = editor.selection(), corner = before.corners[2];
+        assert.equal(editor.startRotate(canvas.event(corner.x, corner.y), 0, 2), true);
+        editor.pointerMove(rotatedPointer(canvas, before, 2, 31));
+        const updated = state.s.layers[0];
+        assert.ok(Math.abs(updated.rotation - 68) < 1e-8);
+        const after = editor.selection().reduce((nearest, shape) => !nearest
+            || Math.hypot(shape.centerX - before.centerX, shape.centerY - before.centerY)
+            < Math.hypot(nearest.centerX - before.centerX, nearest.centerY - before.centerY) ? shape : nearest, null);
+        assert.ok(Math.abs(after.centerX - before.centerX) <= 1);
+        assert.ok(Math.abs(after.centerY - before.centerY) <= 1);
+        for (const key of ['motion', 'spin', 'motionCycles', 'spinCycles', 'fontSize', 'width']) assert.equal(updated[key], layer[key]);
+        assert.ok(editor.dragging);
+        editor.pointerMove(rotatedPointer(canvas, before, 2, 0));
+        assert.deepEqual(state.s.layers[0], layer, 'Returning the pointer restores original anchor and angle exactly');
+        canvas.dispatch('pointerup');
+    }
+    assert.equal(calls.history, 2);
+    assert.deepEqual(calls.videos, []);
+});
+
+test('Alt dragging a square rotates, and image corner resizing permits widths beyond the output frame', async t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    const layer = await imageLayer({ width: 80 });
+    state.tab = 'layers'; state.s.layers = [layer]; state.activeLayerId = layer.id;
+    const [shape] = editor.selection(), corner = shape.corners[2];
+    assert.equal(editor.startResize(canvas.event(corner.x, corner.y, { altKey: true }), 0, 2), true);
+    assert.equal(editor.dragging.kind, 'rotate');
+    editor.pointerMove(rotatedPointer(canvas, shape, 2, 20));
+    canvas.dispatch('pointerup');
+    assert.ok(Math.abs(state.s.layers[0].rotation - 20) < 1e-8);
+    const [rotated] = editor.selection(), resizedCorner = rotated.corners[2], anchor = rotated.corners[0];
+    editor.startResize(canvas.event(resizedCorner.x, resizedCorner.y), 0, 2);
+    canvas.dispatch('pointermove', resizedCorner.x + 2 * (resizedCorner.x - anchor.x), resizedCorner.y + 2 * (resizedCorner.y - anchor.y));
+    assert.ok(Math.abs(state.s.layers[0].width - 240) < 1e-8);
+    canvas.dispatch('pointerup');
+    assert.equal(calls.history, 2);
+});
+
+test('Selected objects can move through their real rectangles outside the cropped output', async t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    const layer = await imageLayer({ width: 150 });
+    state.tab = 'layers'; state.s.layers = [layer]; state.activeLayerId = layer.id;
+    assert.equal(editor.startMove(canvas.event(-20, 50)), true);
+    canvas.dispatch('pointermove', -10, 50);
+    canvas.dispatch('pointerup');
+    assert.equal(state.s.layers[0].x, 55);
+    assert.equal(calls.history, 1);
+    assert.deepEqual(calls.videos, []);
+    state.s.layers = [];
+    assert.equal(editor.startMove(canvas.event(-20, 50)), false);
+    assert.equal(editor.startRotate(canvas.event(-20, 50), 0, 2), false);
+    assert.equal(editor.rotateByKeyboard(0, 2, 15), false);
+});
+
+test('External edits and moving the canvas cancel rotations before stale pointer updates', t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    for (const mutate of [() => { state.s = { ...state.s, rotate: 10 }; }, () => { state.s = { ...state.s, zoom: 125 }; },
+        () => { canvas.box = { ...canvas.box, left: 20 }; }, () => { state.tab = 'layers'; }, () => { state.job = {}; }]) {
+        const previous = { ...state, s: { ...state.s } }, oldBox = { ...canvas.box };
+        const [shape] = editor.selection(), corner = shape.corners[2];
+        editor.startRotate(canvas.event(corner.x, corner.y), 0, 2);
+        mutate(); editor.pointerMove(rotatedPointer(canvas, shape, 2, 30));
+        assert.equal(editor.dragging, null);
+        assert.equal(canvas.captured.size, 0);
+        Object.assign(state, previous); canvas.box = oldBox;
+    }
+    assert.equal(calls.history, 0);
 });

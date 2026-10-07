@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { DEFAULTS } from '../js/constants.js';
 import { geometry, validate } from '../js/logic.js';
-import { videoTransform } from '../js/framing.js';
+import { rotatedDimensions, videoRotate, videoSelectionGeometry, videoTransform } from '../js/framing.js';
+import { dimensionsForAspect } from '../js/aspect.js';
 
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} should equal ${expected}`);
 const settings = { ...DEFAULTS, preset: 'custom', width: 96, height: 72, background: '#102030' };
@@ -41,6 +42,80 @@ test('Quarter rotations swap the source axes before stretch and alternate previe
     for (const key of Object.keys(full))
         near(preview[key], full[key] / 2);
     assert.deepEqual(full, videoTransform({ ...options, mirror: false }, 320, 180), 'Mirroring belongs to the renderer after rotation');
+});
+
+test('Free video rotation uses the full rotated source bounds and exposes unclipped source corners', () => {
+    const options = { ...settings, rotate: 37, mirror: true, fit: 'stretch', zoom: 210, cropX: 23, cropY: 81 };
+    const info = { width: 128, height: 80 };
+    const angle = options.rotate * Math.PI / 180;
+    const rotated = rotatedDimensions(info.width, info.height, options.rotate);
+    near(rotated.width, info.width * Math.cos(angle) + info.height * Math.sin(angle));
+    near(rotated.height, info.width * Math.sin(angle) + info.height * Math.cos(angle));
+    const transform = videoTransform(options, info.width, info.height);
+    near(transform.scaledWidth, settings.width * 2.1);
+    near(transform.scaledHeight, settings.height * 2.1);
+    const shape = videoSelectionGeometry(options, info);
+    near(shape.centerX, settings.width / 2 + transform.offsetX);
+    near(shape.centerY, settings.height / 2 + transform.offsetY);
+    const xs = shape.corners.map(point => point.x), ys = shape.corners.map(point => point.y);
+    near(Math.max(...xs) - Math.min(...xs), transform.scaledWidth);
+    near(Math.max(...ys) - Math.min(...ys), transform.scaledHeight);
+    assert.ok(xs.some(x => x < 0 || x > settings.width), 'Oversized source corners remain outside the crop');
+    for (const point of shape.corners) {
+        const x = (point.x - shape.centerX) / transform.sx * -1;
+        const y = (point.y - shape.centerY) / transform.sy;
+        near(Math.abs(x * Math.cos(angle) + y * Math.sin(angle)), info.width / 2);
+        near(Math.abs(-x * Math.sin(angle) + y * Math.cos(angle)), info.height / 2);
+    }
+    const preview = videoSelectionGeometry(options, info, { width: settings.width / 2, height: settings.height / 2 });
+    for (let index = 0; index < 4; index++) {
+        near(preview.corners[index].x, shape.corners[index].x / 2);
+        near(preview.corners[index].y, shape.corners[index].y / 2);
+    }
+});
+
+test('Rotating a framed video preserves its source center and scale when fitting permits it', () => {
+    const info = { width: 128, height: 80 };
+    for (const fit of ['cover', 'contain']) {
+        const options = { ...settings, fit, zoom: 220, cropX: 35, cropY: 65, rotate: 12 };
+        const before = videoTransform(options, info.width, info.height);
+        const changes = videoRotate(options, info, 63);
+        const after = videoTransform({ ...options, ...changes }, info.width, info.height);
+        near(changes.rotate, 63);
+        near(after.sx, before.sx);
+        near(after.sy, before.sy);
+        near(after.offsetX, before.offsetX);
+        near(after.offsetY, before.offsetY);
+    }
+    const constrained = videoRotate({ ...settings, zoom: 400 }, info, 45);
+    assert.ok(constrained.zoom >= 25 && constrained.zoom <= 400);
+    assert.ok(constrained.cropX >= 0 && constrained.cropX <= 100);
+    assert.ok(constrained.cropY >= 0 && constrained.cropY <= 100);
+});
+
+test('Original aspect dimensions include arbitrary rotation while keeping exact quarter turns', () => {
+    const info = { width: 320, height: 180 };
+    assert.deepEqual(dimensionsForAspect('original', info, 0), info);
+    assert.deepEqual(dimensionsForAspect('original', info, 90), { width: 180, height: 320 });
+    assert.deepEqual(dimensionsForAspect('original', info, -90), { width: 180, height: 320 });
+    const rotated = rotatedDimensions(info.width, info.height, 37);
+    assert.deepEqual(dimensionsForAspect('original', info, 37), {
+        width: Math.floor(rotated.width / 2) * 2,
+        height: Math.floor(rotated.height / 2) * 2,
+    });
+});
+
+test('Video rotation accepts signed and fractional angles and keeps quarter-turn export filters', () => {
+    const info = { duration: 30, width: 128, height: 80 };
+    for (const rotate of [-360, -90, -37.5, 0, 37.5, 270, 360])
+        assert.deepEqual(validate({ ...settings, rotate }, info), []);
+    for (const rotate of [-360.1, 360.1])
+        assert.ok(validate({ ...settings, rotate }, info).some(issue => issue.includes('-360 and 360')));
+    for (const rotate of [NaN, Infinity, '37'])
+        assert.ok(validate({ ...settings, rotate }, info).includes('Invalid rotate value.'));
+    assert.match(geometry({ ...settings, rotate: -90 }), /^transpose=2,/);
+    assert.match(geometry({ ...settings, rotate: 180 }), /^hflip,vflip,/);
+    assert.match(geometry({ ...settings, rotate: 37.5 }), /^rotate=a='37.5\*PI\/180':ow='ceil\(rotw\(37.5\*PI\/180\)\)':oh='ceil\(roth\(37.5\*PI\/180\)\)':c=0x102030,/);
 });
 
 test('Old settings retain unit zoom and the original default export filter strings', () => {
@@ -114,6 +189,11 @@ function checkMapping(options, output, colorTolerance = 0) {
             const rotatedY = (py - options.height / 2 - transform.offsetY) / transform.sy;
             const sourceX = rotatedX * cosine + rotatedY * sine + sourceWidth / 2 - 0.5;
             const sourceY = -rotatedX * sine + rotatedY * cosine + sourceHeight / 2 - 0.5;
+            if (options.rotate % 90 !== 0 && (sourceX < -8 || sourceX > sourceWidth + 7 || sourceY < -8 || sourceY > sourceHeight + 7)) {
+                assert.ok(pixel.every((channel, index) => Math.abs(channel - [16, 32, 48][index]) <= colorTolerance + 2), `${JSON.stringify(options)}: rotated background at ${x},${y}: ${pixel}`);
+                background++;
+                continue;
+            }
             if (sourceX < 3 || sourceX > sourceWidth - 4 || sourceY < 3 || sourceY > sourceHeight - 4 ||
                 px < left + 2 || px > left + transform.scaledWidth - 2 || py < top + 2 || py > top + transform.scaledHeight - 2)
                 continue;
@@ -159,6 +239,18 @@ test('Native FFmpeg subsampled video retains framing and exact output dimensions
             const options = { ...settings, fit, zoom, cropX: 31, cropY: 77 };
             const output = render(options, 'yuv420p');
             checkMapping(options, output, 4);
+        }
+    }
+});
+
+test('Native FFmpeg arbitrary-angle rotation matches preview coordinates and background on each fit mode', { skip: !native }, () => {
+    for (const rotate of [-31, 37, 147]) {
+        for (const mirror of [false, true]) {
+            for (const fit of ['cover', 'contain', 'stretch']) {
+                const options = { ...settings, rotate, mirror, fit, zoom: 130, cropX: 35, cropY: 65 };
+                checkMapping(options, render(options));
+                checkMapping(options, render(options, 'yuv420p'), 4);
+            }
         }
     }
 });

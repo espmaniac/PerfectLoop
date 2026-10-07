@@ -154,8 +154,8 @@ export function validateLayers(layers, settings) {
                 issues.push(`${label} text alignment is invalid.`);
         }
         else {
-            if (!finite(layer.width, 1, 100))
-                issues.push(`${label} image width must be between 1% and 100%.`);
+            if (!finite(layer.width, 1, 400))
+                issues.push(`${label} image width must be between 1% and 400%.`);
             if (!assets.has(layer.assetId))
                 issues.push(`${label} image is unavailable. Add the image again.`);
         }
@@ -320,10 +320,10 @@ function spriteGeometry(layer, settings, originalDimensions = settings) {
     return { width, height, size, font, lines, lineHeight, bounds, contentBounds, padding, image };
 }
 
-function prepareSprite(layer, settings, originalDimensions = settings) {
+function prepareSprite(layer, settings, originalDimensions = settings, allowReducedRaster = false) {
     const scale = settings.width / originalDimensions.width;
     const spinning = spinsLayer(layer);
-    const signature = JSON.stringify([layer.type, layer.text, layer.fontFamily, layer.fontSize, layer.type === 'text' ? fillCacheKey(effectiveFill(layer)) : null, layer.align, layer.assetId, layer.width, spinning ? 'spin' : layer.rotation, layer.opacity, settings.width, settings.height, scale]);
+    const signature = JSON.stringify([layer.type, layer.text, layer.fontFamily, layer.fontSize, layer.type === 'text' ? fillCacheKey(effectiveFill(layer)) : null, layer.align, layer.assetId, layer.width, spinning ? 'spin' : layer.rotation, layer.opacity, settings.width, settings.height, scale, allowReducedRaster]);
     const cached = sprites.get(layer.id);
     if (cached?.signature === signature) {
         sprites.delete(layer.id);
@@ -331,10 +331,19 @@ function prepareSprite(layer, settings, originalDimensions = settings) {
         return cached;
     }
     const { width, height, size, font, lines, lineHeight, bounds, contentBounds, padding, image } = spriteGeometry(layer, settings, originalDimensions);
-    if (!fitsSprite({ width, height }) || !fitsSprite(size))
+    if (!allowReducedRaster && (!fitsSprite({ width, height }) || !fitsSprite(size)))
         throw new Error(spriteSizeIssue(layer, 'This'));
-    const surface = canvas(size.width, size.height), ctx = surface.getContext('2d');
-    ctx.translate(size.width / 2, size.height / 2);
+    // Small exports can have a much larger editor preview. Bound its backing
+    // raster without changing the logical sprite or any movement/selection
+    // geometry. Full-resolution exports retain the original strict limits.
+    const rasterScale = allowReducedRaster ? Math.min(1, MAX_SPRITE_SIDE / size.width, MAX_SPRITE_SIDE / size.height,
+        Math.sqrt(MAX_SPRITE_PIXELS / (size.width * size.height))) : 1;
+    const rasterWidth = Math.max(1, Math.floor(size.width * rasterScale));
+    const rasterHeight = Math.max(1, Math.floor(size.height * rasterScale));
+    const surface = canvas(rasterWidth, rasterHeight), ctx = surface.getContext('2d');
+    ctx.translate(rasterWidth / 2, rasterHeight / 2);
+    if (rasterWidth !== size.width || rasterHeight !== size.height)
+        ctx.scale(rasterWidth / size.width, rasterHeight / size.height);
     if (!spinning)
         ctx.rotate(layer.rotation * Math.PI / 180);
     ctx.globalAlpha = layer.opacity / 100;
@@ -365,7 +374,7 @@ function drawableSprite(layer, settings, dimensions) {
         || !layer?.visible || layer.opacity === 0 || validateLayers([layer]).length || layer.type === 'text' && !isFontReady(layer.fontFamily))
         return null;
     try {
-        return prepareSprite(layer, dimensions, settings);
+        return prepareSprite(layer, dimensions, settings, true);
     }
     catch {
         return null; // Partially edited layers remain fixable in the editor.
@@ -464,7 +473,7 @@ export function layerResize(layer, settings, time, period, factor, anchor, dimen
         return {};
     const size = layer.type === 'text'
         ? { fontSize: Math.max(8, Math.min(256, layer.fontSize * factor)) }
-        : { width: Math.max(1, Math.min(100, layer.width * factor)) };
+        : { width: Math.max(1, Math.min(400, layer.width * factor)) };
     if (layer.type === 'text' ? size.fontSize === layer.fontSize : size.width === layer.width)
         return { ...size, x: layer.x, y: layer.y };
     const resized = { ...layer, ...size }, sprite = drawableSprite(resized, settings, dimensions);
@@ -500,10 +509,48 @@ export function layerResize(layer, settings, time, period, factor, anchor, dimen
     return { ...size, ...partial };
 }
 
+// Rotate around the visible content center rather than the padded sprite's
+// center. Inverting the paused movement phase also keeps animated copies still
+// while changing their starting angle and their along-angle travel direction.
+export function layerRotate(layer, settings, time, period, targetAngle, shape, dimensions = settings) {
+    if (!Number.isFinite(targetAngle))
+        return {};
+    const rotation = mod(targetAngle + 180, 360) - 180;
+    const initial = drawableSprite(layer, settings, dimensions);
+    if (!initial)
+        return {};
+    const selected = shape || layerSelectionGeometry(layer, settings, time, period, dimensions)[0];
+    if (!Number.isFinite(selected?.centerX) || !Number.isFinite(selected?.centerY))
+        return {};
+    if (mod(rotation - layer.rotation, 360) === 0)
+        return { rotation, x: layer.x, y: layer.y };
+    const rotated = { ...layer, rotation }, sprite = drawableSprite(rotated, settings, dimensions);
+    if (!sprite)
+        return {};
+    const bounds = sprite.contentBounds;
+    const offsetX = bounds.x + bounds.width / 2, offsetY = bounds.y + bounds.height / 2;
+    const radians = layerRotation(rotated, time, period) * Math.PI / 180;
+    const target = {
+        x: selected.centerX - offsetX * Math.cos(radians) + offsetY * Math.sin(radians) - (selected.copyOffsetX || 0),
+        y: selected.centerY - offsetX * Math.sin(radians) - offsetY * Math.cos(radians) - (selected.copyOffsetY || 0),
+    };
+    const position = layerPosition(rotated, dimensions.width, dimensions.height, time, period, sprite);
+    const partial = layerDragPosition(rotated, settings, time, period, target.x - position.x, target.y - position.y, dimensions);
+    if (period > 0 && Number.isFinite(period) && Number.isFinite(time)) {
+        const progress = animationProgress(time, period, animationCycles(layer, 'motion'));
+        if (layer.motion === 'left' || layer.motion === 'right')
+            partial.x = mod(target.x - (layer.motion === 'right' ? 1 : -1) * progress * dimensions.width, dimensions.width) / dimensions.width * 100;
+        if (layer.motion === 'up' || layer.motion === 'down')
+            partial.y = mod(target.y - (layer.motion === 'down' ? 1 : -1) * progress * dimensions.height, dimensions.height) / dimensions.height * 100;
+    }
+    return { rotation, ...partial };
+}
+
 // Use the same rotated content rectangle for selection and outlines. Spaces,
 // line gaps, and transparent image pixels belong to the selected layer.
-export function hitTestLayers(layers, settings, time, period, x, y, dimensions = settings) {
-    if (!(x >= 0 && x < dimensions.width && y >= 0 && y < dimensions.height))
+export function hitTestLayers(layers, settings, time, period, x, y, dimensions = settings, allowOutside = false) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)
+        || !allowOutside && !(x >= 0 && x < dimensions.width && y >= 0 && y < dimensions.height))
         return null;
     for (let index = (layers || []).length - 1; index >= 0; index--) {
         const layer = layers[index], sprite = drawableSprite(layer, settings, dimensions);
@@ -534,11 +581,11 @@ export function drawLayers(ctx, layers, settings, time, period) {
                 ctx.save();
                 ctx.translate(left + sprite.width / 2, top + sprite.height / 2);
                 ctx.rotate(layerRotation(layer, time, period) * Math.PI / 180);
-                ctx.drawImage(sprite.surface, -sprite.width / 2, -sprite.height / 2);
+                ctx.drawImage(sprite.surface, -sprite.width / 2, -sprite.height / 2, sprite.width, sprite.height);
                 ctx.restore();
             }
             else
-                ctx.drawImage(sprite.surface, left, top);
+                ctx.drawImage(sprite.surface, left, top, sprite.width, sprite.height);
         }
     }
 }

@@ -1,9 +1,11 @@
+import { rotatedDimensions } from './framing.js';
+
 // Output dimensions stay independent of the source player's proportions.
 export function dimensionsForAspect(aspect, info, rotate = 0) {
   if (aspect === 'original') {
-    const quarter = rotate % 180 !== 0;
-    const width = Math.max(16, (quarter ? info.height : info.width) || 1920);
-    const height = Math.max(16, (quarter ? info.width : info.height) || 1080);
+    const rotated = rotatedDimensions(info.width || 1920, info.height || 1080, rotate);
+    const width = Math.max(16, rotated.width);
+    const height = Math.max(16, rotated.height);
     const scale = Math.min(1, 3840 / width, 3840 / height);
     return { width: Math.max(16, Math.floor(width * scale / 2) * 2), height: Math.max(16, Math.floor(height * scale / 2) * 2) };
   }
