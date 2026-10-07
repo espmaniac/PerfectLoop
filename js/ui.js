@@ -42,7 +42,7 @@ export function initializeFields() {
   $('#framing-fields').innerHTML = selectField('fit', 'Fit mode', [['cover', 'Fill & crop'], ['contain', 'Fit with borders'], ['stretch', 'Stretch']])
     + numberField('zoom', 'Video scale', { min: 25, max: 400, step: 1, suffix: '%' })
     + rangeField('cropX', 'Horizontal position') + rangeField('cropY', 'Vertical position')
-    + `<div class="fields two">${selectField('rotate', 'Rotation', [[0, '0°'], [90, '90°'], [180, '180°'], [270, '270°']], { numeric: true })}<label class="field"><span>Border color</span><input type="color" data-setting="background" aria-label="Border color"></label></div>`
+    + `<div class="fields two">${numberField('rotate', 'Rotation', { min: -360, max: 360, step: 1, suffix: '°' })}<label class="field"><span>Border color</span><input type="color" data-setting="background" aria-label="Border color"></label></div>`
     + toggleField('mirror', 'Mirror horizontally')
     + toggleField('interpolate', 'Motion interpolation', { detail: 'Smoother speed changes; significantly slower to render.' });
   $('#search-range-fields').innerHTML = numberField('from', 'Search from', { suffix: 's', scope: 'search' })

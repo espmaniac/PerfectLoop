@@ -7,6 +7,7 @@ import { capture, inspectSeam, openVideo, releaseVideo, searchVideo, seekVideo, 
 import { prepareVideoFile } from './source-file.js';
 import { Preview } from './preview.js';
 import { PreviewEditor } from './preview-editor.js';
+import { PreviewViewport } from './preview-viewport.js';
 import { Timeline } from './timeline.js';
 import { WallpaperPreview } from './wallpaper-preview.js';
 import { keyPhotoTime, phoneProfile, wallpaperCompatibilityProfile, wallpaperExportSettings, wallpaperPreset, wallpaperRange } from './wallpaper.js';
@@ -30,7 +31,7 @@ const state = {
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
-let preview, previewEditor, timeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
+let preview, previewEditor, previewViewport, timeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
 let selectionSignature = '';
 const framingSettings = new Set(['zoom', 'cropX', 'cropY', 'rotate', 'mirror', 'fit', 'background']);
 const videoSignature = settings => JSON.stringify({ ...settings, wallpaperPoster: undefined, wallpaperDevice: undefined });
@@ -84,7 +85,7 @@ function remember() {
 }
 function update(partial, saveHistory = true) {
   if ('width' in partial || 'height' in partial) partial = { aspect: 'custom', ...partial };
-  if ('rotate' in partial && state.s.aspect === 'original') partial = { ...partial, ...dimensionsForAspect('original', state.info, partial.rotate), aspect: 'original' };
+  if ('rotate' in partial && state.s.aspect === 'original' && partial.aspect !== 'custom') partial = { ...partial, ...dimensionsForAspect('original', state.info, partial.rotate), aspect: 'original' };
   if (busy() || Object.entries(partial).every(([key, value]) => state.s[key] === value)) return;
   if (saveHistory) remember();
   const leavingWallpaper = state.s.preset === 'iphone' && partial.preset && partial.preset !== 'iphone';
@@ -130,11 +131,31 @@ function updateFraming(partial, saveHistory = true) {
 }
 function refreshPreviewEditor() {
   if (!previewEditor) return;
+  let shapes = previewEditor.selection();
+  const view = previewViewport?.refresh({ enabled: previewEditor.allowed() && state.mode === 'composition',
+    selectionKey: `${state.tab}:${state.activeLayerId}`, shapes, locked: Boolean(previewEditor.dragging) || !preview.active().paused });
   previewEditor.refresh();
-  const overlay = $('#preview-selection'), host = $('#preview-transform'), shapes = previewEditor.selection();
+  shapes = previewEditor.selection();
+  const overlay = $('#preview-selection'), host = $('#preview-transform'), frame = $('#preview-output-frame');
+  $('#preview-view-controls').hidden = !view?.enabled;
+  $('#preview-view-scale').textContent = `${Math.round(view?.zoomPercent || 100)}%`;
+  frame.hidden = !view?.enabled;
+  const canvas = preview.canvas, box = canvas.getBoundingClientRect(), stage = $('#preview-stage').getBoundingClientRect();
+  if (view?.enabled) {
+    frame.style.left = `${box.left - stage.left}px`; frame.style.top = `${box.top - stage.top}px`;
+    frame.style.width = `${box.width}px`; frame.style.height = `${box.height}px`;
+  }
+  const guides = $('#safe-guides');
+  if (view?.enabled) {
+    guides.style.left = `${box.left - stage.left + box.width * 0.14}px`;
+    guides.style.top = `${box.top - stage.top + box.height * 0.1}px`;
+    guides.style.width = `${box.width * 0.72}px`; guides.style.height = `${box.height * 0.8}px`;
+    guides.style.right = guides.style.bottom = 'auto';
+  } else {
+    for (const key of ['left', 'top', 'width', 'height', 'right', 'bottom']) guides.style.removeProperty(key);
+  }
   host.hidden = !shapes.length;
   if (!shapes.length) { selectionSignature = ''; return; }
-  const canvas = preview.canvas, box = canvas.getBoundingClientRect(), stage = $('#preview-stage').getBoundingClientRect();
   const polygons = shapes.map(shape => shape.corners.map(point => `${point.x},${point.y}`).join(' '));
   const signature = JSON.stringify([state.tab, state.activeLayerId, shapes.map(shape => shape.type), box.left, box.top, box.width, box.height, stage.left, stage.top, canvas.width, canvas.height, polygons]);
   if (signature === selectionSignature) return;
@@ -142,28 +163,50 @@ function refreshPreviewEditor() {
   host.style.left = `${box.left - stage.left}px`; host.style.top = `${box.top - stage.top}px`;
   host.style.width = `${box.width}px`; host.style.height = `${box.height}px`;
   overlay.setAttribute('viewBox', `0 0 ${canvas.width} ${canvas.height}`);
-  overlay.innerHTML = polygons.map(points => `<polygon points="${points}"></polygon>`).join('');
+  overlay.innerHTML = polygons.map((points, index) => `<polygon points="${points}" data-move-copy="${index}"></polygon>`).join('');
   const handles = [...host.querySelectorAll('button')];
   const names = ['top left', 'top right', 'bottom right', 'bottom left'];
-  shapes.forEach((shape, copyIndex) => shape.corners.forEach((point, cornerIndex) => {
-    const index = copyIndex * 4 + cornerIndex;
+  shapes.forEach((shape, copyIndex) => shape.corners.forEach((point, cornerIndex) => ['resize', 'rotate'].forEach((kind, kindIndex) => {
+    const index = copyIndex * 8 + cornerIndex * 2 + kindIndex;
     const button = handles[index] || document.createElement('button');
     if (!handles[index]) {
-      button.type = 'button'; button.className = 'preview-resize-handle'; host.append(button);
+      button.type = 'button'; host.append(button);
     }
+    button.className = `preview-${kind}-handle`;
+    if (kind === 'rotate' && !button.firstChild) button.innerHTML = icon('RotateCcw', 17);
     button.dataset.copyIndex = String(copyIndex); button.dataset.cornerIndex = String(cornerIndex);
-    button.setAttribute('aria-label', `Resize ${shape.type || (state.tab === 'edit' ? 'video' : 'layer')}, ${names[cornerIndex]} corner`);
+    button.dataset.transform = kind;
+    const label = `${kind === 'resize' ? 'Resize' : 'Rotate'} ${shape.type || (state.tab === 'edit' ? 'video' : 'layer')}, ${names[cornerIndex]} corner`;
+    button.setAttribute('aria-label', label); button.title = label;
     const x = point.x / canvas.width * box.width, y = point.y / canvas.height * box.height;
     const dx = x - shape.centerX / canvas.width * box.width, dy = y - shape.centerY / canvas.height * box.height;
     const distance = Math.hypot(dx, dy) || 1;
-    // Keep grips outside small objects and reachable for oversized objects.
-    button.style.left = `${clamp(x + dx / distance * 10, 8, box.width - 8)}px`;
-    button.style.top = `${clamp(y + dy / distance * 10, 8, box.height - 8)}px`;
+    // Handles follow the actual object corners, including outside the crop.
+    // The editor camera can fit the full rectangle without changing output.
+    const offset = kind === 'rotate' ? 34 : 10;
+    button.style.left = `${x + dx / distance * offset}px`;
+    button.style.top = `${y + dy / distance * offset}px`;
     const opposite = shape.corners[(cornerIndex + 2) % 4];
     const angle = ((Math.atan2(point.y - opposite.y, point.x - opposite.x) * 180 / Math.PI) % 180 + 180) % 180;
-    button.style.cursor = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'][Math.round(angle / 45) % 4];
-  }));
-  handles.slice(shapes.length * 4).forEach(button => button.remove());
+    button.style.cursor = kind === 'rotate' ? 'grab' : ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'][Math.round(angle / 45) % 4];
+  })));
+  handles.slice(shapes.length * 8).forEach(button => button.remove());
+}
+function insideSelectionShape(shape, x, y) {
+  const sides = shape.corners.map((point, index) => {
+    const next = shape.corners[(index + 1) % shape.corners.length];
+    return (next.x - point.x) * (y - point.y) - (next.y - point.y) * (x - point.x);
+  });
+  return sides.every(side => side >= 0) || sides.every(side => side <= 0);
+}
+function changeEditorView(action) {
+  previewEditor?.finish();
+  if (!previewViewport || !previewEditor?.allowed() || state.mode !== 'composition') return;
+  preview.pause();
+  refreshPreviewEditor();
+  if (action === 'fit') previewViewport.fit(previewEditor.selection());
+  else previewViewport.zoomBy(action === 'in' ? 1.25 : 0.8);
+  refreshPreviewEditor();
 }
 function activeRange() {
   return state.tab === 'find' ? { start: state.opts.from, end: state.opts.to } : state.s;
@@ -361,8 +404,8 @@ function refresh() {
   $('[data-mode="composition"]').hidden = !info.duration || (!['edit', 'layers'].includes(state.tab) && !wallpaper);
   $('#preview-framing').hidden = !info.duration || staticWallpaperLayout() || !['edit', 'layers'].includes(state.tab);
   $('#preview-edit-hint').textContent = state.tab === 'layers'
-    ? 'Drag a text or image box to move it. Drag a corner to resize it. Video framing is locked in Layers.'
-    : 'Drag the video to move it. Drag a corner of its frame to resize it. Open Layers to edit text and images.';
+    ? 'Drag the box to move it, a square to resize, or just outside a corner to rotate. Shift snaps rotation to 15°. Fit view shows the full box. Video framing is locked in Layers.'
+    : 'Drag the video to move it, a square to resize, or just outside a corner to rotate. Shift snaps rotation to 15°. Fit view shows the full box. Open Layers to edit text and images.';
   $('#preview-video-scale').hidden = $('[data-action="reset-framing"]').hidden = state.tab === 'layers';
   if (!s.layers.some(layer => layer.id === state.activeLayerId)) state.activeLayerId = s.layers.at(-1)?.id || '';
   layerPanel?.render();
@@ -700,7 +743,7 @@ function mark(edge) {
 
 function editLayer(id, partial, saveHistory = true) {
   const layer = state.s.layers.find(item => item.id === id);
-  if (layer && 'rotation' in partial && Number.isFinite(partial.rotation) && partial.rotation % 360 === 0) {
+  if (saveHistory && layer && 'rotation' in partial && Number.isFinite(partial.rotation) && partial.rotation % 360 === 0) {
     const motion = partial.motion ?? layer.motion;
     if (motion === 'along-angle' || motion === 'against-angle')
       partial = { ...partial, motion: motion === 'along-angle' ? 'right' : 'left' };
@@ -838,12 +881,14 @@ timeline = new Timeline(() => state, updateActiveRange, time => {
 }, remember);
 layerPanel = new LayerPanel(() => state, editLayer, layerAction);
 wallpaperPreview = new WallpaperPreview($('#wallpaper-screen-controls'), $('#preview-stage'), setWallpaperScreen);
+previewViewport = new PreviewViewport(preview.canvas, $('#preview-stage'));
 previewEditor = new PreviewEditor(preview.canvas, () => state, {
-  beginEdit: beginPreviewEdit, editVideo: partial => update(partial, false),
+  beginEdit: beginPreviewEdit, editVideo: partial => update('rotate' in partial && state.s.aspect === 'original' ? { ...partial, aspect: 'custom' } : partial, false),
   selectLayer: id => layerAction('select', id), editLayer: (id, partial) => editLayer(id, partial, false),
-  remember, getTime: () => preview.compositionTime,
+  remember, getTime: () => preview.compositionTime, onChange: refreshPreviewEditor,
 });
 $('#preview-transform').addEventListener('pointerdown', event => {
+  if (event.target.closest('[data-move-copy]')) { previewEditor.startMove(event); return; }
   if (!event.target.closest('[data-corner-index]')) return;
   event.preventDefault(); event.stopPropagation();
   // Large touch targets can overlap. Choose the nearest visible grip and let
@@ -861,11 +906,13 @@ $('#preview-transform').addEventListener('pointerdown', event => {
     const box = preview.canvas.getBoundingClientRect(), dimensions = { width: preview.canvas.width, height: preview.canvas.height };
     const x = (event.clientX - box.left) / box.width * dimensions.width, y = (event.clientY - box.top) / box.height * dimensions.height;
     const inside = state.tab === 'layers'
-      ? hitTestLayers(state.s.layers, state.s, preview.compositionTime, framePlan(state.s).duration, x, y, dimensions)
-      : previewEditor.selection().some(shape => x > shape.corners[0].x && x < shape.corners[2].x && y > shape.corners[0].y && y < shape.corners[2].y);
-    if (inside) { previewEditor.pointerDown(event); return; }
+      ? hitTestLayers(state.s.layers, state.s, preview.compositionTime, framePlan(state.s).duration, x, y, dimensions, true)
+      : previewEditor.selection().some(shape => insideSelectionShape(shape, x, y));
+    if (inside) { previewEditor.startMove(event); return; }
   }
-  previewEditor.startResize(event, Number(handle.dataset.copyIndex), Number(handle.dataset.cornerIndex));
+  if (handle.dataset.transform === 'rotate' || event.altKey)
+    previewEditor.startRotate(event, Number(handle.dataset.copyIndex), Number(handle.dataset.cornerIndex));
+  else previewEditor.startResize(event, Number(handle.dataset.copyIndex), Number(handle.dataset.cornerIndex));
 });
 $('#preview-transform').addEventListener('keydown', event => {
   const handle = event.target.closest('[data-corner-index]');
@@ -875,6 +922,11 @@ $('#preview-transform').addEventListener('keydown', event => {
   }
   if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
   event.preventDefault(); event.stopPropagation();
+  if (handle.dataset.transform === 'rotate' || event.altKey) {
+    const direction = ['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1;
+    previewEditor.rotateByKeyboard(Number(handle.dataset.copyIndex), Number(handle.dataset.cornerIndex), direction * (event.shiftKey ? 15 : 1));
+    return;
+  }
   const step = event.shiftKey ? 10 : 2, box = preview.canvas.getBoundingClientRect();
   const dx = (event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0) * preview.canvas.width / box.width;
   const dy = (event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0) * preview.canvas.height / box.height;
@@ -944,7 +996,8 @@ $('#file-input').addEventListener('change', event => {
 });
 
 const actions = {
-  'reset-framing': () => updateFraming({ zoom: 100, cropX: 50, cropY: 50 }),
+  'reset-framing': () => updateFraming({ zoom: 100, cropX: 50, cropY: 50, rotate: 0 }),
+  'view-fit': () => changeEditorView('fit'), 'view-in': () => changeEditorView('in'), 'view-out': () => changeEditorView('out'),
   'layer-add-text': () => addLayer(createTextLayer(state.s)),
   'layer-add-image': () => $('#layer-image-input').click(),
   'layer-upload-fonts': () => $('#layer-font-input').click(),

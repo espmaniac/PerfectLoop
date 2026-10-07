@@ -165,14 +165,21 @@
           <div class="preview-stage" id="preview-stage">
             <span class="preview-tag" id="preview-tag">SOURCE RANGE</span>
             <canvas id="preview-canvas" tabindex="0" aria-label="Video frame preview"></canvas>
-            <div id="preview-transform" class="preview-transform" role="group" aria-label="Preview resize controls" hidden><svg id="preview-selection" class="preview-selection" aria-hidden="true"></svg></div>
+            <div id="preview-output-frame" class="preview-output-frame" aria-hidden="true" hidden><span>Output frame</span></div>
+            <div id="preview-transform" class="preview-transform" role="group" aria-label="Preview transform controls" hidden><svg id="preview-selection" class="preview-selection" aria-hidden="true"></svg></div>
             <div class="safe-guides" id="safe-guides" hidden><span>COMPOSITION SAFE AREA</span></div>
             <video id="source-video" class="decoder" playsinline muted preload="auto"></video>
             <video id="loop-video" class="decoder" playsinline muted loop preload="auto"></video>
           </div>
           <div class="preview-framing" id="preview-framing" hidden>
             <span class="preview-scale" id="preview-video-scale">Video scale <output data-value="zoom">100%</output></span>
-            <button class="icon-btn" data-action="reset-framing" data-disable aria-label="Reset video scale and position" title="Reset video scale and position"><span data-icon="RotateCcw" data-size="17"></span></button>
+            <button class="icon-btn" data-action="reset-framing" data-disable aria-label="Reset video scale, position, and rotation" title="Reset video scale, position, and rotation"><span data-icon="RotateCcw" data-size="17"></span></button>
+            <div id="preview-view-controls" class="preview-view-controls" role="group" aria-label="Editor view" hidden>
+              <button class="icon-btn" data-action="view-out" aria-label="Zoom out editor view" title="Zoom out editor view"><span data-icon="ZoomOut" data-size="16"></span></button>
+              <output id="preview-view-scale" aria-label="Editor view zoom">100%</output>
+              <button class="icon-btn" data-action="view-in" aria-label="Zoom in editor view" title="Zoom in editor view"><span data-icon="ZoomIn" data-size="16"></span></button>
+              <button class="text-btn" data-action="view-fit" title="Fit the full object and output frame in the editor">Fit view</button>
+            </div>
             <p class="micro" id="preview-edit-hint">Drag the video to reposition it. Open Layers to move text and images.</p>
           </div>
           <div class="transport">

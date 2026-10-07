@@ -1,9 +1,11 @@
 import { clamp, framePlan } from './logic.js';
-import { videoTransform } from './framing.js';
-import { hitTestLayers, layerSelectionGeometry, layerDragPosition, layerResize } from './layers.js';
+import { videoTransform, videoSelectionGeometry, videoRotate } from './framing.js';
+import { hitTestLayers, layerSelectionGeometry, layerDragPosition, layerResize, layerRotate } from './layers.js';
 
 const layerValues = layer => ['x', 'y', 'width', 'fontSize', 'rotation', 'motion', 'spin', 'motionCycles', 'spinCycles', 'opacity',
     'text', 'fontFamily', 'align', 'assetId', 'visible'].map(key => layer?.[key]);
+const degrees = radians => radians * 180 / Math.PI;
+const normalizeAngle = angle => ((angle + 180) % 360 + 360) % 360 - 180;
 
 // Pointer editing writes settings through the app's existing update functions.
 // The app owns playback, undo snapshots, and drawing the selection overlay.
@@ -32,7 +34,8 @@ export class PreviewEditor {
             || state.info.duration !== drag.duration || this.canvas.width !== drag.width || this.canvas.height !== drag.height)
             return false;
         const box = this.canvas.getBoundingClientRect();
-        if (Math.abs(box.width - drag.box.width) > 0.5 || Math.abs(box.height - drag.box.height) > 0.5)
+        if (Math.abs(box.width - drag.box.width) > 0.5 || Math.abs(box.height - drag.box.height) > 0.5
+            || Math.abs(box.left - drag.box.left) > 0.5 || Math.abs(box.top - drag.box.top) > 0.5)
             return false;
         const framing = [state.s.width, state.s.height, state.s.fit, state.s.zoom, state.s.rotate, state.s.mirror];
         if (framing.some((value, index) => value !== drag.framing[index]))
@@ -65,19 +68,7 @@ export class PreviewEditor {
         if (!this.allowed(state) || state.mode !== 'composition')
             return [];
         if (state.tab === 'edit') {
-            const transform = videoTransform(state.s, state.info.width, state.info.height, this.canvas.width, this.canvas.height);
-            const box = this.canvas.getBoundingClientRect(), width = this.canvas.width, height = this.canvas.height;
-            const left = (width - transform.scaledWidth) / 2 + transform.offsetX;
-            const top = (height - transform.scaledHeight) / 2 + transform.offsetY;
-            // Insets at the frame boundary keep the whole handle reachable
-            // when the source is cropped larger than the composition.
-            const insetX = Math.min(width / 4, 8 * width / box.width), insetY = Math.min(height / 4, 8 * height / box.height);
-            const x1 = left <= 0 ? insetX : left, y1 = top <= 0 ? insetY : top;
-            const x2 = left + transform.scaledWidth >= width ? width - insetX : left + transform.scaledWidth;
-            const y2 = top + transform.scaledHeight >= height ? height - insetY : top + transform.scaledHeight;
-            if (!(x2 > x1 && y2 > y1)) return [];
-            return [{ type: 'video', centerX: (x1 + x2) / 2, centerY: (y1 + y2) / 2, width: x2 - x1, height: y2 - y1, rotation: 0,
-                corners: [{ x: x1, y: y1 }, { x: x2, y: y1 }, { x: x2, y: y2 }, { x: x1, y: y2 }] }];
+            return [{ ...videoSelectionGeometry(state.s, state.info, { width: this.canvas.width, height: this.canvas.height }), type: 'video' }];
         }
         const layer = state.s.layers?.find(item => item.id === state.activeLayerId);
         return layerSelectionGeometry(layer, state.s, this.getTime(), framePlan(state.s).duration,
@@ -85,34 +76,97 @@ export class PreviewEditor {
     }
 
     pointerDown(event) {
+        return this.beginMove(event, false);
+    }
+
+    // Selection polygons can receive events on the editor matte outside the
+    // cropped output. These events use the same hit order and drag geometry.
+    startMove(event) {
+        return this.beginMove(event, true);
+    }
+
+    beginMove(event, allowOutside) {
         if (event.button !== 0 || event.isPrimary === false || this.dragging || !this.allowed())
-            return;
+            return false;
         // Switching from Source or Loop can resize the preview. Pause and enter
         // Composition before recording its dimensions or testing layer pixels.
         if (this.beginEdit() === false)
-            return;
+            return false;
         const state = this.getState();
         if (!this.allowed(state) || state.mode !== 'composition')
-            return;
+            return false;
         const box = this.canvas.getBoundingClientRect(), width = this.canvas.width, height = this.canvas.height;
         if (!(box.width > 0 && box.height > 0 && width > 0 && height > 0))
-            return;
+            return false;
         const x = (event.clientX - box.left) * width / box.width;
         const y = (event.clientY - box.top) * height / box.height;
         const time = this.getTime(), period = framePlan(state.s).duration;
         const hit = state.tab === 'layers'
-            ? hitTestLayers(state.s.layers, state.s, time, period, x, y, { width, height }) : null;
+            ? hitTestLayers(state.s.layers, state.s, time, period, x, y, { width, height }, allowOutside) : null;
         if (state.tab === 'layers' && !hit)
-            return;
+            return false;
         if (hit) this.selectLayer(hit.layer.id);
         const current = this.getState();
         if (!this.allowed(current) || current.mode !== 'composition' || current.tab !== state.tab || current.file !== state.file)
-            return;
-        this.startGesture(event, current, hit?.layer, { kind: 'move', time, period });
+            return false;
+        return this.startGesture(event, current, hit?.layer, { kind: 'move', time, period });
     }
 
     startResize(event, copyIndex, cornerIndex) {
+        if (event.altKey) return this.startRotate(event, copyIndex, cornerIndex);
         return this.beginResize(event, copyIndex, cornerIndex, true);
+    }
+
+    startRotate(event, copyIndex, cornerIndex) {
+        return this.beginRotate(event, copyIndex, cornerIndex, true);
+    }
+
+    rotateByKeyboard(copyIndex, cornerIndex, deltaDegrees) {
+        if (!Number.isFinite(deltaDegrees) || deltaDegrees === 0)
+            return false;
+        const shape = this.selection()[copyIndex], corner = shape?.corners[cornerIndex];
+        if (!corner)
+            return false;
+        const box = this.canvas.getBoundingClientRect();
+        const event = { button: 0, isPrimary: true, pointerId: null,
+            clientX: box.left + corner.x / this.canvas.width * box.width,
+            clientY: box.top + corner.y / this.canvas.height * box.height, preventDefault() {} };
+        if (!this.beginRotate(event, copyIndex, cornerIndex, false))
+            return false;
+        // Keyboard angles describe the stored rotation; mouse angles describe
+        // the displayed rotation, whose direction reverses when mirrored.
+        const drag = this.dragging;
+        const radians = deltaDegrees * Math.PI / 180 * (!drag.layerId && drag.settings.mirror ? -1 : 1);
+        const dx = corner.x - shape.centerX, dy = corner.y - shape.centerY;
+        this.pointerMove({ ...event,
+            clientX: box.left + (shape.centerX + dx * Math.cos(radians) - dy * Math.sin(radians)) / this.canvas.width * box.width,
+            clientY: box.top + (shape.centerY + dx * Math.sin(radians) + dy * Math.cos(radians)) / this.canvas.height * box.height });
+        this.finish();
+        return true;
+    }
+
+    beginRotate(event, copyIndex, cornerIndex, capture) {
+        if (event.button !== 0 || event.isPrimary === false || this.dragging || !this.allowed()
+            || !Number.isInteger(cornerIndex) || cornerIndex < 0 || cornerIndex > 3 || !Number.isInteger(copyIndex) || copyIndex < 0)
+            return false;
+        if (this.beginEdit() === false)
+            return false;
+        const state = this.getState();
+        if (!this.allowed(state) || state.mode !== 'composition')
+            return false;
+        const shape = this.selection()[copyIndex];
+        if (!shape)
+            return false;
+        const layer = state.tab === 'layers' ? state.s.layers?.find(item => item.id === state.activeLayerId) : null;
+        if (state.tab === 'layers' && !layer)
+            return false;
+        const box = this.canvas.getBoundingClientRect();
+        const x = (event.clientX - box.left) * this.canvas.width / box.width - shape.centerX;
+        const y = (event.clientY - box.top) * this.canvas.height / box.height - shape.centerY;
+        if (!(x ** 2 + y ** 2 > 1e-12))
+            return false;
+        return this.startGesture(event, state, layer, { kind: 'rotate', shape, lastPointerAngle: Math.atan2(y, x), angleDelta: 0,
+            capture, time: this.getTime(), period: framePlan(state.s).duration });
     }
 
     resizeByKeyboard(copyIndex, cornerIndex, dx, dy) {
@@ -202,10 +256,32 @@ export class PreviewEditor {
         const factor = drag.kind === 'resize' ? this.resizeFactor(drag, dx, dy) : 1;
         if (drag.kind === 'resize' && !drag.remembered && Math.abs(factor - 1) < 1e-12)
             return;
+        let angle;
+        if (drag.kind === 'rotate') {
+            const x = (event.clientX - drag.box.left) * drag.width / drag.box.width - drag.shape.centerX;
+            const y = (event.clientY - drag.box.top) * drag.height / drag.box.height - drag.shape.centerY;
+            if (x ** 2 + y ** 2 <= 1e-12)
+                return;
+            const nextPointerAngle = Math.atan2(y, x);
+            drag.angleDelta += normalizeAngle(degrees(nextPointerAngle - drag.lastPointerAngle));
+            drag.lastPointerAngle = nextPointerAngle;
+            const initial = drag.layerId ? drag.layer.rotation : drag.settings.rotate;
+            const direction = !drag.layerId && drag.settings.mirror ? -1 : 1;
+            angle = initial + drag.angleDelta * direction;
+            if (event.shiftKey) angle = Math.round(angle / 15) * 15;
+            angle = normalizeAngle(angle);
+            if (!drag.remembered && Math.abs(normalizeAngle(angle - initial)) < 1e-10)
+                return;
+        }
         const state = this.getState();
         let partial, previous;
         if (drag.layerId) {
-            if (drag.kind === 'resize') {
+            if (drag.kind === 'rotate') {
+                partial = Math.abs(normalizeAngle(angle - drag.layer.rotation)) < 1e-10
+                    ? { rotation: drag.layer.rotation, x: drag.layer.x, y: drag.layer.y }
+                    : layerRotate(drag.layer, drag.settings, drag.time, drag.period, angle, drag.shape, { width: drag.width, height: drag.height });
+            }
+            else if (drag.kind === 'resize') {
                 const key = drag.layer.type === 'text' ? 'fontSize' : 'width';
                 partial = Math.abs(factor - 1) < 1e-12
                     ? { [key]: drag.layer[key], x: drag.layer.x, y: drag.layer.y }
@@ -214,6 +290,12 @@ export class PreviewEditor {
             else
                 partial = layerDragPosition(drag.layer, drag.settings, drag.time, drag.period, dx, dy, { width: drag.width, height: drag.height });
             previous = state.s.layers.find(layer => layer.id === drag.layerId);
+        }
+        else if (drag.kind === 'rotate') {
+            partial = Math.abs(normalizeAngle(angle - drag.settings.rotate)) < 1e-10
+                ? { rotate: drag.settings.rotate, zoom: drag.settings.zoom ?? 100, cropX: drag.settings.cropX, cropY: drag.settings.cropY }
+                : videoRotate(drag.settings, state.info, angle, { width: drag.width, height: drag.height });
+            previous = state.s;
         }
         else if (drag.kind === 'resize') {
             const initialZoom = drag.settings.zoom ?? 100;
@@ -250,9 +332,10 @@ export class PreviewEditor {
             this.editLayer(drag.layerId, partial);
         }
         else {
-            drag.expectedCropX = partial.cropX;
-            drag.expectedCropY = partial.cropY;
+            if ('cropX' in partial) drag.expectedCropX = partial.cropX;
+            if ('cropY' in partial) drag.expectedCropY = partial.cropY;
             if ('zoom' in partial) drag.framing[3] = partial.zoom;
+            if ('rotate' in partial) drag.framing[4] = partial.rotate;
             this.editVideo(partial);
         }
         this.onChange();

@@ -166,7 +166,7 @@ export class LayerPanel {
         + numberField('fontSize', 'Font size', 8, 256, 'px')
         + `<div class="text-fill-editor" data-text-fill-editor></div>`
         + selectField('align', 'Alignment', [['left', 'Left'], ['center', 'Center'], ['right', 'Right']])
-      : numberField('width', 'Image width', 1, 100, '%');
+      : numberField('width', 'Image width', 1, 400, '%');
     return content
       + `<div class="fields two">${numberField('x', 'Horizontal', 0, 100, '%', 0.1)}${numberField('y', 'Vertical', 0, 100, '%', 0.1)}</div>`
       + `<div class="fields two">${numberField('rotation', 'Rotation', -360, 360, '°')}${numberField('opacity', 'Opacity', 0, 100, '%')}</div>`
@@ -216,7 +216,8 @@ export class LayerPanel {
     const font = this.controls.querySelector('[data-layer-setting="fontFamily"]');
     const movement = this.controls.querySelector('[data-layer-setting="motion"]');
     const spin = this.controls.querySelector('[data-layer-setting="spin"]');
-    const rotated = Number.isFinite(layer.rotation) && layer.rotation % 360 !== 0;
+    const rotated = Number.isFinite(layer.rotation) && layer.rotation % 360 !== 0
+      || ROTATED_MOTIONS.some(([value]) => layer.motion === value);
     ROTATED_MOTIONS.forEach(([value, label]) => {
       const existing = movement.querySelector(`option[value="${value}"]`);
       if (rotated && !existing) {
