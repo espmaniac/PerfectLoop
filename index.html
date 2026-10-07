@@ -165,13 +165,13 @@
           <div class="preview-stage" id="preview-stage">
             <span class="preview-tag" id="preview-tag">SOURCE RANGE</span>
             <canvas id="preview-canvas" tabindex="0" aria-label="Video frame preview"></canvas>
-            <svg id="preview-selection" class="preview-selection" aria-hidden="true" hidden></svg>
+            <div id="preview-transform" class="preview-transform" role="group" aria-label="Preview resize controls" hidden><svg id="preview-selection" class="preview-selection" aria-hidden="true"></svg></div>
             <div class="safe-guides" id="safe-guides" hidden><span>COMPOSITION SAFE AREA</span></div>
             <video id="source-video" class="decoder" playsinline muted preload="auto"></video>
             <video id="loop-video" class="decoder" playsinline muted loop preload="auto"></video>
           </div>
           <div class="preview-framing" id="preview-framing" hidden>
-            <label class="preview-scale"><span>Video scale</span><input type="range" min="25" max="400" step="1" value="100" data-setting="zoom" data-number data-disable aria-label="Video scale" aria-describedby="preview-edit-hint"><output data-value="zoom">100%</output></label>
+            <span class="preview-scale" id="preview-video-scale">Video scale <output data-value="zoom">100%</output></span>
             <button class="icon-btn" data-action="reset-framing" data-disable aria-label="Reset video scale and position" title="Reset video scale and position"><span data-icon="RotateCcw" data-size="17"></span></button>
             <p class="micro" id="preview-edit-hint">Drag the video to reposition it. Open Layers to move text and images.</p>
           </div>

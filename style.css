@@ -176,12 +176,14 @@ main { padding-top: 0; }
 .preview-stage canvas[data-editable="true"] { cursor: grab; touch-action: none; }
 .preview-stage canvas[data-dragging="true"] { cursor: grabbing; }
 .preview-stage canvas:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
-.preview-selection { position: absolute; pointer-events: none; overflow: hidden; z-index: 2; }
+.preview-transform { position: absolute; pointer-events: none; z-index: 2; }
+.preview-selection { display: block; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .preview-selection polygon { fill: none; stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 1px #000); }
+.preview-resize-handle { position: absolute; width: 44px; height: 44px; padding: 0; transform: translate(-50%,-50%); background: transparent; pointer-events: auto; touch-action: none; }
+.preview-resize-handle::after { content: ""; position: absolute; inset: 16px; border: 2px solid #fff; border-radius: 2px; background: #282a2d; box-shadow: 0 1px 3px #0009; }
+.preview-resize-handle:focus-visible { outline: 2px solid #fff; outline-offset: -8px; border-radius: 9px; }
 .preview-framing { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; column-gap: 12px; padding: 11px 5px 0; }
 .preview-scale { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--muted); }
-.preview-scale > span { white-space: nowrap; }
-.preview-scale input { flex: 1; min-width: 35px; }
 .preview-scale output { min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
 .preview-framing .micro { grid-column: 1/-1; margin: 6px 0 0; }
 .preview-tag { position: absolute; left: 12px; top: 12px; z-index: 1; background: #1c1d1fc7; border: 1px solid #ffffff1a; border-radius: 999px; padding: 5px 9px; color: #d8dadd; font-size: 9px; letter-spacing: .7px; backdrop-filter: blur(12px); }

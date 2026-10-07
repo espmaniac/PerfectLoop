@@ -256,7 +256,7 @@ function spriteSizeIssue(layer, label) {
 
 function spriteGeometry(layer, settings, originalDimensions = settings) {
     const scale = settings.width / originalDimensions.width;
-    let width, height, font, lines, lineHeight, bounds;
+    let width, height, font, lines, lineHeight, bounds, contentBounds;
     const padding = 2 * scale;
     const image = layer.type === 'image' ? assets.get(layer.assetId) : undefined;
     if (layer.type === 'text') {
@@ -279,12 +279,37 @@ function spriteGeometry(layer, settings, originalDimensions = settings) {
         bounds = { left, right, ascent, descent };
         width = Math.ceil(left + right + padding * 2);
         height = Math.ceil(ascent + descent + Math.max(0, lines.length - 1) * lineHeight + padding * 2);
+        // Keep raster padding and baselines intact. Editor bounds follow the
+        // actual glyph metrics and line advances, including spaces and gaps,
+        // without selecting the extra ascent/descent reserved by the sprite.
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const [index, rasterMetric] of metrics.entries()) {
+            const metric = lines[index] ? rasterMetric : measure.measureText('');
+            const advance = metric.width;
+            const offset = layer.align === 'right' ? right - advance : layer.align === 'center' ? (right - advance) / 2 : 0;
+            const x = -width / 2 + left + padding + offset;
+            const y = -height / 2 + ascent + padding + index * lineHeight;
+            const glyphLeft = Number.isFinite(metric.actualBoundingBoxLeft) ? metric.actualBoundingBoxLeft : 0;
+            const glyphRight = lines[index] && Number.isFinite(metric.actualBoundingBoxRight) ? metric.actualBoundingBoxRight : advance;
+            const glyphAscent = Number.isFinite(metric.actualBoundingBoxAscent) ? metric.actualBoundingBoxAscent : layer.fontSize * scale;
+            const glyphDescent = Number.isFinite(metric.actualBoundingBoxDescent) ? metric.actualBoundingBoxDescent : layer.fontSize * scale * 0.3;
+            minX = Math.min(minX, x, x - glyphLeft);
+            maxX = Math.max(maxX, x + advance, x + glyphRight);
+            if (glyphAscent + glyphDescent > 0 && lines[index].trim()) {
+                minY = Math.min(minY, y - glyphAscent);
+                maxY = Math.max(maxY, y + glyphDescent);
+            }
+        }
+        if (!Number.isFinite(minY))
+            minY = maxY = -height / 2 + ascent + padding;
+        contentBounds = { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
     }
     else {
         if (!image)
             throw new Error('This image is unavailable. Add the image again.');
         width = Math.max(1, Math.round(settings.width * layer.width / 100));
         height = Math.max(1, Math.round(width * image.height / image.width));
+        contentBounds = { x: -width / 2, y: -height / 2, width, height };
     }
     // A single unrotated image serves every animated angle. Its safe square
     // contains the content's diagonal plus two source pixels on each side,
@@ -292,7 +317,7 @@ function spriteGeometry(layer, settings, originalDimensions = settings) {
     // Corners remain visible throughout a full turn in canvas and FFmpeg.
     const diameter = spinsLayer(layer) ? Math.ceil(Math.hypot(width, height)) + Math.max(2, Math.ceil(4 * scale)) : 0;
     const size = diameter ? { width: diameter, height: diameter } : rotatedDimensions(width, height, layer.rotation);
-    return { width, height, size, font, lines, lineHeight, bounds, padding, image };
+    return { width, height, size, font, lines, lineHeight, bounds, contentBounds, padding, image };
 }
 
 function prepareSprite(layer, settings, originalDimensions = settings) {
@@ -305,7 +330,7 @@ function prepareSprite(layer, settings, originalDimensions = settings) {
         sprites.set(layer.id, cached);
         return cached;
     }
-    const { width, height, size, font, lines, lineHeight, bounds, padding, image } = spriteGeometry(layer, settings, originalDimensions);
+    const { width, height, size, font, lines, lineHeight, bounds, contentBounds, padding, image } = spriteGeometry(layer, settings, originalDimensions);
     if (!fitsSprite({ width, height }) || !fitsSprite(size))
         throw new Error(spriteSizeIssue(layer, 'This'));
     const surface = canvas(size.width, size.height), ctx = surface.getContext('2d');
@@ -326,7 +351,7 @@ function prepareSprite(layer, settings, originalDimensions = settings) {
     }
     else
         ctx.drawImage(image, -width / 2, -height / 2, width, height);
-    const sprite = { signature, surface, width: size.width, height: size.height, contentWidth: width, contentHeight: height, png: undefined };
+    const sprite = { signature, surface, width: size.width, height: size.height, contentWidth: width, contentHeight: height, contentBounds, png: undefined };
     // Cache one version per layer, so repeated slider changes do not retain old
     // full-resolution surfaces. Duplicates share only their imported image.
     sprites.set(layer.id, sprite);
@@ -357,19 +382,24 @@ function spriteCopies(layer, sprite, dimensions, time, period) {
         const offset = (index - count) * extent;
         const left = Math.round(position.x - sprite.width / 2 + (horizontal ? offset : 0));
         const top = Math.round(position.y - sprite.height / 2 + (vertical ? offset : 0));
-        return { left, top, centerX: left + sprite.width / 2, centerY: top + sprite.height / 2 };
+        return { left, top, centerX: left + sprite.width / 2, centerY: top + sprite.height / 2,
+            offsetX: horizontal ? offset : 0, offsetY: vertical ? offset : 0 };
     });
 }
 
-function selectionCopy(layer, sprite, copy, time, period) {
+function selectionCopy(layer, sprite, copy, time, period, copyIndex) {
     const rotation = layerRotation(layer, time, period), radians = rotation * Math.PI / 180;
     const cosine = Math.cos(radians), sine = Math.sin(radians);
-    const width = sprite.contentWidth, height = sprite.contentHeight;
+    const { width, height, x: left, y: top } = sprite.contentBounds;
+    const offsetX = left + width / 2, offsetY = top + height / 2;
+    const centerX = copy.centerX + offsetX * cosine - offsetY * sine;
+    const centerY = copy.centerY + offsetX * sine + offsetY * cosine;
     const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => ({
-        x: copy.centerX + x * width / 2 * cosine - y * height / 2 * sine,
-        y: copy.centerY + x * width / 2 * sine + y * height / 2 * cosine,
+        x: centerX + x * width / 2 * cosine - y * height / 2 * sine,
+        y: centerY + x * width / 2 * sine + y * height / 2 * cosine,
     }));
-    return { centerX: copy.centerX, centerY: copy.centerY, width, height, rotation, corners };
+    return { centerX, centerY, width, height, rotation, corners, copyIndex,
+        spriteCenterX: copy.centerX, spriteCenterY: copy.centerY, copyOffsetX: copy.offsetX, copyOffsetY: copy.offsetY };
 }
 
 // Editor outlines use content bounds, rather than the large transparent square
@@ -379,7 +409,7 @@ export function layerSelectionGeometry(layer, settings, time, period, dimensions
     if (!sprite)
         return [];
     return spriteCopies(layer, sprite, dimensions, time, period)
-        .map(copy => selectionCopy(layer, sprite, copy, time, period))
+        .map((copy, index) => selectionCopy(layer, sprite, copy, time, period, index))
         .filter(copy => Math.max(...copy.corners.map(point => point.x)) > 0 && Math.min(...copy.corners.map(point => point.x)) < dimensions.width
             && Math.max(...copy.corners.map(point => point.y)) > 0 && Math.min(...copy.corners.map(point => point.y)) < dimensions.height);
 }
@@ -422,8 +452,56 @@ export function layerDragPosition(layer, settings, time, period, deltaX, deltaY,
     return nearest;
 }
 
-// Hit the actual painted pixel in the topmost visible copy. Transparent image
-// areas, text gaps, and the empty padding around spinning layers pass through.
+// Resize uniformly around the fixed opposite content corner. The corner is
+// expressed in preview pixels; its index follows TL, TR, BR, BL. Capturing the
+// initial selection shape keeps wrapped copies stable when their count changes.
+export function layerResize(layer, settings, time, period, factor, anchor, dimensions = settings) {
+    if (!Number.isFinite(factor) || !Number.isFinite(anchor?.x) || !Number.isFinite(anchor?.y)
+        || !Number.isInteger(anchor.cornerIndex) || anchor.cornerIndex < 0 || anchor.cornerIndex > 3)
+        return {};
+    const initial = drawableSprite(layer, settings, dimensions);
+    if (!initial)
+        return {};
+    const size = layer.type === 'text'
+        ? { fontSize: Math.max(8, Math.min(256, layer.fontSize * factor)) }
+        : { width: Math.max(1, Math.min(100, layer.width * factor)) };
+    if (layer.type === 'text' ? size.fontSize === layer.fontSize : size.width === layer.width)
+        return { ...size, x: layer.x, y: layer.y };
+    const resized = { ...layer, ...size }, sprite = drawableSprite(resized, settings, dimensions);
+    if (!sprite)
+        return {};
+    const copies = spriteCopies(layer, initial, dimensions, time, period)
+        .map((copy, index) => selectionCopy(layer, initial, copy, time, period, index));
+    const shape = anchor.shape || copies.find(copy => copy.copyIndex === anchor.copyIndex) || copies.reduce((nearest, copy) => {
+        const point = copy.corners[anchor.cornerIndex], previous = nearest?.corners[anchor.cornerIndex];
+        return !previous || Math.hypot(point.x - anchor.x, point.y - anchor.y) < Math.hypot(previous.x - anchor.x, previous.y - anchor.y) ? copy : nearest;
+    }, null);
+    if (!shape)
+        return {};
+    const { x, y, width, height } = sprite.contentBounds;
+    const [horizontal, vertical] = [[0, 0], [1, 0], [1, 1], [0, 1]][anchor.cornerIndex];
+    const cornerX = x + width * horizontal, cornerY = y + height * vertical;
+    const radians = layerRotation(layer, time, period) * Math.PI / 180;
+    const target = {
+        x: anchor.x - cornerX * Math.cos(radians) + cornerY * Math.sin(radians) - shape.copyOffsetX,
+        y: anchor.y - cornerX * Math.sin(radians) - cornerY * Math.cos(radians) - shape.copyOffsetY,
+    };
+    const position = layerPosition(resized, dimensions.width, dimensions.height, time, period, sprite);
+    const partial = layerDragPosition(resized, settings, time, period, target.x - position.x, target.y - position.y, dimensions);
+    // Cardinal motion wraps instead of clamping its moving coordinate. Invert
+    // that phase directly so resizing across the seam retains the fixed corner.
+    if (period > 0 && Number.isFinite(period) && Number.isFinite(time)) {
+        const progress = animationProgress(time, period, animationCycles(layer, 'motion'));
+        if (layer.motion === 'left' || layer.motion === 'right')
+            partial.x = mod(target.x - (layer.motion === 'right' ? 1 : -1) * progress * dimensions.width, dimensions.width) / dimensions.width * 100;
+        if (layer.motion === 'up' || layer.motion === 'down')
+            partial.y = mod(target.y - (layer.motion === 'down' ? 1 : -1) * progress * dimensions.height, dimensions.height) / dimensions.height * 100;
+    }
+    return { ...size, ...partial };
+}
+
+// Use the same rotated content rectangle for selection and outlines. Spaces,
+// line gaps, and transparent image pixels belong to the selected layer.
 export function hitTestLayers(layers, settings, time, period, x, y, dimensions = settings) {
     if (!(x >= 0 && x < dimensions.width && y >= 0 && y < dimensions.height))
         return null;
@@ -434,20 +512,12 @@ export function hitTestLayers(layers, settings, time, period, x, y, dimensions =
         const copies = spriteCopies(layer, sprite, dimensions, time, period);
         for (let copyIndex = copies.length - 1; copyIndex >= 0; copyIndex--) {
             const copy = copies[copyIndex];
-            let pixelX = x - copy.left, pixelY = y - copy.top;
-            if (spinsLayer(layer)) {
-                const radians = layerRotation(layer, time, period) * Math.PI / 180;
-                const dx = x - copy.centerX, dy = y - copy.centerY;
-                pixelX = dx * Math.cos(radians) + dy * Math.sin(radians) + sprite.width / 2;
-                pixelY = -dx * Math.sin(radians) + dy * Math.cos(radians) + sprite.height / 2;
-            }
-            if (!(pixelX >= 0 && pixelX < sprite.width && pixelY >= 0 && pixelY < sprite.height))
-                continue;
-            try {
-                if (sprite.surface.getContext('2d').getImageData(Math.floor(pixelX), Math.floor(pixelY), 1, 1).data[3] > 0)
-                    return { layer, copy: selectionCopy(layer, sprite, copy, time, period) };
-            }
-            catch { /* A sprite without readable pixels cannot be selected. */ }
+            const shape = selectionCopy(layer, sprite, copy, time, period, copyIndex);
+            const radians = shape.rotation * Math.PI / 180, dx = x - shape.centerX, dy = y - shape.centerY;
+            const localX = dx * Math.cos(radians) + dy * Math.sin(radians);
+            const localY = -dx * Math.sin(radians) + dy * Math.cos(radians);
+            if (Math.abs(localX) <= shape.width / 2 && Math.abs(localY) <= shape.height / 2)
+                return { layer, copy: shape };
         }
     }
     return null;

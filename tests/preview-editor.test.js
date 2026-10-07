@@ -22,12 +22,17 @@ class PixelContext {
     scale(x, y) { this.matrix = multiply(this.matrix, [x, 0, 0, y, 0, 0]); }
     save() { this.stack.push({ matrix: [...this.matrix], globalAlpha: this.globalAlpha }); }
     restore() { Object.assign(this, this.stack.pop()); }
-    measureText(text) { return { width: text.length * 10, actualBoundingBoxRight: text.length * 10, actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2 }; }
+    measureText(text) {
+        const scale = (parseFloat(this.font) || 10) / 10;
+        return { width: text.length * 10 * scale, actualBoundingBoxRight: text.length * 10 * scale,
+            actualBoundingBoxAscent: 8 * scale, actualBoundingBoxDescent: 2 * scale };
+    }
     paint(x, y, width, height, alphaAt = () => 255) {
         this.paints.push({ matrix: [...this.matrix], x, y, width, height, alphaAt, alpha: this.globalAlpha });
     }
     fillText(text, x, y) {
-        for (const [index, character] of [...text].entries()) if (character !== ' ') this.paint(x + index * 10, y - 8, 8, 10);
+        const scale = (parseFloat(this.font) || 10) / 10;
+        for (const [index, character] of [...text].entries()) if (character !== ' ') this.paint(x + index * 10 * scale, y - 8 * scale, 8 * scale, 10 * scale);
     }
     drawImage(image, x, y, width = image.width, height = image.height) {
         this.paint(x, y, width, height, (px, py) => image.getContext
@@ -68,13 +73,16 @@ class PointerCanvas extends PixelCanvas {
     setPointerCapture(pointerId) { this.captured.add(pointerId); }
     hasPointerCapture(pointerId) { return this.captured.has(pointerId); }
     releasePointerCapture(pointerId) { this.captured.delete(pointerId); }
-    dispatch(name, x = 100, y = 50, partial = {}) {
-        const event = {
+    event(x = 100, y = 50, partial = {}) {
+        return {
             pointerId: 1, button: 0, isPrimary: true,
             clientX: this.box.left + x / this.width * this.box.width,
             clientY: this.box.top + y / this.height * this.box.height,
             preventDefault() { this.prevented = true; }, ...partial,
         };
+    }
+    dispatch(name, x = 100, y = 50, partial = {}) {
+        const event = this.event(x, y, partial);
         for (const callback of [...(this.listeners.get(name) || [])]) callback(event);
         return event;
     }
@@ -252,6 +260,19 @@ test('Changing context and cancelling capture terminate gestures without later e
     assert.equal(calls.history, 0);
 });
 
+test('Changing the paused animation phase or loop period cancels a captured transform', t => {
+    const { canvas, state, editor, calls, setTime } = fixture(t);
+    canvas.dispatch('pointerdown'); setTime(0.2); editor.refresh();
+    assert.equal(editor.dragging, null);
+    assert.equal(canvas.hasPointerCapture(1), false);
+    canvas.dispatch('pointermove', 130, 50);
+    canvas.dispatch('pointerdown'); state.s.end = 3; editor.refresh();
+    assert.equal(editor.dragging, null);
+    assert.equal(canvas.hasPointerCapture(1), false);
+    canvas.dispatch('pointermove', 130, 50);
+    assert.equal(calls.history, 0);
+});
+
 test('Layers are dragged only on the Layers tab and retain animation settings', async t => {
     const { canvas, state, calls, setTime } = fixture(t);
     const layer = await imageLayer({ x: 25, y: 50, motion: 'right', motionCycles: 2, spin: 'clockwise', spinCycles: 3 });
@@ -296,13 +317,13 @@ test('A Layers click selects without history; removing or changing the selected 
     }
 });
 
-test('Layer hit testing chooses painted topmost pixels and passes through image transparency', async t => {
+test('Layer hit testing chooses the topmost continuous rectangle even over image transparency', async t => {
     const { state } = fixture(t);
     const below = await imageLayer();
     const above = await imageLayer({}, (x) => x >= 40 ? 255 : 0);
     const hit = (x, layers = [below, above]) => hitTestLayers(layers, state.s, 0, 4, x, 50)?.layer.id;
     assert.equal(hit(110), above.id);
-    assert.equal(hit(90), below.id);
+    assert.equal(hit(90), above.id);
     assert.equal(hit(110, [below, { ...above, visible: false }]), below.id);
     assert.equal(hit(110, [below, { ...above, opacity: 0 }]), below.id);
     assert.equal(hit(10), undefined);
@@ -338,25 +359,25 @@ test('Wrapped motion copies share placement with canvas drawing and selection ou
     assert.deepEqual(outlines.map(copy => copy.centerX), [-10, 190]);
 });
 
-test('Text is draggable at glyph pixels, with transparent spaces passing through', t => {
+test('Text is draggable through spaces inside its continuous rectangle', t => {
     const { canvas, state, calls } = fixture(t);
     const layer = { ...createTextLayer(state.s), text: 'A A', fontSize: 10 };
     state.tab = 'layers'; state.s.layers = [layer];
     assert.equal(hitTestLayers([layer], state.s, 0, 4, 88, 50)?.layer.id, layer.id);
-    assert.equal(hitTestLayers([layer], state.s, 0, 4, 100, 50), null);
-    canvas.dispatch('pointerdown', 88, 50);
-    canvas.dispatch('pointermove', 108, 50);
+    assert.equal(hitTestLayers([layer], state.s, 0, 4, 100, 50)?.layer.id, layer.id);
+    canvas.dispatch('pointerdown', 100, 50);
+    canvas.dispatch('pointermove', 120, 50);
     canvas.dispatch('pointerup');
     assert.equal(state.s.layers[0].x, 60);
     assert.equal(calls.layers.length, 1);
     assert.equal(calls.history, 1);
 });
 
-test('Selection geometry is gated to the Layers composition and uses preview dimensions', async t => {
+test('Selection shows video only in Edit and the selected layer only in Layers with preview dimensions', async t => {
     const { canvas, state, editor } = fixture(t);
     const layer = await imageLayer({ spin: 'clockwise' });
     state.s.layers = [layer]; state.activeLayerId = layer.id;
-    assert.deepEqual(editor.selection(), []);
+    assert.equal(editor.selection()[0].type, 'video');
     state.tab = 'layers';
     assert.equal(editor.selection()[0].width, 80);
     canvas.width = 100; canvas.height = 50;
@@ -365,6 +386,164 @@ test('Selection geometry is gated to the Layers composition and uses preview dim
     assert.deepEqual(editor.selection(), []);
     state.mode = 'composition'; state.s.layers = [{ ...layer, visible: false }];
     assert.deepEqual(editor.selection(), []);
+});
+
+test('Missed Layers clicks and empty Layers never move or resize the video', async t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    state.tab = 'layers';
+    for (const layers of [[], [await imageLayer()]]) {
+        state.s.layers = layers;
+        canvas.dispatch('pointerdown', 10, 10);
+        canvas.dispatch('pointermove', 30, 30);
+        canvas.dispatch('pointerup');
+        assert.equal(editor.dragging, null);
+        assert.equal(canvas.captured.size, 0);
+        assert.equal(editor.startResize(canvas.event(10, 10), 0, 2), false);
+        assert.deepEqual(editor.selection(), []);
+    }
+    assert.equal(calls.history, 0);
+    assert.deepEqual(calls.videos, []);
+    assert.equal(state.s.cropX, 50);
+    assert.equal(state.s.zoom, 100);
+});
+
+test('Cropped video exposes four inset handles inside the visible canvas and no handles in Layers', t => {
+    const { canvas, state, editor } = fixture(t);
+    for (const partial of [{}, { zoom: 400 }, { rotate: 90 }, { fit: 'contain', zoom: 50, cropX: 0, cropY: 0 }]) {
+        state.s = { ...state.s, ...partial };
+        const [shape] = editor.selection();
+        assert.equal(shape.type, 'video');
+        assert.equal(shape.corners.length, 4);
+        for (const point of shape.corners) {
+            assert.ok(point.x >= 0 && point.x <= canvas.width && point.y >= 0 && point.y <= canvas.height);
+        }
+    }
+    state.tab = 'layers';
+    assert.deepEqual(editor.selection(), []);
+});
+
+test('Video corner resize scales uniformly around the opposite visible point with one undo entry', t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    const [shape] = editor.selection(), corner = shape.corners[2], anchor = shape.corners[0];
+    const oldLeft = -100, oldTop = 0, sourceX = (anchor.x - oldLeft) / 400, sourceY = anchor.y / 100;
+    assert.equal(editor.startResize(canvas.event(corner.x, corner.y), 0, 2), true);
+    assert.equal(calls.history, 0);
+    assert.ok(canvas.hasPointerCapture(1));
+    const dx = corner.x - anchor.x, dy = corner.y - anchor.y;
+    canvas.dispatch('pointermove', corner.x + dx / 2, corner.y + dy / 2);
+    assert.equal(state.s.zoom, 150);
+    assert.ok(editor.dragging, 'Own zoom updates must not cancel the gesture');
+    const newLeft = (200 - 600) * state.s.cropX / 100, newTop = (100 - 150) * state.s.cropY / 100;
+    assert.ok(Math.abs(newLeft + sourceX * 600 - anchor.x) < 1e-8);
+    assert.ok(Math.abs(newTop + sourceY * 150 - anchor.y) < 1e-8);
+    canvas.dispatch('pointermove', corner.x + dx, corner.y + dy);
+    assert.equal(state.s.zoom, 200);
+    assert.equal(calls.history, 1);
+    canvas.dispatch('pointerup');
+    assert.equal(editor.dragging, null);
+    assert.equal(canvas.hasPointerCapture(1), false);
+});
+
+test('Video handle resize clamps scale to 25–400 percent and ignores secondary pointers', t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    const [shape] = editor.selection(), corner = shape.corners[2], anchor = shape.corners[0];
+    assert.equal(editor.startResize(canvas.event(corner.x, corner.y, { button: 2 }), 0, 2), false);
+    assert.equal(editor.startResize(canvas.event(corner.x, corner.y, { isPrimary: false }), 0, 2), false);
+    editor.startResize(canvas.event(corner.x, corner.y), 0, 2);
+    canvas.dispatch('pointermove', corner.x + 10 * (corner.x - anchor.x), corner.y + 10 * (corner.y - anchor.y), { pointerId: 2 });
+    assert.equal(state.s.zoom, 100);
+    canvas.dispatch('pointermove', corner.x + 10 * (corner.x - anchor.x), corner.y + 10 * (corner.y - anchor.y));
+    assert.equal(state.s.zoom, 400);
+    canvas.dispatch('pointermove', anchor.x - (corner.x - anchor.x), anchor.y - (corner.y - anchor.y));
+    assert.equal(state.s.zoom, 25);
+    assert.equal(calls.history, 1);
+    canvas.dispatch('pointercancel');
+    assert.equal(editor.dragging, null);
+});
+
+test('Rotated animated image resize preserves the opposite corner and animation settings', async t => {
+    const { canvas, state, editor, calls, setTime } = fixture(t);
+    const layer = await imageLayer({ width: 20, rotation: 37, motion: 'right', spin: 'clockwise', motionCycles: 2, spinCycles: 3 });
+    state.tab = 'layers'; state.s.layers = [layer]; state.activeLayerId = layer.id; setTime(0.2);
+    const [shape] = editor.selection(), corner = shape.corners[2], anchor = shape.corners[0];
+    editor.startResize(canvas.event(corner.x, corner.y), 0, 2);
+    canvas.dispatch('pointermove', corner.x + (corner.x - anchor.x) / 2, corner.y + (corner.y - anchor.y) / 2);
+    const [after] = editor.selection();
+    assert.ok(Math.abs(state.s.layers[0].width - 30) < 1e-8);
+    assert.ok(Math.abs(after.corners[0].x - anchor.x) <= 1);
+    assert.ok(Math.abs(after.corners[0].y - anchor.y) <= 1);
+    assert.equal(after.rotation, shape.rotation);
+    assert.equal(state.s.layers[0].motion, layer.motion);
+    assert.equal(state.s.layers[0].spin, layer.spin);
+    assert.equal(state.s.layers[0].motionCycles, 2);
+    assert.equal(state.s.layers[0].spinCycles, 3);
+    assert.ok(editor.dragging, 'Own width and anchor updates must not cancel capture');
+    assert.deepEqual(calls.videos, []);
+    canvas.dispatch('pointerup');
+    assert.equal(calls.history, 1);
+});
+
+test('Text handles scale the font rather than glyph strokes and keep the opposite corner fixed', t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    const layer = { ...createTextLayer(state.s), text: 'A A', fontSize: 16, rotation: -30 };
+    state.tab = 'layers'; state.s.layers = [layer]; state.activeLayerId = layer.id;
+    const [shape] = editor.selection(), corner = shape.corners[2], anchor = shape.corners[0];
+    editor.startResize(canvas.event(corner.x, corner.y), 0, 2);
+    canvas.dispatch('pointermove', corner.x + (corner.x - anchor.x) / 2, corner.y + (corner.y - anchor.y) / 2);
+    assert.equal(state.s.layers[0].fontSize, 24);
+    const [after] = editor.selection();
+    assert.ok(Math.abs(after.corners[0].x - anchor.x) <= 1);
+    assert.ok(Math.abs(after.corners[0].y - anchor.y) <= 1);
+    assert.equal(state.s.layers[0].text, 'A A');
+    canvas.dispatch('pointerup');
+    assert.equal(calls.history, 1);
+    assert.deepEqual(calls.videos, []);
+});
+
+test('Keyboard corner resizing uses the same transform without capture and saves per changed press', t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    assert.equal(editor.resizeByKeyboard(0, 2, 8, 4), true);
+    assert.ok(state.s.zoom > 100);
+    assert.equal(calls.history, 1);
+    assert.equal(canvas.captured.size, 0);
+    assert.equal(editor.dragging, null);
+    assert.equal(editor.resizeByKeyboard(0, 2, 8, 4), true);
+    assert.equal(calls.history, 2);
+    state.tab = 'layers';
+    assert.equal(editor.resizeByKeyboard(0, 2, 8, 4), false);
+    assert.equal(calls.history, 2);
+});
+
+test('A stationary layer handle leaves history untouched and returning to its start restores exact settings', async t => {
+    const { canvas, state, editor, calls, setTime } = fixture(t);
+    const layer = await imageLayer({ width: 20, rotation: 37, spin: 'clockwise' });
+    state.tab = 'layers'; state.s.layers = [layer]; state.activeLayerId = layer.id; setTime(0.3);
+    const [shape] = editor.selection(), corner = shape.corners[2], anchor = shape.corners[0];
+    editor.startResize(canvas.event(corner.x, corner.y), 0, 2);
+    canvas.dispatch('pointermove', corner.x, corner.y);
+    assert.equal(calls.history, 0);
+    assert.deepEqual(state.s.layers[0], layer);
+    canvas.dispatch('pointermove', corner.x + (corner.x - anchor.x) / 2, corner.y + (corner.y - anchor.y) / 2);
+    assert.ok(state.s.layers[0].width > layer.width);
+    canvas.dispatch('pointermove', corner.x, corner.y);
+    assert.deepEqual(state.s.layers[0], layer);
+    assert.equal(calls.history, 1);
+    canvas.dispatch('pointerup');
+});
+
+test('External edits, jobs, and canvas layout changes cancel resize before stale pointer updates', t => {
+    const { canvas, state, editor, calls } = fixture(t);
+    for (const change of [() => { state.s = { ...state.s, zoom: 125 }; }, () => { state.s = { ...state.s, cropX: 70 }; },
+        () => { state.tab = 'layers'; }, () => { state.job = {}; }, () => { canvas.box = { ...canvas.box, width: 200 }; }]) {
+        const previous = { ...state, s: { ...state.s } }, oldBox = { ...canvas.box };
+        const [shape] = editor.selection(), corner = shape.corners[2];
+        editor.startResize(canvas.event(corner.x, corner.y), 0, 2);
+        change(); canvas.dispatch('pointermove', corner.x + 20, corner.y + 20);
+        assert.equal(editor.dragging, null);
+        assert.equal(canvas.captured.size, 0);
+        Object.assign(state, previous); canvas.box = oldBox;
+    }
+    assert.equal(calls.history, 0);
 });
 
 test('Dragging angled animation at a paused phase solves the anchor so displayed content follows the pointer', async t => {
