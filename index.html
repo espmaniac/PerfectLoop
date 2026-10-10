@@ -151,6 +151,32 @@
               <p class="micro layer-motion-help">Movement speed controls how many whole passes fit into each finished loop. Screen directions stay relative to the frame. Along rotation and Against rotation use the starting angle, even during rotation animation.</p>
             </fieldset>
           </div>
+          <div class="tool-body" role="tabpanel" id="panel-repair" aria-labelledby="tab-repair" hidden>
+            <p class="panel-copy">Improve an almost-looping clip while keeping motion moving forward. Analyze the selected timeline range first.</p>
+            <button class="btn primary full" data-action="repair-analyze" data-disable>Analyze loop</button>
+            <button class="text-btn repair-full" data-action="repair-full" data-disable>Use the full video</button>
+            <p class="micro" id="repair-range"></p>
+            <div id="repair-report" role="status"><p class="micro">Analysis checks the framed source before layers and loop effects. It does not change the video.</p></div>
+            <button class="btn secondary full" id="repair-cut" data-action="repair-cut" hidden>Use suggested cut</button>
+            <fieldset id="repair-controls" disabled>
+              <h3 class="repair-heading">Flicker</h3>
+              <label class="toggle-row"><span>Reduce brightness flicker<small>Smooth sampled brightness changes across the cycle. Review scenes with intentional flashes.</small></span><input type="checkbox" id="repair-flicker"><span class="switch" aria-hidden="true"></span></label>
+              <h3 class="repair-heading">Alignment</h3>
+              <label class="toggle-row"><span>Correct small seam drift<small>Gradually shift the ending. A small fixed crop keeps the frame edges filled.</small></span><input type="checkbox" id="repair-alignment"><span class="switch" aria-hidden="true"></span></label>
+              <h3 class="repair-heading">Seam blending</h3>
+              <label class="toggle-row"><span>Blend the end into the start<small>Uses a forward dissolve. May double fine details and shortens the finished cycle.</small></span><input type="checkbox" id="repair-blend"><span class="switch" aria-hidden="true"></span></label>
+              <label class="field"><span>Overlap (seconds)</span><input id="repair-overlap" type="number" min="0.05" max="2" step="0.05" value="0.25"></label>
+              <label class="range-field"><span>Correction strength <output id="repair-strength-value">100%</output></span><input id="repair-strength" aria-label="Correction strength" type="range" min="0" max="100" step="5" value="100"></label>
+              <p class="micro" id="repair-duration"></p>
+              <button class="btn secondary full" data-action="repair-apply">Apply repairs</button>
+            </fieldset>
+            <div class="repair-preview-actions">
+              <button class="btn secondary" data-action="repair-before" data-disable>Preview original</button>
+              <button class="btn primary" data-action="repair-preview">Preview result</button>
+            </div>
+            <p class="micro" id="repair-preview-note">Preview buttons render the selected range. Compare the boundary over several repeats. Composition is a draft and does not show repairs.</p>
+            <button class="text-btn" data-action="repair-clear" data-disable>Remove repairs</button>
+          </div>
         </section>
         <section class="preview-panel panel" aria-label="Video preview">
           <div class="preview-top">
@@ -158,6 +184,7 @@
               <button role="tab" id="tab-edit" data-tab="edit" aria-controls="panel-edit" aria-selected="true" class="active"><span data-icon="SlidersHorizontal" data-size="17"></span>Edit loop</button>
               <button role="tab" id="tab-find" data-tab="find" aria-controls="panel-find" aria-selected="false"><span data-icon="LocateFixed" data-size="18"></span>Auto find</button>
               <button role="tab" id="tab-inspect" data-tab="inspect" aria-controls="panel-inspect" aria-selected="false"><span data-icon="Search" data-size="18"></span>Inspect seam</button>
+              <button role="tab" id="tab-repair" data-tab="repair" aria-controls="panel-repair" aria-selected="false"><span data-icon="SlidersHorizontal" data-size="18"></span>Repair loop</button>
               <button role="tab" id="tab-layers" data-tab="layers" aria-controls="panel-layers" aria-selected="false"><span data-icon="Layers" data-size="18"></span>Layers</button>
             </div>
           </div>

@@ -1,3 +1,4 @@
+import { repairFilters, repairIssues } from './repair.js';
 import { videoTransform } from './framing.js';
 
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -19,7 +20,7 @@ export function framePlan(s) {
     return { frames, overlap, outputFrames, totalFrames, duration: outputFrames / s.fps, totalDuration: outputFrames / s.fps * repeats };
 }
 export function validate(s, info) {
-    const issues = [];
+    const issues = [...repairIssues(s.repair)];
     const numericOptions = ['start', 'end', 'speed', 'transition', 'shift', 'width', 'height', 'fps', 'cropX', 'cropY', 'rotate'];
     if (s.format !== 'gif')
         numericOptions.push('repeats', 'targetMB');
@@ -128,6 +129,8 @@ export function videoGraph(s) {
     const { frames: n, overlap: k, outputFrames } = framePlan(s);
     const pieces = [];
     let input = '0:v';
+    const repair = repairFilters(s, n);
+    if (repair) { pieces.push(`[${input}]${repair}[repaired]`); input = 'repaired'; }
     if (s.method === 'smooth-pingpong') {
         // FPS resampling can discard the final eased frame at EOF. Preserve the
         // original turning point explicitly instead of cloning the previous frame.

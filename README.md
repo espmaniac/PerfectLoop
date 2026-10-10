@@ -13,6 +13,7 @@ Media processing happens on your device; your source videos and photos are never
 ## Features
 
 - **Automatic loop discovery** — search an entire video or a selected range, set preferred loop lengths, and compare ranked candidates with thumbnails.
+- **Loop repair** — analyze an almost-looping clip, reduce sampled brightness fluctuations, correct a confident small seam drift, and compare an optional forward dissolve with the original.
 - **Precise timing** — edit in/out points, step through frames, drag timeline handles, zoom the filmstrip, and undo or redo settings.
 - **Six loop methods** — use a natural cut, dissolve, ping-pong, or fade depending on the footage.
 - **Flexible framing** — choose Original, 16:9, 9:16, 1:1, or Custom; adjust crop position, fit, rotation, mirroring, and background color.
@@ -38,6 +39,18 @@ Media processing happens on your device; your source videos and photos are never
 Dissolves can introduce ghosting, and ping-pong methods reverse motion. Choose the method that suits the footage, then check the join in motion.
 
 Both ping-pong methods work with MP4, WebM, and GIF. GIF has no playback-direction flag, so one cycle stores the forward and backward frames. **Loop forever** repeats that entire cycle; turning it off plays the forward-and-backward cycle once.
+
+## Repair an existing loop
+
+Open **Repair loop**, select the timeline range (or **Use the full video**), and choose **Analyze loop**. The analysis samples up to 25 framed source images before layers and loop effects. It recommends brightness correction and, only when a small translation improves the boundary reliably, alignment. A better nearby cut may also be suggested; applying it requires a new analysis.
+
+- **Flicker** estimates brightness from relatively stable pixels and smooths its curve across the cycle boundary. It can help slow exposure fluctuations; fast or local flicker and intentional lighting changes still need visual review.
+- **Alignment** gradually shifts the ending and applies a small fixed crop throughout the clip to avoid empty borders. This is translation correction, not object tracking, optical flow, or reconstruction of changing shapes.
+- **Seam blending** uses the existing forward crossfade. The overlap shortens the cycle and may produce ghosting; it never reverses water, smoke, or other motion.
+
+**Correction strength** controls brightness and alignment; **Overlap** controls blending. **Apply repairs** saves the chosen settings for preview and export. **Preview result** applies them and renders; **Preview original** renders the same selected range and layers without repair or loop effects. Compare several repeats. Source and Composition previews do not show repairs. Changing the range, framing, speed, or frame rate clears the applicable correction; layer edits preserve it. Batch candidate exports do not inherit repairs from a different range.
+
+These tools help with small defects and do not guarantee a seamless result for every clip. Analysis, processing, and media remain local to the browser.
 
 ## Make a loop
 
