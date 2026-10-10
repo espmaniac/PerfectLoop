@@ -584,7 +584,7 @@ footer a:hover { color: #f0f0f0; }
   .controls-panel { grid-column: 1; grid-row: 3; padding: 20px 14px; }
   .export-panel { grid-column: 1; grid-row: 4; padding: 22px 19px; }
   .preview-top { margin-bottom: 10px; }
-  .tabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); }
+  .tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
   .tabs button { font-size: 11px; gap: 4px; padding: 10px 3px; line-height: 1.25; min-height: 38px; white-space: normal; }
   .tabs button [data-icon] { display: none; }
   .preview-stage { height: min(106vw,490px); border-radius: 2px; }
@@ -686,3 +686,23 @@ footer a:hover { color: #f0f0f0; }
   .spin { animation: none; }
 }
 .field input[type=range] { min-height: 6px; height: 6px; padding: 0; border: 0; }
+
+/* Loop repair follows the editor's neutral surfaces and visible form states. */
+.repair-heading { font-size: 12px; margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.repair-full { margin-top: 9px; }
+.repair-report { padding: 10px; background: var(--field); border: 1px solid var(--line); border-radius: 4px; margin: 12px 0; }
+.repair-report p + p { margin-top: 8px; }
+.repair-images { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.repair-images figure { margin: 0; }
+.repair-images img { width: 100%; display: block; }
+.repair-images figcaption { color: var(--dim); font-size: 10px; margin-top: 5px; }
+.repair-preview-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 16px; }
+.repair-preview-actions .btn { white-space: normal; padding-inline: 6px; font-size: 11px; }
+#panel-repair .panel-copy { padding: 0; margin-bottom: 12px; }
+#repair-controls .toggle-row { align-items: flex-start; padding: 8px 0; }
+#repair-controls:disabled { opacity: .5; }
+@media (min-width: 740px) {
+  .controls-panel:has(#panel-repair:not([hidden])) { max-height: min(760px, calc(100vh - 100px)); overflow-y: auto; }
+}
+.repair-report summary { cursor: pointer; color: var(--text); }
+.repair-report details { margin-top: 10px; }
