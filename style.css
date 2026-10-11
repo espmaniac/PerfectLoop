@@ -68,10 +68,10 @@ main { padding-top: 0; }
 .workbench { display: grid; grid-template-columns: 264px minmax(0,1fr); gap: 8px; align-items: start; }
 .panel { background: var(--panel); border: 1px solid var(--edge); border-radius: 4px; min-width: 0; }
 .panel-title { font-size: 14px; line-height: 1.3; font-weight: 600; letter-spacing: 0; }
-.controls-panel { grid-column: 1; grid-row: 1; padding: 16px 12px; background: var(--recess); border-color: var(--edge); }
+.controls-panel { grid-column: 1; grid-row: 1; padding: 16px 12px; }
 .controls-panel > .panel-title { padding: 0 5px 12px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
 .tool-body { min-width: 0; }
-.method-grid { display: flex; flex-direction: column; gap: 2px; padding: 2px; }
+.method-grid { display: flex; flex-direction: column; gap: 2px; padding: 2px; background: var(--recess); border: 1px solid var(--edge); border-radius: 4px; }
 .method-card { display: flex; align-items: center; gap: 12px; text-align: left; padding: 8px 12px; min-height: 43px; min-width: 0; background: transparent; border: 1px solid transparent; border-radius: 4px; }
 .method-card:hover:enabled { background: var(--control); }
 .method-card.selected { background: var(--selected); border-color: var(--selection-edge); }
