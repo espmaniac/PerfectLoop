@@ -1,4 +1,6 @@
 // Layer pixels and movement geometry are shared by canvas previews and exports.
+import { patchSamples, patchFade, MAX_PATCH_BYTES } from './video-patch.js';
+import { framePlan } from './logic.js';
 import { isFontAvailable, isFontReady, fontFamilyCSS, loadFont } from './fonts.js';
 import { effectiveFill, validateFill, fillCacheKey, textPaint } from './text-fill.js';
 
@@ -11,6 +13,7 @@ const MAX_SPRITE_SIDE = 4096;
 const MAX_SPRITE_PIXELS = 16 * 1024 ** 2;
 const assets = new Map();
 const sprites = new Map();
+const videoAssets = new Map();
 const motions = new Set(['none', 'right', 'left', 'down', 'up', 'along-angle', 'against-angle']);
 const spins = new Set(['none', 'clockwise', 'counterclockwise']);
 const alignments = new Set(['left', 'center', 'right']);
@@ -103,6 +106,42 @@ export async function importImageLayer(file) {
     return Object.freeze({ ...base(), type: 'image', name: file.name || 'Image', assetId, width: 30 });
 }
 
+export function videoPatchBytes() {
+    return [...videoAssets.values()].reduce((sum, asset) => sum + asset.bytes, 0);
+}
+
+export function importVideoPatch(frames, metadata) {
+    if (frames.length < 2 || frames.some(f => f.width !== frames[0].width || f.height !== frames[0].height))
+        throw new Error('The video patch frames are incomplete.');
+    const bytes = frames.length * frames[0].width * frames[0].height * 4;
+    if (videoPatchBytes() + bytes > MAX_PATCH_BYTES) throw new Error('Video patches need too much memory. Choose a smaller selection.');
+    const assetId = id();
+    const surface = canvas(frames[0].width, frames[0].height);
+    surface.getContext('2d').drawImage(frames[0], 0, 0);
+    assets.set(assetId, surface);
+    videoAssets.set(assetId, { frames, bytes, surface });
+    return Object.freeze({ ...base(), type: 'image', name: 'Video patch', assetId, width: 30,
+        patch: true, videoPatch: true, seamBlend: 20, fadeIn: 0, fadeOut: 0, ...metadata });
+}
+
+function updateVideoPatch(layer, time, period) {
+    const asset = videoAssets.get(layer.assetId);
+    if (!asset) return;
+    const samples = patchSamples(layer, time, period, asset.frames.length);
+    const signature = JSON.stringify(samples);
+    if (asset.signature === signature) return;
+    const ctx = asset.surface.getContext('2d');
+    ctx.clearRect(0, 0, asset.surface.width, asset.surface.height);
+    ctx.globalCompositeOperation = 'lighter';
+    for (const { index, weight } of samples) {
+        ctx.globalAlpha = weight; ctx.drawImage(asset.frames[index], 0, 0);
+    }
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    asset.signature = signature;
+    // Duplicates share donor frames but may have different timing.
+    for (const [key, sprite] of sprites) if (sprite.assetId === layer.assetId) sprites.delete(key);
+}
+
 // Only use this for an import that was cancelled or rejected before adding the
 // layer. Added image assets must survive removal so undo can restore them.
 export function discardImportedImageLayer(layer) {
@@ -110,6 +149,8 @@ export function discardImportedImageLayer(layer) {
         return;
     const image = assets.get(layer.assetId);
     assets.delete(layer.assetId);
+    videoAssets.get(layer.assetId)?.frames.forEach(frame => frame.close?.());
+    videoAssets.delete(layer.assetId);
     sprites.delete(layer.id);
     image?.close?.();
 }
@@ -134,6 +175,11 @@ export function validateLayers(layers, settings) {
         if (layer.startTime !== undefined && (!Number.isFinite(layer.startTime) || layer.startTime < 0)
             || layer.endTime != null && (!Number.isFinite(layer.endTime) || layer.endTime <= (layer.startTime ?? 0)))
             issues.push(`${label} needs a nonnegative start and an end after its start.`);
+        if (layer.videoPatch) {
+            if (!videoAssets.has(layer.assetId)) issues.push(`${label} video patch is unavailable. Recreate it.`);
+            if (!finite(layer.seamBlend, 0, 40) || !finite(layer.fadeIn, 0, 60) || !finite(layer.fadeOut, 0, 60))
+                issues.push(`${label} needs seam blending between 0% and 40% and fades between 0 and 60 seconds.`);
+        }
         if (typeof layer.visible !== 'boolean')
             issues.push(`${label} visibility is invalid.`);
         if (!finite(layer.x, 0, 100) || !finite(layer.y, 0, 100))
@@ -369,7 +415,7 @@ function prepareSprite(layer, settings, originalDimensions = settings, allowRedu
     }
     else
         ctx.drawImage(image, -width / 2, -height / 2, width, height);
-    const sprite = { signature, surface, width: size.width, height: size.height, contentWidth: width, contentHeight: height, contentBounds, png: undefined };
+    const sprite = { signature, assetId: layer.assetId, surface, width: size.width, height: size.height, contentWidth: width, contentHeight: height, contentBounds, png: undefined };
     // Cache one version per layer, so repeated slider changes do not retain old
     // full-resolution surfaces. Duplicates share only their imported image.
     sprites.set(layer.id, sprite);
@@ -586,9 +632,12 @@ export function drawLayers(ctx, layers, settings, time, period) {
     const dimensions = { width: ctx.canvas.width, height: ctx.canvas.height };
     for (const layer of layers || []) {
         if (!layerActive(layer, time, period)) continue;
+        if (layer.videoPatch) updateVideoPatch(layer, time, period);
         const sprite = drawableSprite(layer, settings, dimensions);
         if (!sprite)
             continue;
+        ctx.save();
+        if (layer.videoPatch) ctx.globalAlpha *= patchFade(layer, time, period);
         for (const { left, top } of spriteCopies(layer, sprite, dimensions, time, period)) {
             if (spinsLayer(layer)) {
                 ctx.save();
@@ -600,6 +649,7 @@ export function drawLayers(ctx, layers, settings, time, period) {
             else
                 ctx.drawImage(sprite.surface, left, top, sprite.width, sprite.height);
         }
+        ctx.restore();
     }
 }
 
@@ -622,6 +672,10 @@ export async function rasterizeLayers(layers, settings, originalDimensions = set
         if (!layer.visible || layer.opacity === 0)
             continue;
         const sprite = prepareSprite(layer, settings, originalDimensions);
+        if (layer.videoPatch) {
+            result.push({ layer, width: sprite.width, height: sprite.height, animated: true });
+            continue;
+        }
         if (!sprite.png)
             sprite.png = await pngBytes(sprite.surface);
         result.push({ layer, width: sprite.width, height: sprite.height, png: sprite.png });
@@ -629,9 +683,29 @@ export async function rasterizeLayers(layers, settings, originalDimensions = set
     return result;
 }
 
+// Yield one cropped frame at a time; never retain a full exported sequence in JS.
+export async function* rasterizeVideoPatch(layer, settings, originalDimensions = settings) {
+    const plan = framePlan(settings);
+    const size = spriteGeometry(layer, settings, originalDimensions).size;
+    const surface = canvas(size.width, size.height), ctx = surface.getContext('2d');
+    try {
+        for (let index = 0; index < plan.outputFrames; index++) {
+            const time = index / settings.fps;
+            updateVideoPatch(layer, time, plan.duration);
+            const sprite = prepareSprite(layer, settings, originalDimensions);
+            ctx.clearRect(0, 0, size.width, size.height);
+            ctx.globalAlpha = patchFade(layer, time, plan.duration);
+            ctx.drawImage(sprite.surface, 0, 0);
+            yield await pngBytes(surface);
+        }
+    } finally { surface.width = surface.height = 1; }
+}
+
 export function clearLayerAssets() {
     for (const image of assets.values())
         image.close?.();
+    for (const asset of videoAssets.values()) asset.frames.forEach(frame => frame.close?.());
+    videoAssets.clear();
     assets.clear();
     sprites.clear();
 }

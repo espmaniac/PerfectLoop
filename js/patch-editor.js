@@ -1,15 +1,17 @@
 import { extractPatch } from './patch.js';
+import { patchCapturePlan } from './video-patch.js';
 
 // A modal freezes the chosen source frame and prevents changes to its framing
 // while a selection is drawn. No user media leaves the browser.
-export function selectPatch(frame, sourceTime) {
+export function selectPatch(frame, sourceTime, options = {}) {
     return new Promise(resolve => {
         const dialog = document.createElement('dialog'); dialog.className = 'patch-dialog';
-        dialog.innerHTML = `<div class="help-head"><h2>Create patch</h2><button class="btn secondary" data-patch="cancel">Cancel</button></div>
+        dialog.innerHTML = `<div class="help-head"><h2>${options.video ? 'Create video patch' : 'Create patch'}</h2><button class="btn secondary" data-patch="cancel">Cancel</button></div>
           <p class="micro">Source frame at ${sourceTime.toFixed(3)}s, before layers and loop effects. Close this window to choose another frame on the timeline.</p>
           <div class="patch-toolbar"><label class="field"><span>Selection tool</span><select aria-label="Selection tool"><option value="rectangle">Rectangle</option><option value="lasso">Lasso</option><option value="polygon">Polygonal lasso</option></select></label>
           <label class="field"><span>Feather (output pixels)</span><input aria-label="Feather" type="number" min="0" max="30" value="2"></label>
           <button class="btn secondary" data-patch="clear">Clear selection</button><button class="btn secondary" data-patch="close">Close polygon</button></div>
+          ${options.video ? `<div class="patch-toolbar"><label class="field"><span>Source from (s)</span><input data-donor="start" aria-label="Source from" type="number" min="0" max="${options.duration}" step="0.001" value="${Math.min(sourceTime, Math.max(0, options.duration - 0.1)).toFixed(3)}"></label><label class="field"><span>Source to (s)</span><input data-donor="end" aria-label="Source to" type="number" min="0" max="${options.duration}" step="0.001" value="${Math.min(options.duration, sourceTime + 2).toFixed(3)}"></label></div><p class="micro">Choose 0.1–8 seconds of clean motion. Captured at up to 30 fps. One forward cycle fits the active interval; playback speed changes with that interval. Seam blending can soften the repeat, but may ghost moving objects. No audio or tracking.</p>` : ''}
           <p class="micro">Rectangle or lasso: drag to select. Polygon: click corners, then Close polygon. Escape cancels.</p>
           <label class="patch-zoom">Selection zoom <input type="range" aria-label="Selection zoom" min="100" max="400" step="25" value="100"><output>100%</output></label><div class="patch-viewport"><canvas class="patch-canvas" aria-label="Draw patch selection"></canvas></div><p class="micro" role="status"></p>
           <div class="patch-footer"><p class="micro">The patch stays at the same position. Set its active time in Layers after creating it. Moving subjects need manual repositioning; there is no tracking.</p><button class="btn primary" data-patch="create" disabled>Create patch</button></div>`;
@@ -64,13 +66,15 @@ export function selectPatch(frame, sourceTime) {
                 try {
                     const value = Number(feather.value);
                     if (!Number.isFinite(value) || value < 0 || value > 30) throw new Error('Feather must be between 0 and 30 pixels.');
+                    const start = Number(dialog.querySelector('[data-donor=start]')?.value), end = Number(dialog.querySelector('[data-donor=end]')?.value);
+                    if (options.video) patchCapturePlan(start, end, options.duration, 30, 1, 1);
                     const patch = extractPatch(frame, points, value);
                     creating = true; create.disabled = true;
                     dialog.querySelectorAll('input, select, [data-patch=clear], [data-patch=close]').forEach(input => { input.disabled = true; });
                     const blob = await new Promise(done => patch.canvas.toBlob(done, 'image/png'));
                     if (!blob) throw new Error('The patch could not be created. Try a smaller selection.');
                     if (!dialog.open) return;
-                    result = { blob, bounds: patch.bounds, feather: value }; dialog.close();
+                    result = { blob, bounds: patch.bounds, feather: value, points: points.map(p => ({ ...p })), start, end }; dialog.close();
                 } catch (error) {
                     creating = false;
                     dialog.querySelectorAll('input, select, [data-patch=clear]').forEach(input => { input.disabled = false; });

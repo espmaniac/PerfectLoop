@@ -103,6 +103,7 @@ main { padding-top: 0; }
 .layer-image-hint { margin: 10px 8px 14px; }
 .layer-add-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-bottom: 14px; }
 .layer-add-actions .btn { padding-inline: 8px; min-height: 38px; font-size: 12px; }
+.layer-patch-actions { display: grid; gap: 8px; }
 .layer-list { display: grid; gap: 7px; max-height: 360px; overflow-y: auto; padding: 3px; margin: -3px; }
 .layer-item { padding: 8px; min-width: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--recess); border-color: var(--edge); }
 .layer-item.selected { background: var(--control); border-color: var(--selection-edge); }

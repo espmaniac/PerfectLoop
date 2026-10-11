@@ -19,7 +19,7 @@ export function layerOverlayGraph(settings, sprites, inputLabel = 'outv', output
     const inputs = [], pieces = [`[${inputLabel}]format=rgba[layer-base]`];
     let previous = 'layer-base';
     sprites.forEach((sprite, index) => {
-        inputs.push('-loop', '1', '-framerate', String(settings.fps), '-i', `layer-${index}.png`);
+        inputs.push(...(sprite.animated ? [] : ['-loop', '1']), '-framerate', String(settings.fps), '-i', sprite.animated ? `layer-${index}-%06d.png` : `layer-${index}.png`);
         const { layer, width, height } = sprite;
         const active = (layer.startTime ?? 0) > 0 || layer.endTime != null
             ? `:enable='gte(${cycleTime},${Math.max(0, (layer.startTime ?? 0) - 1e-9)})*lt(${cycleTime},${(layer.endTime ?? duration) - 1e-9})'` : '';
