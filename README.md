@@ -23,7 +23,20 @@ Media processing happens on your device; your source videos and photos are never
 - **Export options** — download MP4, WebM, or a GIF that loops forever or plays once. Adjust frame rate and dimensions for all formats; set quality, cycles in the file, and an approximate file-size target for video. Export selected loop candidates together as a ZIP.
 - **Included sample** — a repeating animation with audio loads automatically once when the page opens.
 - **Text and image layers** — add text or a local image in **Layers**, set its position, size, angle, and opacity, and reorder, hide, or duplicate it. Move either type left to right, right to left, top to bottom, or bottom to top while preserving its angle.
+- **Static patches** — select a clean frame fragment with a rectangle, lasso, or polygonal lasso and place it back at the same position. Feather its edges and limit its visibility to part of each loop.
 - **iPhone wallpaper preparation** — open a video or photo, preview approximate Lock Screen and Home Screen layouts, choose a key photo, and create a paired Live Photo entirely in the browser. Download its native package, a still JPG, regular MP4, or full wallpaper kit with Photos import instructions.
+
+## Cover a stationary defect with a patch
+
+1. Open **Layers** and pause the source on a clean frame. Use the timeline or frame-step controls to find it.
+2. Choose **Create patch from frame**. The selection window shows the framed source before layers and loop effects.
+3. Draw a rectangle or freehand lasso. For polygonal lasso, click the corners and choose **Close polygon**. Use **Selection zoom** and scroll to reach small details. **Feather** softens the selected edge in output pixels.
+4. Choose **Create patch**. The fragment becomes a fully opaque, static **Patch** layer at its original output coordinates.
+5. Set **Active time → Show from / Show until**, or leave **Until end of loop** enabled. Times refer to the finished loop, repeat each cycle, and apply to both Composition and encoded output. Render to check the actual join and timing.
+
+Patches can be moved, resized, rotated, hidden, duplicated, and removed like image layers. Opacity is available; movement and spinning are under **Optional animation** and are off by default. Active-time controls also work for ordinary text and image layers. An explicit end beyond the loop is clipped; a start beyond the loop keeps the layer hidden.
+
+This first version freezes a fragment; it does not track objects or perform smart object segmentation. It works best for stationary details. Changing source framing may require recreating the patch, and loop repairs or dissolves may change the surrounding image. Feathering is baked into the fragment when it is created; redraw the selection to change it. Source pixels and generated patches stay in the browser.
 
 ## Loop methods
 

@@ -22,6 +22,12 @@ const mod = (value, extent) => ((value % extent) + extent) % extent;
 const finite = (value, min, max) => Number.isFinite(value) && value >= min && value <= max;
 const base = () => ({ id: id(), visible: true, x: 50, y: 50, rotation: 0, opacity: 100, motion: 'none', spin: 'none', motionCycles: 1, spinCycles: 1 });
 
+export function layerActive(layer, time, period) {
+    if (!layer) return false;
+    const phase = Number.isFinite(period) && period > 0 ? mod(time, period) : time;
+    return phase + 1e-9 >= (layer.startTime ?? 0) && (layer.endTime == null || phase + 1e-9 < layer.endTime);
+}
+
 export function animationCycles(layer, kind) {
     const value = layer?.[`${kind}Cycles`];
     return Number.isInteger(value) && value >= 1 && value <= MAX_ANIMATION_CYCLES ? value : 1;
@@ -125,6 +131,9 @@ export function validateLayers(layers, settings) {
         if (typeof layer.id !== 'string' || !layer.id || ids.has(layer.id))
             issues.push(`${label} needs a unique ID.`);
         ids.add(layer.id);
+        if (layer.startTime !== undefined && (!Number.isFinite(layer.startTime) || layer.startTime < 0)
+            || layer.endTime != null && (!Number.isFinite(layer.endTime) || layer.endTime <= (layer.startTime ?? 0)))
+            issues.push(`${label} needs a nonnegative start and an end after its start.`);
         if (typeof layer.visible !== 'boolean')
             issues.push(`${label} visibility is invalid.`);
         if (!finite(layer.x, 0, 100) || !finite(layer.y, 0, 100))
@@ -414,6 +423,7 @@ function selectionCopy(layer, sprite, copy, time, period, copyIndex) {
 // Editor outlines use content bounds, rather than the large transparent square
 // reserved for a spinning sprite. Copy placement matches drawing pixel for pixel.
 export function layerSelectionGeometry(layer, settings, time, period, dimensions = settings) {
+    if (!layerActive(layer, time, period)) return [];
     const sprite = drawableSprite(layer, settings, dimensions);
     if (!sprite)
         return [];
@@ -553,7 +563,9 @@ export function hitTestLayers(layers, settings, time, period, x, y, dimensions =
         || !allowOutside && !(x >= 0 && x < dimensions.width && y >= 0 && y < dimensions.height))
         return null;
     for (let index = (layers || []).length - 1; index >= 0; index--) {
-        const layer = layers[index], sprite = drawableSprite(layer, settings, dimensions);
+        const layer = layers[index];
+        if (!layerActive(layer, time, period)) continue;
+        const sprite = drawableSprite(layer, settings, dimensions);
         if (!sprite)
             continue;
         const copies = spriteCopies(layer, sprite, dimensions, time, period);
@@ -573,6 +585,7 @@ export function hitTestLayers(layers, settings, time, period, x, y, dimensions =
 export function drawLayers(ctx, layers, settings, time, period) {
     const dimensions = { width: ctx.canvas.width, height: ctx.canvas.height };
     for (const layer of layers || []) {
+        if (!layerActive(layer, time, period)) continue;
         const sprite = drawableSprite(layer, settings, dimensions);
         if (!sprite)
             continue;

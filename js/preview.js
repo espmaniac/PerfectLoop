@@ -4,7 +4,7 @@ import { $, icon } from './ui.js';
 import { alternateFormat } from './aspect.js';
 import { videoTransform } from './framing.js';
 
-function drawFrame(canvas, video, settings, rendered) {
+export function drawFrame(canvas, video, settings, rendered) {
   // Keep the last frame while the decoder seeks across the loop boundary.
   if (!video.videoWidth || !video.videoHeight || video.readyState < 2 || video.seeking) return false;
   const ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height;

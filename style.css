@@ -702,7 +702,19 @@ footer a:hover { color: #f0f0f0; }
 #repair-controls .toggle-row { align-items: flex-start; padding: 8px 0; }
 #repair-controls:disabled { opacity: .5; }
 @media (min-width: 740px) {
-  .controls-panel:has(#panel-repair:not([hidden])) { max-height: min(760px, calc(100vh - 100px)); overflow-y: auto; }
+  .controls-panel:has(#panel-repair:not([hidden])), .controls-panel:has(#panel-layers:not([hidden])) { max-height: min(760px, calc(100vh - 100px)); overflow-y: auto; }
 }
 .repair-report summary { cursor: pointer; color: var(--text); }
 .repair-report details { margin-top: 10px; }
+.patch-dialog { width: min(1100px, 95vw); max-height: 94vh; overflow: auto; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 20px; }
+.patch-dialog[open] { display: flex; flex-direction: column; height: min(940px, 94vh); }
+.patch-dialog > :not(.patch-viewport) { flex-shrink: 0; }
+.patch-dialog::backdrop { background: rgba(0,0,0,.7); }
+.patch-toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin: 12px 0; }
+.patch-toolbar .field { margin: 0; max-width: 180px; }
+.patch-viewport { flex: 1 1 auto; min-height: 150px; height: 55vh; overflow: auto; background: #282828; margin: 12px 0; }
+.patch-zoom { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+.patch-zoom input { width: 140px; }
+.patch-canvas { display: block; max-width: none; max-height: none; margin: 0 auto; cursor: crosshair; touch-action: none; }
+.patch-footer { display: flex; gap: 16px; align-items: center; justify-content: space-between; }
+@media (max-width: 739px) { .patch-dialog { padding: 12px; } .patch-footer { flex-wrap: wrap; } }
