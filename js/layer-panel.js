@@ -1,5 +1,6 @@
 import { $, escapeHTML, icon } from './ui.js';
 import { MAX_LAYERS, MAX_ANIMATION_CYCLES, animationCycles } from './layers.js';
+import { patchInterval } from './video-patch.js';
 import { framePlan } from './logic.js';
 import { fontOptions, deviceFontsSupported } from './fonts.js';
 import { TextFillEditor } from './text-fill-editor.js';
@@ -107,7 +108,7 @@ export class LayerPanel {
   render() {
     const state = this.getState();
     const layers = state.s.layers || [];
-    this.panel.querySelectorAll('[data-action="layer-add-text"], [data-action="layer-add-image"], [data-action="layer-add-patch"]').forEach(button => {
+    this.panel.querySelectorAll('[data-action="layer-add-text"], [data-action="layer-add-image"], [data-action="layer-add-patch"], [data-action="layer-add-video-patch"]').forEach(button => {
       button.disabled = Boolean(state.job) || layers.length >= MAX_LAYERS;
     });
     const selected = layers.find(layer => layer.id === state.activeLayerId);
@@ -121,7 +122,7 @@ export class LayerPanel {
         const active = layer.id === state.activeLayerId;
         return `<div class="layer-item${active ? ' selected' : ''}${visible ? '' : ' muted'}" role="listitem">
           <div class="layer-item-head">
-            <button class="layer-select" data-layer-action="select" data-layer-id="${id}" aria-pressed="${active}" title="${label}"><span class="layer-type">${layer.type === 'text' ? 'T' : icon('Layers', 17)}</span><span><b>${label}</b><small>${layer.patch ? 'Patch' : layer.type === 'text' ? 'Text' : 'Image'}</small></span></button>
+            <button class="layer-select" data-layer-action="select" data-layer-id="${id}" aria-pressed="${active}" title="${label}"><span class="layer-type">${layer.type === 'text' ? 'T' : icon('Layers', 17)}</span><span><b>${label}</b><small>${layer.videoPatch ? 'Video patch' : layer.patch ? 'Patch' : layer.type === 'text' ? 'Text' : 'Image'}</small></span></button>
             <button class="text-btn layer-visibility" data-layer-action="toggle" data-layer-id="${id}" aria-label="${visible ? 'Hide' : 'Show'} ${label}" aria-pressed="${visible}">${visible ? 'Hide' : 'Show'}</button>
           </div>
           <div class="layer-item-actions">
@@ -135,12 +136,12 @@ export class LayerPanel {
     }
     $('#layer-empty').hidden = layers.length > 0;
     this.controls.hidden = !selected;
-    const controlsKey = selected ? `${selected.id}:${selected.type}:${Boolean(selected.patch)}` : '';
+    const controlsKey = selected ? `${selected.id}:${selected.type}:${Boolean(selected.patch)}:${Boolean(selected.videoPatch)}` : '';
     if (this.controlsKey !== controlsKey) {
       this.fillEditor?.destroy();
       this.fillEditor = null;
       this.controlsKey = controlsKey;
-      this.controls.innerHTML = selected ? this.fields(selected.type, selected.patch) : '';
+      this.controls.innerHTML = selected ? this.fields(selected.type, selected.patch, selected.videoPatch) : '';
       const fillHost = this.controls.querySelector('[data-text-fill-editor]');
       if (fillHost) this.fillEditor = new TextFillEditor(fillHost, this.getState, this.updateLayer);
     }
@@ -159,7 +160,7 @@ export class LayerPanel {
     this.refreshBindings();
   }
 
-  fields(type, patch = false) {
+  fields(type, patch = false, videoPatch = false) {
     const content = type === 'text'
       ? `<label class="field layer-text-field"><span>Text</span><textarea data-layer-setting="text" aria-label="Text" maxlength="500" rows="3" spellcheck="false"></textarea></label>`
         + `<label class="field"><span>Font</span><select aria-label="Font" aria-describedby="layer-font-help" data-layer-setting="fontFamily"></select></label>`
@@ -171,11 +172,13 @@ export class LayerPanel {
         + `<div class="text-fill-editor" data-text-fill-editor></div>`
         + selectField('align', 'Alignment', [['left', 'Left'], ['center', 'Center'], ['right', 'Right']])
       : numberField('width', patch ? 'Patch width' : 'Image width', 1, 400, '%');
-    return (patch ? '<p class="micro">Patch layer · fixed frame fragment. Recreate it after changing video framing. There is no motion tracking.</p>' : '') + content
+    return (videoPatch ? '<p class="micro">Video patch · one forward cycle fits the active interval. Adjust seam blending to soften the repeat. Recreate it to change the donor fragment or video framing. No motion tracking or audio.</p>' : patch ? '<p class="micro">Patch layer · fixed frame fragment. Recreate it after changing video framing. There is no motion tracking.</p>' : '') + content
       + `<details class="disclosure" ${patch ? 'open' : ''}><summary>Active time</summary><div class="disclosure-content"><p class="micro">Seconds in each finished loop, not source timestamps. The interval repeats with the loop.</p>
       ${numberField('startTime', 'Show from', 0, 86400, 's', 0.001)}
       <label class="toggle-row"><span>Until end of loop</span><input type="checkbox" data-layer-until-end><span class="switch" aria-hidden="true"></span></label>
       ${numberField('endTime', 'Show until', 0, 86400, 's', 0.001)}<p class="micro" data-layer-time-note></p></div></details>`
+      + (videoPatch ? '<p class="micro" data-video-patch-summary></p>' + numberField('seamBlend', 'Seam blend', 0, 40, '%')
+        + `<div class="fields two">${numberField('fadeIn', 'Fade in', 0, 60, 's', 0.05)}${numberField('fadeOut', 'Fade out', 0, 60, 's', 0.05)}</div><p class="micro">Fades are limited to half the active interval. Leave both at zero for a continuous patch across the loop boundary.</p>` : '')
       + `<div class="fields two">${numberField('x', 'Horizontal', 0, 100, '%', 0.1)}${numberField('y', 'Vertical', 0, 100, '%', 0.1)}</div>`
       + `<div class="fields two">${numberField('rotation', 'Rotation', -360, 360, '°')}${numberField('opacity', 'Opacity', 0, 100, '%')}</div>`
       + (patch ? '<details class="disclosure"><summary>Optional animation</summary><div class="disclosure-content">' : '')
@@ -247,6 +250,13 @@ export class LayerPanel {
       if (input.value !== value) input.value = value;
     });
     const duration = framePlan(state.s).duration;
+    const donorSummary = this.controls.querySelector('[data-video-patch-summary]');
+    if (donorSummary) {
+      const active = patchInterval(layer, duration).duration;
+      const donor = layer.sourceEnd - layer.sourceStart;
+      const speed = active > 0 ? donor * (1 - layer.seamBlend / 100) / active : 0;
+      donorSummary.textContent = `Source: ${layer.sourceStart.toFixed(3)}–${layer.sourceEnd.toFixed(3)}s · one cycle in ${active.toFixed(3)}s · ${speed.toFixed(2)}× donor speed. Seam blending may show double edges; use a clean fragment with similar motion.`;
+    }
     this.controls.querySelector('[data-layer-until-end]').checked = layer.endTime == null;
     this.controls.querySelector('[data-layer-setting="endTime"]').disabled = layer.endTime == null || Boolean(state.job);
     this.controls.querySelector('[data-layer-time-note]').textContent = `Loop length: ${duration.toFixed(3)}s. ${(layer.startTime ?? 0) >= duration ? 'This layer starts outside the current loop.' : 'Intervals extending beyond the loop are clipped at its end.'}`;

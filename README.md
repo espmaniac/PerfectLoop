@@ -23,6 +23,7 @@ Media processing happens on your device; your source videos and photos are never
 - **Export options** — download MP4, WebM, or a GIF that loops forever or plays once. Adjust frame rate and dimensions for all formats; set quality, cycles in the file, and an approximate file-size target for video. Export selected loop candidates together as a ZIP.
 - **Included sample** — a repeating animation with audio loads automatically once when the page opens.
 - **Text and image layers** — add text or a local image in **Layers**, set its position, size, angle, and opacity, and reorder, hide, or duplicate it. Move either type left to right, right to left, top to bottom, or bottom to top while preserving its angle.
+- **Video patches** — reuse a clean moving region from the current source, with forward seam blending, soft edges, active timing, and fades. The donor cycle is fitted to its active interval in both preview and export.
 - **Static patches** — select a clean frame fragment with a rectangle, lasso, or polygonal lasso and place it back at the same position. Feather its edges and limit its visibility to part of each loop.
 - **iPhone wallpaper preparation** — open a video or photo, preview approximate Lock Screen and Home Screen layouts, choose a key photo, and create a paired Live Photo entirely in the browser. Download its native package, a still JPG, regular MP4, or full wallpaper kit with Photos import instructions.
 
@@ -36,7 +37,17 @@ Media processing happens on your device; your source videos and photos are never
 
 Patches can be moved, resized, rotated, hidden, duplicated, and removed like image layers. Opacity is available; movement and spinning are under **Optional animation** and are off by default. Active-time controls also work for ordinary text and image layers. An explicit end beyond the loop is clipped; a start beyond the loop keeps the layer hidden.
 
-This first version freezes a fragment; it does not track objects or perform smart object segmentation. It works best for stationary details. Changing source framing may require recreating the patch, and loop repairs or dissolves may change the surrounding image. Feathering is baked into the fragment when it is created; redraw the selection to change it. Source pixels and generated patches stay in the browser.
+Static patches freeze a fragment. Neither patch type tracks objects or performs smart object segmentation. It works best for stationary details. Changing source framing may require recreating the patch, and loop repairs or dissolves may change the surrounding image. Feathering is baked into the fragment when it is created; redraw the selection to change it. Source pixels and generated patches stay in the browser.
+
+## Cover a moving texture with a video patch
+
+1. In **Layers**, choose **Create video patch** and draw a rectangle, lasso, or polygon around the stationary region to replace.
+2. Set **Source from / Source to** to a clean 0.1–8 second donor fragment from the current video. The selection canvas remains the source frame shown when the dialog opened. Set **Feather** before creating the patch.
+3. Set **Show from / Show until** in finished-loop seconds. One forward donor cycle fits that interval; the panel displays the resulting donor speed. Leave **Until end of loop** on for a patch that reaches the end.
+4. Adjust **Seam blend** (0–40%) to blend the donor's tail into its head without reversing motion. This can create double edges on moving objects; it is not optical flow or object tracking.
+5. Use **Fade in / Fade out** to soften a temporary repair's appearance. Fades are capped at half the active interval. Leave them at zero for uninterrupted coverage across the loop boundary. Hide the layer to compare, then render the finished loop.
+
+Video patches capture up to 30 frames per second and retain only the selected region locally. Captured donor frames share a 64 MiB budget, including assets retained for Undo; export sequences have a 256 MiB uncompressed frame budget. Oversized operations stop with an explanation rather than silently reducing quality. Recreate a patch to change its donor range, mask, feathering, or source framing. Donor audio is excluded. MP4, WebM, and GIF use the same frame sampling and fades as the Composition preview. This tool suits fixed regions such as water, smoke, or a stationary reflection; it does not automatically follow a moving subject.
 
 ## Loop methods
 

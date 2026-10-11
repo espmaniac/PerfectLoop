@@ -145,7 +145,8 @@
               <input id="layer-image-input" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" aria-label="Choose layer image">
               <input id="layer-font-input" class="sr-only" type="file" accept=".ttf,.otf,.woff,.woff2" multiple aria-label="Choose font files">
               <p class="micro layer-image-hint">PNG, JPEG, WebP, or GIF. Animated images use the first frame. Up to 8 layers.</p>
-              <button class="btn secondary full" data-action="layer-add-patch" data-disable>Create patch from frame</button><p class="micro">Pause on a clean source frame, then select a fragment to cover a stationary defect.</p>
+              <div class="layer-patch-actions"><button class="btn secondary full" data-action="layer-add-patch" data-disable>Create patch from frame</button>
+              <button class="btn secondary full" data-action="layer-add-video-patch" data-disable>Create video patch</button></div><p class="micro">Video patches preserve motion inside a selected area. For a still patch, pause on a clean source frame, then select a fragment to cover a stationary defect.</p>
               <p class="micro" id="layer-empty">Add text, an image, or a patch to your loop.</p>
               <div class="layer-list" id="layer-list" role="list" aria-label="Layers, top to bottom"></div>
               <div class="layer-controls" id="layer-controls" hidden></div>

@@ -7,6 +7,8 @@ import { clamp, download, framePlan, humanSize, timecode, validate } from './log
 import { VideoEngine } from './engine.js';
 import { capture, inspectSeam, openVideo, releaseVideo, searchVideo, seekVideo, thumbnails } from './media.js';
 import { prepareVideoFile } from './source-file.js';
+import { patchCapturePlan } from './video-patch.js';
+import { extractPatch } from './patch.js';
 import { selectPatch } from './patch-editor.js';
 import { Preview, drawFrame } from './preview.js';
 import { PreviewEditor } from './preview-editor.js';
@@ -15,7 +17,7 @@ import { Timeline } from './timeline.js';
 import { WallpaperPreview } from './wallpaper-preview.js';
 import { keyPhotoTime, phoneProfile, wallpaperCompatibilityProfile, wallpaperExportSettings, wallpaperPreset, wallpaperRange } from './wallpaper.js';
 import { saveWallpaperPackage, wallpaperDownload } from './wallpaper-export.js';
-import { createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, hitTestLayers, MAX_LAYERS } from './layers.js';
+import { createTextLayer, importImageLayer, importVideoPatch, videoPatchBytes, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, hitTestLayers, MAX_LAYERS } from './layers.js';
 import { LayerPanel } from './layer-panel.js';
 import { loadFont, importFontFile, discoverDeviceFonts, clearFonts } from './fonts.js';
 import { $, $$, decorateIcons, escapeHTML, icon, initializeFields, supportsPackageSave } from './ui.js';
@@ -350,7 +352,7 @@ function refreshHeaderHint(issues, plan) {
     const spinning = layer?.spin === 'clockwise' || layer?.spin === 'counterclockwise';
     const turns = animationCycles(layer, 'spin'), passes = animationCycles(layer, 'motion');
     const turnText = `${turns} ${turns === 1 ? 'turn' : 'turns'}`, passText = `${passes} ${passes === 1 ? 'pass' : 'passes'}`;
-    message = !layer ? 'Add text, an image, or a static patch from a clean source frame.'
+    message = !layer ? 'Add text, an image, or a still/video patch from a clean source region.'
       : spinning && layer.motion !== 'none' ? `This element completes ${turnText} and ${passText} per loop.${layer.motion === 'along-angle' || layer.motion === 'against-angle' ? ` Its path runs ${layer.motion === 'along-angle' ? 'along' : 'opposite'} the starting angle.` : ' Movement and rotation speeds are independent.'}`
       : spinning ? `${layer.spin === 'clockwise' ? 'Clockwise' : 'Counterclockwise'} completes ${turnText} per finished loop. Rotation sets the starting angle.`
       : layer.motion === 'along-angle' ? `Along rotation completes ${passText} per loop in the direction of this element’s angle.`
@@ -851,7 +853,7 @@ function layerAction(action, id, value) {
   update({ layers: next });
   preview.setMode('composition');
 }
-async function addPatch() {
+async function addPatch(videoPatch = false) {
   if (!state.file || state.s.layers.length >= MAX_LAYERS || busy()) return;
   const issues = validate({ ...state.s, preset: 'custom' }, state.info);
   if (issues.length) { report(new Error(issues[0])); return; }
@@ -866,21 +868,35 @@ async function addPatch() {
     if (!drawFrame(frame, video, settings, false)) throw new Error('This frame is not ready. Choose another source frame.');
   } catch (error) { report(error); return; }
   finally { if (video) releaseVideo(video); finishJob(); }
-  const patch = await selectPatch(frame, time);
+  const patch = await selectPatch(frame, time, { video: videoPatch, duration: state.info.duration });
   if (!patch || source !== state.sourceURL) return;
   if (!startJob('patch', 'Creating the patch layer…')) return;
-  let layer, added = false;
+  let layer, added = false, donor, frames = [];
   try {
-    layer = await importImageLayer(new File([patch.blob], 'Patch.png', { type: 'image/png' }));
+    if (videoPatch) {
+      const signal = state.controller.signal;
+      const plan = patchCapturePlan(patch.start, patch.end, state.info.duration, state.info.fps || settings.fps, patch.bounds.width, patch.bounds.height, videoPatchBytes());
+      donor = await openVideo(source, signal);
+      for (const [index, time] of plan.times.entries()) {
+        await seekVideo(donor, time, signal);
+        if (!drawFrame(frame, donor, settings, false)) throw new Error('The source frame could not be decoded.');
+        const crop = extractPatch(frame, patch.points, patch.feather);
+        frames.push(await createImageBitmap(crop.canvas));
+        signal.throwIfAborted();
+        progress('patch')((index + 1) / plan.count, `Reading video patch frame ${index + 1} of ${plan.count}…`);
+      }
+      layer = importVideoPatch(frames, { sourceStart: patch.start, sourceEnd: patch.end });
+      frames = [];
+    } else layer = await importImageLayer(new File([patch.blob], 'Patch.png', { type: 'image/png' }));
     if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     const b = patch.bounds;
-    layer = { ...layer, name: 'Patch', patch: true, sourceTime: time,
+    layer = { ...layer, name: videoPatch ? 'Video patch' : 'Patch', patch: true, sourceTime: time,
       width: b.width / settings.width * 100, x: (b.left + b.width / 2) / settings.width * 100,
       y: (b.top + b.height / 2) / settings.height * 100, startTime: 0, endTime: null };
     finishJob(); added = addLayer(layer);
     if (added) notice('Patch added at its original position. Set Show from / Show until in Layers, then render to check the result.');
   } catch (error) { report(error); }
-  finally { if (layer && !added) discardImportedImageLayer(layer); if (state.job?.kind === 'patch') finishJob(); }
+  finally { if (donor) releaseVideo(donor); frames.forEach(frame => frame.close?.()); if (layer && !added) discardImportedImageLayer(layer); if (state.job?.kind === 'patch') finishJob(); }
 }
 
 async function addImage(file) {
@@ -1109,7 +1125,8 @@ const actions = {
   'repair-clear': () => { for (const id of ['repair-flicker', 'repair-alignment', 'repair-blend']) $(`#${id}`).checked = false; update({ repair: null, method: 'natural', shift: 0 }); refreshRepair(); notice('Brightness, alignment, and seam blending removed.'); },
   'reset-framing': () => updateFraming({ zoom: 100, cropX: 50, cropY: 50, rotate: 0 }),
   'view-fit': () => changeEditorView('fit'), 'view-in': () => changeEditorView('in'), 'view-out': () => changeEditorView('out'),
-  'layer-add-patch': addPatch,
+  'layer-add-patch': () => addPatch(false),
+  'layer-add-video-patch': () => addPatch(true),
   'layer-add-text': () => addLayer(createTextLayer(state.s)),
   'layer-add-image': () => $('#layer-image-input').click(),
   'layer-upload-fonts': () => $('#layer-font-input').click(),

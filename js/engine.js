@@ -1,7 +1,7 @@
 import { FFmpeg, FFFSType } from '../vendor/ffmpeg/index.js';
 import { gunzipSync } from '../vendor/fflate.js';
 import { audioGraph, framePlan, geometry, validate, videoGraph } from './logic.js';
-import { rasterizeLayers, validateLayers } from './layers.js';
+import { rasterizeLayers, rasterizeVideoPatch, validateLayers } from './layers.js';
 import { layerOverlayGraph } from './layer-export.js';
 import { captureWallpaperStill } from './wallpaper-still.js';
 import { wallpaperExportSettings } from './wallpaper.js';
@@ -141,7 +141,7 @@ export class VideoEngine {
         }
         try {
             for (const item of await this.ff.listDir('/'))
-                if (!item.isDir && (/^(clip|cyclic|audio|result|proxy|probe|wallpaper|photo)\./.test(item.name) || /^layer-\d+\.png$/.test(item.name)))
+                if (!item.isDir && (/^(clip|cyclic|audio|result|proxy|probe|wallpaper|photo)\./.test(item.name) || /^layer-\d+(?:-\d+)?\.png$/.test(item.name)))
                     await this.ff.deleteFile(item.name);
         }
         catch { /* terminated workers have no filesystem */ }
@@ -197,8 +197,11 @@ export class VideoEngine {
         const plan = framePlan(s);
         try {
             if (original.layers?.some(layer => layer.visible))
-                onProgress(0, 'Preparing text and image layers…');
+                onProgress(0, 'Preparing layers…');
             const sprites = await rasterizeLayers(original.layers || [], s, original);
+            const patchBytes = sprites.filter(sprite => sprite.animated).reduce((sum, sprite) => sum + sprite.width * sprite.height * 4 * plan.outputFrames, 0);
+            if (patchBytes > 256 * 1024 ** 2)
+                throw new Error('Video patches are too large for this export. Reduce patch size, output resolution, or loop duration.');
             checkCancelled();
             await this.load(onProgress);
             checkCancelled();
@@ -223,6 +226,15 @@ export class VideoEngine {
             }
             for (const [index, sprite] of sprites.entries()) {
                 checkCancelled();
+                if (sprite.animated) {
+                    let frame = 0;
+                    for await (const png of rasterizeVideoPatch(sprite.layer, s, original)) {
+                        checkCancelled();
+                        await this.ff.writeFile(`layer-${index}-${String(frame++).padStart(6, '0')}.png`, png);
+                        onProgress(0.35, `Preparing video patch ${index + 1}: frame ${frame} of ${plan.outputFrames}…`);
+                    }
+                    continue;
+                }
                 // The worker transfers this buffer; keep the cached sprite reusable.
                 await this.ff.writeFile(`layer-${index}.png`, sprite.png.slice());
             }
