@@ -21,6 +21,8 @@ export function layerOverlayGraph(settings, sprites, inputLabel = 'outv', output
     sprites.forEach((sprite, index) => {
         inputs.push('-loop', '1', '-framerate', String(settings.fps), '-i', `layer-${index}.png`);
         const { layer, width, height } = sprite;
+        const active = (layer.startTime ?? 0) > 0 || layer.endTime != null
+            ? `:enable='gte(${cycleTime},${Math.max(0, (layer.startTime ?? 0) - 1e-9)})*lt(${cycleTime},${(layer.endTime ?? duration) - 1e-9})'` : '';
         const motionPhase = phase(animationCycles(layer, 'motion'));
         const spinPhase = phase(animationCycles(layer, 'spin'));
         const trajectory = angleTrajectory(layer, settings.width, settings.height, width, height);
@@ -47,7 +49,7 @@ export function layerOverlayGraph(settings, sprites, inputLabel = 'outv', output
             const x = trajectory ? `floor(${trajectory.x}+(${trajectory.dx})*${displacement}-${width / 2}+0.5)` : horizontal ? `${move(centerX, settings.width, width / 2)}+${copy * settings.width}` : String(Math.round(centerX - width / 2));
             const y = trajectory ? `floor(${trajectory.y}+(${trajectory.dy})*${displacement}-${height / 2}+0.5)` : vertical ? `${move(centerY, settings.height, height / 2)}+${copy * settings.height}` : String(Math.round(centerY - height / 2));
             const next = `layer-composite-${index}-${copyIndex}`;
-            pieces.push(`[${previous}][${labels[copyIndex]}]overlay=x='${x}':y='${y}':eval=frame:shortest=1:format=auto:alpha=straight[${next}]`);
+            pieces.push(`[${previous}][${labels[copyIndex]}]overlay=x='${x}':y='${y}':eval=frame:shortest=1:format=auto:alpha=straight${active}[${next}]`);
             previous = next;
         });
     });

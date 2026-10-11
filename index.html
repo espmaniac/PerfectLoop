@@ -145,7 +145,8 @@
               <input id="layer-image-input" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" aria-label="Choose layer image">
               <input id="layer-font-input" class="sr-only" type="file" accept=".ttf,.otf,.woff,.woff2" multiple aria-label="Choose font files">
               <p class="micro layer-image-hint">PNG, JPEG, WebP, or GIF. Animated images use the first frame. Up to 8 layers.</p>
-              <p class="micro" id="layer-empty">Add text or an image to your loop.</p>
+              <button class="btn secondary full" data-action="layer-add-patch" data-disable>Create patch from frame</button><p class="micro">Pause on a clean source frame, then select a fragment to cover a stationary defect.</p>
+              <p class="micro" id="layer-empty">Add text, an image, or a patch to your loop.</p>
               <div class="layer-list" id="layer-list" role="list" aria-label="Layers, top to bottom"></div>
               <div class="layer-controls" id="layer-controls" hidden></div>
               <p class="micro layer-motion-help">Movement speed controls how many whole passes fit into each finished loop. Screen directions stay relative to the frame. Along rotation and Against rotation use the starting angle, even during rotation animation.</p>

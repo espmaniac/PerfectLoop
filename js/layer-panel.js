@@ -77,6 +77,10 @@ export class LayerPanel {
       const input = event.target;
       const key = input.dataset.layerSetting;
       const state = this.getState();
+      if (input.hasAttribute('data-layer-until-end') && !state.job && state.activeLayerId) {
+        const layer = state.s.layers.find(l => l.id === state.activeLayerId);
+        this.updateLayer(state.activeLayerId, { endTime: input.checked ? null : Math.max(framePlan(state.s).duration, (layer.startTime ?? 0) + 1 / state.s.fps) }); return;
+      }
       if (!key || state.job || !state.activeLayerId) return;
       const numeric = input.type === 'number' || input.type === 'range';
       if (numeric && input.value === '') return;
@@ -103,7 +107,7 @@ export class LayerPanel {
   render() {
     const state = this.getState();
     const layers = state.s.layers || [];
-    this.panel.querySelectorAll('[data-action="layer-add-text"], [data-action="layer-add-image"]').forEach(button => {
+    this.panel.querySelectorAll('[data-action="layer-add-text"], [data-action="layer-add-image"], [data-action="layer-add-patch"]').forEach(button => {
       button.disabled = Boolean(state.job) || layers.length >= MAX_LAYERS;
     });
     const selected = layers.find(layer => layer.id === state.activeLayerId);
@@ -117,7 +121,7 @@ export class LayerPanel {
         const active = layer.id === state.activeLayerId;
         return `<div class="layer-item${active ? ' selected' : ''}${visible ? '' : ' muted'}" role="listitem">
           <div class="layer-item-head">
-            <button class="layer-select" data-layer-action="select" data-layer-id="${id}" aria-pressed="${active}" title="${label}"><span class="layer-type">${layer.type === 'text' ? 'T' : icon('Layers', 17)}</span><span><b>${label}</b><small>${layer.type === 'text' ? 'Text' : 'Image'}</small></span></button>
+            <button class="layer-select" data-layer-action="select" data-layer-id="${id}" aria-pressed="${active}" title="${label}"><span class="layer-type">${layer.type === 'text' ? 'T' : icon('Layers', 17)}</span><span><b>${label}</b><small>${layer.patch ? 'Patch' : layer.type === 'text' ? 'Text' : 'Image'}</small></span></button>
             <button class="text-btn layer-visibility" data-layer-action="toggle" data-layer-id="${id}" aria-label="${visible ? 'Hide' : 'Show'} ${label}" aria-pressed="${visible}">${visible ? 'Hide' : 'Show'}</button>
           </div>
           <div class="layer-item-actions">
@@ -131,12 +135,12 @@ export class LayerPanel {
     }
     $('#layer-empty').hidden = layers.length > 0;
     this.controls.hidden = !selected;
-    const controlsKey = selected ? `${selected.id}:${selected.type}` : '';
+    const controlsKey = selected ? `${selected.id}:${selected.type}:${Boolean(selected.patch)}` : '';
     if (this.controlsKey !== controlsKey) {
       this.fillEditor?.destroy();
       this.fillEditor = null;
       this.controlsKey = controlsKey;
-      this.controls.innerHTML = selected ? this.fields(selected.type) : '';
+      this.controls.innerHTML = selected ? this.fields(selected.type, selected.patch) : '';
       const fillHost = this.controls.querySelector('[data-text-fill-editor]');
       if (fillHost) this.fillEditor = new TextFillEditor(fillHost, this.getState, this.updateLayer);
     }
@@ -155,7 +159,7 @@ export class LayerPanel {
     this.refreshBindings();
   }
 
-  fields(type) {
+  fields(type, patch = false) {
     const content = type === 'text'
       ? `<label class="field layer-text-field"><span>Text</span><textarea data-layer-setting="text" aria-label="Text" maxlength="500" rows="3" spellcheck="false"></textarea></label>`
         + `<label class="field"><span>Font</span><select aria-label="Font" aria-describedby="layer-font-help" data-layer-setting="fontFamily"></select></label>`
@@ -166,15 +170,21 @@ export class LayerPanel {
         + numberField('fontSize', 'Font size', 8, 256, 'px')
         + `<div class="text-fill-editor" data-text-fill-editor></div>`
         + selectField('align', 'Alignment', [['left', 'Left'], ['center', 'Center'], ['right', 'Right']])
-      : numberField('width', 'Image width', 1, 400, '%');
-    return content
+      : numberField('width', patch ? 'Patch width' : 'Image width', 1, 400, '%');
+    return (patch ? '<p class="micro">Patch layer · fixed frame fragment. Recreate it after changing video framing. There is no motion tracking.</p>' : '') + content
+      + `<details class="disclosure" ${patch ? 'open' : ''}><summary>Active time</summary><div class="disclosure-content"><p class="micro">Seconds in each finished loop, not source timestamps. The interval repeats with the loop.</p>
+      ${numberField('startTime', 'Show from', 0, 86400, 's', 0.001)}
+      <label class="toggle-row"><span>Until end of loop</span><input type="checkbox" data-layer-until-end><span class="switch" aria-hidden="true"></span></label>
+      ${numberField('endTime', 'Show until', 0, 86400, 's', 0.001)}<p class="micro" data-layer-time-note></p></div></details>`
       + `<div class="fields two">${numberField('x', 'Horizontal', 0, 100, '%', 0.1)}${numberField('y', 'Vertical', 0, 100, '%', 0.1)}</div>`
       + `<div class="fields two">${numberField('rotation', 'Rotation', -360, 360, '°')}${numberField('opacity', 'Opacity', 0, 100, '%')}</div>`
+      + (patch ? '<details class="disclosure"><summary>Optional animation</summary><div class="disclosure-content">' : '')
       + selectField('spin', 'Rotation animation', SPINS)
       + `<p class="micro">Rotation sets the starting angle. Rotation speed controls how many full turns fit into each finished loop.</p>`
       + animationSpeedField('spin', 'Rotation speed')
       + selectField('motion', 'Movement', MOTIONS)
-      + animationSpeedField('motion', 'Movement speed');
+      + animationSpeedField('motion', 'Movement speed')
+      + (patch ? '</div></details>' : '');
   }
 
   refreshFontOptions() {
@@ -232,11 +242,14 @@ export class LayerPanel {
       const key = input.dataset.layerSetting;
       const raw = key === 'motionCycles' || key === 'spinCycles'
         ? animationCycles(layer, key === 'motionCycles' ? 'motion' : 'spin')
-        : layer[key] ?? (key === 'spin' ? 'none' : '');
+        : layer[key] ?? (key === 'spin' ? 'none' : key === 'startTime' ? 0 : key === 'endTime' ? framePlan(state.s).duration : '');
       const value = String(typeof raw === 'number' ? Math.round(raw * 1000) / 1000 : raw);
       if (input.value !== value) input.value = value;
     });
     const duration = framePlan(state.s).duration;
+    this.controls.querySelector('[data-layer-until-end]').checked = layer.endTime == null;
+    this.controls.querySelector('[data-layer-setting="endTime"]').disabled = layer.endTime == null || Boolean(state.job);
+    this.controls.querySelector('[data-layer-time-note]').textContent = `Loop length: ${duration.toFixed(3)}s. ${(layer.startTime ?? 0) >= duration ? 'This layer starts outside the current loop.' : 'Intervals extending beyond the loop are clipped at its end.'}`;
     this.controls.querySelectorAll('[data-layer-speed]').forEach(field => {
       const kind = field.dataset.layerSpeed;
       field.hidden = !layer[kind] || layer[kind] === 'none';
