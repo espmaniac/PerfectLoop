@@ -2,6 +2,7 @@ import { openVideo, seekVideo, releaseVideo } from './media.js';
 import { framePlan, validate } from './logic.js';
 import { analyzeLoopRepair } from './repair-analysis.js';
 import { scoreBoundary, defectRegion, assessRepair } from './auto-repair-core.js';
+import { captureBackgroundPatch } from './background-patch.js';
 import { captureVideoPatch } from './video-patch-capture.js';
 import { discardImportedImageLayer, videoPatchExportBytes, MAX_LAYERS } from './layers.js';
 
@@ -45,7 +46,8 @@ export function autoRepairCandidates(settings, analysis, mode) {
 
 // Candidate assets stay provisional until Apply. The caller owns cleanup afterward.
 export async function autoRepair({file,url,settings,info,mode,engine,signal,onProgress=()=>{}}) {
-    let patch=null, retained=false;
+    let patch=null, retained=null;
+    const assets=[];
     try {
         signal.throwIfAborted();
         const before=await engine.render(file,settings,info,(p,t)=>onProgress(p*.2,`Original: ${t}`),true);
@@ -55,15 +57,27 @@ export async function autoRepair({file,url,settings,info,mode,engine,signal,onPr
         if(baseline.excess<1 && baseline.score<2) return {before,best:null,baseline,region,trials:[],message:'No strong boundary defect was detected. Your settings have not changed.'};
         const analysis=await analyzeLoopRepair(url,settings,signal,(p,t)=>onProgress(.2+p*.1,t));
         const candidates=autoRepairCandidates(settings,analysis,mode),trials=[];
+        if(region && settings.method==='natural' && !settings.shift && !settings.repair && settings.layers.length<MAX_LAYERS) {
+            try {
+                const background=await captureBackgroundPatch(url,settings,region,signal,(p,t)=>onProgress(.3+p*.05,t));
+                assets.push(background);
+                candidates.push({label:'Local background restoration',settings:{...settings,layers:[background,...settings.layers]},patch:background});
+            } catch(error) {
+                signal.throwIfAborted();
+                if(error.name==='AbortError')throw error;
+                trials.push({label:'Local background restoration',reasons:[error.message]});
+            }
+        }
         if(region && ['natural','crossfade','offset'].includes(settings.method) && !settings.shift && settings.end-settings.start<=8 && settings.layers.length<MAX_LAYERS) {
             const x=region.x*settings.width,y=region.y*settings.height,w=region.width*settings.width,h=region.height*settings.height;
             try {
                 patch=await captureVideoPatch(url,settings,info,{points:[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}],
                     feather:Math.min(12,Math.max(2,Math.round(settings.width*.008))),start:settings.start,end:settings.end},signal,
-                    (p,t)=>onProgress(.3+p*.1,t));
+                    (p,t)=>onProgress(.35+p*.05,t));
                 patch={...patch,name:'Auto repair patch',seamBlend:15};
+                assets.push(patch);
                 if(videoPatchExportBytes([patch,...settings.layers],settings)>256*1024**2) {
-                    discardImportedImageLayer(patch);patch=null;
+                    discardImportedImageLayer(patch);assets.splice(assets.indexOf(patch),1);patch=null;
                     trials.push({label:'Local video patch',reasons:['The detected region exceeds the full-resolution patch memory budget.']});
                 } else candidates.push({label:'Local video patch',settings:{...settings,layers:[patch,...settings.layers]},patch});
             } catch(error) {
@@ -94,7 +108,7 @@ export async function autoRepair({file,url,settings,info,mode,engine,signal,onPr
             }
         }
         signal.throwIfAborted();
-        retained=Boolean(best?.patch);
+        retained=best?.patch;
         return {before,best,baseline,region,trials,message:best?'A candidate improved the sampled seam checks. Watch both loops before applying.':'No candidate passed the improvement checks. Keep the original and try a manual patch or another range.'};
-    } finally {if(patch&&!retained)discardImportedImageLayer(patch);}
+    } finally {for(const asset of assets)if(asset!==retained)discardImportedImageLayer(asset);}
 }
