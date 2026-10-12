@@ -119,7 +119,7 @@ export function importVideoPatch(frames, metadata) {
     const surface = canvas(frames[0].width, frames[0].height);
     surface.getContext('2d').drawImage(frames[0], 0, 0);
     assets.set(assetId, surface);
-    videoAssets.set(assetId, { frames, bytes, surface });
+    videoAssets.set(assetId, { frames: [...frames], bytes, surface });
     return Object.freeze({ ...base(), type: 'image', name: 'Video patch', assetId, width: 30,
         patch: true, videoPatch: true, seamBlend: 20, fadeIn: 0, fadeOut: 0, ...metadata });
 }
@@ -681,6 +681,14 @@ export async function rasterizeLayers(layers, settings, originalDimensions = set
         result.push({ layer, width: sprite.width, height: sprite.height, png: sprite.png });
     }
     return result;
+}
+
+export function videoPatchExportBytes(layers, settings, originalDimensions = settings) {
+    const frames = framePlan(settings).outputFrames;
+    return (layers || []).filter(layer => layer.videoPatch && layer.visible && layer.opacity !== 0).reduce((sum, layer) => {
+        const size = spriteGeometry(layer, settings, originalDimensions).size;
+        return sum + size.width * size.height * 4 * frames;
+    }, 0);
 }
 
 // Yield one cropped frame at a time; never retain a full exported sequence in JS.
