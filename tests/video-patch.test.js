@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { patchCapturePlan, patchSamples, patchFade, MAX_PATCH_BYTES } from '../js/video-patch.js';
 import { layerOverlayGraph } from '../js/layer-export.js';
+import { importVideoPatch, discardImportedImageLayer, videoPatchBytes, duplicateLayer, clearLayerAssets, validateLayers } from '../js/layers.js';
 import { DEFAULTS } from '../js/constants.js';
 
 test('Donor capture stays inside the fragment and budgets all retained patch assets', () => {
@@ -54,4 +55,31 @@ test('Animated overlay inputs use timed PNG sequences while static layers remain
     const result=layerOverlayGraph(settings,[{layer,width:40,height:40,animated:true},{layer,width:40,height:40}]);
     assert.deepEqual(result.inputs,['-framerate',String(settings.fps),'-i','layer-0-%06d.png','-loop','1','-framerate',String(settings.fps),'-i','layer-1.png']);
     assert.match(result.graph,/shortest=1/);
+});
+
+test('Imported video patches own their frame list and release provisional or shared frames once', () => {
+    const previous = globalThis.OffscreenCanvas;
+    let closed = 0;
+    globalThis.OffscreenCanvas = class {
+        constructor(width, height) { this.width = width; this.height = height; }
+        getContext() { return { drawImage() {} }; }
+    };
+    try {
+        const frames = Array.from({ length: 3 }, () => ({ width: 16, height: 16, close() { closed++; } }));
+        const layer = importVideoPatch(frames, { sourceStart: 0, sourceEnd: 1 });
+        frames.length = 0;
+        assert.equal(videoPatchBytes(), 3 * 16 * 16 * 4);
+        assert.deepEqual(validateLayers([layer, duplicateLayer(layer)]), []);
+        discardImportedImageLayer(layer); discardImportedImageLayer(layer);
+        assert.equal(closed, 3);
+        assert.equal(videoPatchBytes(), 0);
+        const kept = importVideoPatch(Array.from({ length: 2 }, () => ({ width: 16, height: 16, close() { closed++; } })), {});
+        duplicateLayer(kept);
+        clearLayerAssets();
+        assert.equal(closed, 5);
+    } finally {
+        clearLayerAssets();
+        if (previous === undefined) delete globalThis.OffscreenCanvas;
+        else globalThis.OffscreenCanvas = previous;
+    }
 });

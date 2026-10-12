@@ -64,6 +64,16 @@ Dissolves can introduce ghosting, and ping-pong methods reverse motion. Choose t
 
 Both ping-pong methods work with MP4, WebM, and GIF. GIF has no playback-direction flag, so one cycle stores the forward and backward frames. **Loop forever** repeats that entire cycle; turning it off plays the forward-and-backward cycle once.
 
+## Automatic repair
+
+Open **Repair loop → Analyze & repair**. **Keep duration** preserves the finished cycle's exact frame count; a forward seam blend may slightly adjust playback speed to compensate for overlap. **Allow trimming** permits at most 20% shortening and never lengthens the loop.
+
+Auto repair renders the current result, samples frames on both sides of the boundary, and scores small image tiles so a large static background cannot hide a local jump. It tests applicable brightness/alignment corrections, forward seam blending, a better nearby cut, and a feathered local video patch. Local patches currently use the selected source range (up to eight seconds), stay below existing overlays, and must fit both capture and full-resolution export memory budgets. Reverse and shifted methods retain their intended motion; they are not automatically converted to forward loops.
+
+Candidates must materially reduce sampled seam error without failing the detail, motion, or duration checks. These are image-based screening heuristics, not semantic object recognition, optical flow, or a guarantee against ghosting. The highest-ranked result is shown beside **Before**, with the detected region outlined and a **What was tested** report. **Play both from the seam** starts a comparison near each loop boundary. Nothing changes until **Apply repair**; **Keep original** or Escape discards the proposal. If no candidate passes, Apply is disabled.
+
+Applying changes one Undo step and opens the already-rendered result as **Loop preview**. Generated patches remain editable in Layers; Undo/Redo preserves their assets. Rejected and cancelled patches release their provisional frames. Source videos, analysis frames, and comparison renders remain local to the browser.
+
 ## Repair an existing loop
 
 Open **Repair loop**, select the timeline range (or **Use the full video**), and choose **Analyze loop**. The analysis samples up to 25 framed source images before layers and loop effects. It recommends brightness correction and, only when a small translation improves the boundary reliably, alignment. A better nearby cut may also be suggested; applying it requires a new analysis.

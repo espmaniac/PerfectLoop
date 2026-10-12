@@ -155,7 +155,13 @@
           </div>
           <div class="tool-body" role="tabpanel" id="panel-repair" aria-labelledby="tab-repair" hidden>
             <p class="panel-copy">Improve an almost-looping clip while keeping motion moving forward. Analyze the selected timeline range first.</p>
-            <button class="btn primary full" data-action="repair-analyze" data-disable>Analyze loop</button>
+            <fieldset class="auto-repair-controls" data-disable>
+              <label class="field"><span>Auto repair</span><select id="auto-repair-mode" aria-label="Auto repair duration"><option value="keep">Keep duration</option><option value="trim">Allow trimming (up to 20%)</option></select></label>
+              <button class="btn primary full" data-action="auto-repair">Analyze &amp; repair</button>
+              <p class="micro">Tests corrections and compares rendered motion before proposing a change. Review Before / After, then Apply. Keep duration may adjust playback speed slightly for seam blending.</p>
+            </fieldset>
+            <h3 class="repair-heading">Manual repair</h3>
+            <button class="btn secondary full" data-action="repair-analyze" data-disable>Analyze loop</button>
             <button class="text-btn repair-full" data-action="repair-full" data-disable>Use the full video</button>
             <p class="micro" id="repair-range"></p>
             <div id="repair-report" role="status"><p class="micro">Analysis checks the framed source before layers and loop effects. It does not change the video.</p></div>

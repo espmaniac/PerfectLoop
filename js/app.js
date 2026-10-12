@@ -1,3 +1,5 @@
+import { autoRepair } from './auto-repair.js';
+import { reviewAutoRepair } from './auto-repair-dialog.js';
 import { REPAIR_KEYS, repairSignature } from './repair.js';
 import { analyzeLoopRepair } from './repair-analysis.js';
 import { zipSync } from '../vendor/fflate.js';
@@ -7,8 +9,7 @@ import { clamp, download, framePlan, humanSize, timecode, validate } from './log
 import { VideoEngine } from './engine.js';
 import { capture, inspectSeam, openVideo, releaseVideo, searchVideo, seekVideo, thumbnails } from './media.js';
 import { prepareVideoFile } from './source-file.js';
-import { patchCapturePlan } from './video-patch.js';
-import { extractPatch } from './patch.js';
+import { captureVideoPatch } from './video-patch-capture.js';
 import { selectPatch } from './patch-editor.js';
 import { Preview, drawFrame } from './preview.js';
 import { PreviewEditor } from './preview-editor.js';
@@ -17,7 +18,7 @@ import { Timeline } from './timeline.js';
 import { WallpaperPreview } from './wallpaper-preview.js';
 import { keyPhotoTime, phoneProfile, wallpaperCompatibilityProfile, wallpaperExportSettings, wallpaperPreset, wallpaperRange } from './wallpaper.js';
 import { saveWallpaperPackage, wallpaperDownload } from './wallpaper-export.js';
-import { createTextLayer, importImageLayer, importVideoPatch, videoPatchBytes, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, hitTestLayers, MAX_LAYERS } from './layers.js';
+import { createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, hitTestLayers, MAX_LAYERS } from './layers.js';
 import { LayerPanel } from './layer-panel.js';
 import { loadFont, importFontFile, discoverDeviceFonts, clearFonts } from './fonts.js';
 import { $, $$, decorateIcons, escapeHTML, icon, initializeFields, supportsPackageSave } from './ui.js';
@@ -645,6 +646,48 @@ function chooseCandidate(id) {
   notice(`Candidate selected: ${timecode(candidate.start)}–${timecode(candidate.end)}. Render to check the seam.`); refresh();
   if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
 }
+async function runAutoRepair() {
+  if (!state.file || busy()) return;
+  const settings = { ...state.s }, source = state.sourceURL, signature = videoSignature(settings);
+  const issues = [...validate(settings, state.info), ...validateLayers(settings.layers, settings)];
+  if (issues.length) { report(new Error(issues[0])); return; }
+  if (framePlan(settings).outputFrames < 8) { report(new Error('Auto repair needs at least eight output frames.')); return; }
+  const mode = $('#auto-repair-mode').value;
+  if (!startJob('auto-repair', 'Preparing automatic repair…')) return;
+  preview.pause(); const signal = state.controller.signal;
+  let result, applied = false;
+  try {
+    result = await autoRepair({ file: state.file, url: source, settings, info: state.info, mode, engine, signal, onProgress: progress('auto-repair') });
+    signal.throwIfAborted(); finishJob();
+    if (!await reviewAutoRepair(result)) return;
+    if (source !== state.sourceURL || signature !== videoSignature(state.s)) throw new Error('The project changed. Analyze again before applying this repair.');
+    update(result.best.settings);
+    applied = true;
+    if (result.best.patch) state.activeLayerId = result.best.patch.id;
+    showRenderedPreview(state.s, result.best.result);
+    notice('Auto repair applied. The rendered comparison is now Loop preview. Adjust the method or generated patch in Layers; Undo restores the previous settings.');
+    refresh();
+  } catch (error) { report(error); }
+  finally {
+    if (result?.best?.patch && !applied) discardImportedImageLayer(result.best.patch);
+    if (state.job?.kind === 'auto-repair') finishJob();
+  }
+}
+
+function showRenderedPreview(settings, result) {
+  renderFilmstripController?.abort(); clearWallpaperPoster();
+  if (state.renderURL) URL.revokeObjectURL(state.renderURL);
+  state.renderURL = URL.createObjectURL(result.blob); state.render = result; state.renderSignature = videoSignature(settings);
+  state.renderSettings = { ...settings }; state.renderPlayhead = 0; state.renderFilmstrip = [];
+  if (settings.preset === 'iphone') state.wallpaperScreen = 'editor';
+  clearSeam(); preview.setOutput(state.renderURL); preview.setMode('loop');
+  const controller = new AbortController(), url = state.renderURL;
+  renderFilmstripController = controller;
+  thumbnails(url, 10, controller.signal).then(frames => {
+    if (!controller.signal.aborted && state.renderURL === url) { state.renderFilmstrip = frames; timeline.render(); }
+  }).catch(() => {});
+}
+
 function currentRepairAnalysis() {
   const analysis = state.repairAnalysis;
   return analysis?.source === state.sourceURL && analysis.signature === repairSignature(state.s) ? analysis : null;
@@ -723,18 +766,7 @@ async function runRender(isPreview, override = null) {
     if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     if (result.sourceFps) state.info.fps = result.sourceFps;
     if (isPreview) {
-      renderFilmstripController?.abort();
-      clearWallpaperPoster();
-      if (state.renderURL) URL.revokeObjectURL(state.renderURL);
-      state.renderURL = URL.createObjectURL(result.blob); state.render = result; state.renderSignature = videoSignature(settings);
-      state.renderSettings = settings; state.renderPlayhead = 0; state.renderFilmstrip = [];
-      if (wallpaper) state.wallpaperScreen = 'editor';
-      clearSeam(); preview.setOutput(state.renderURL); preview.setMode('loop');
-      const controller = new AbortController(), url = state.renderURL;
-      renderFilmstripController = controller;
-      thumbnails(url, 10, controller.signal).then(frames => {
-        if (!controller.signal.aborted && state.renderURL === url) { state.renderFilmstrip = frames; timeline.render(); }
-      }).catch(() => {});
+      showRenderedPreview(settings, result);
       notice('Loop preview ready. Watch several repeats and inspect the seam.');
       if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
     } else {
@@ -871,23 +903,10 @@ async function addPatch(videoPatch = false) {
   const patch = await selectPatch(frame, time, { video: videoPatch, duration: state.info.duration });
   if (!patch || source !== state.sourceURL) return;
   if (!startJob('patch', 'Creating the patch layer…')) return;
-  let layer, added = false, donor, frames = [];
+  let layer, added = false;
   try {
-    if (videoPatch) {
-      const signal = state.controller.signal;
-      const plan = patchCapturePlan(patch.start, patch.end, state.info.duration, state.info.fps || settings.fps, patch.bounds.width, patch.bounds.height, videoPatchBytes());
-      donor = await openVideo(source, signal);
-      for (const [index, time] of plan.times.entries()) {
-        await seekVideo(donor, time, signal);
-        if (!drawFrame(frame, donor, settings, false)) throw new Error('The source frame could not be decoded.');
-        const crop = extractPatch(frame, patch.points, patch.feather);
-        frames.push(await createImageBitmap(crop.canvas));
-        signal.throwIfAborted();
-        progress('patch')((index + 1) / plan.count, `Reading video patch frame ${index + 1} of ${plan.count}…`);
-      }
-      layer = importVideoPatch(frames, { sourceStart: patch.start, sourceEnd: patch.end });
-      frames = [];
-    } else layer = await importImageLayer(new File([patch.blob], 'Patch.png', { type: 'image/png' }));
+    if (videoPatch) layer = await captureVideoPatch(source, settings, state.info, patch, state.controller.signal, progress('patch'));
+    else layer = await importImageLayer(new File([patch.blob], 'Patch.png', { type: 'image/png' }));
     if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     const b = patch.bounds;
     layer = { ...layer, name: videoPatch ? 'Video patch' : 'Patch', patch: true, sourceTime: time,
@@ -896,7 +915,7 @@ async function addPatch(videoPatch = false) {
     finishJob(); added = addLayer(layer);
     if (added) notice('Patch added at its original position. Set Show from / Show until in Layers, then render to check the result.');
   } catch (error) { report(error); }
-  finally { if (donor) releaseVideo(donor); frames.forEach(frame => frame.close?.()); if (layer && !added) discardImportedImageLayer(layer); if (state.job?.kind === 'patch') finishJob(); }
+  finally { frame.width = frame.height = 1; if (layer && !added) discardImportedImageLayer(layer); if (state.job?.kind === 'patch') finishJob(); }
 }
 
 async function addImage(file) {
@@ -1117,6 +1136,7 @@ $('#file-input').addEventListener('change', event => {
 });
 
 const actions = {
+  'auto-repair': runAutoRepair,
   'repair-analyze': analyzeRepair, 'repair-apply': applyRepair,
   'repair-preview': () => { if (applyRepair()) return runRender(true); },
   'repair-before': () => runRender(true, originalRepairSettings()),
