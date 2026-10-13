@@ -58,10 +58,11 @@ function layerLabel(layer) {
 }
 
 export class LayerPanel {
-  constructor(getState, updateLayer, action) {
+  constructor(getState, updateLayer, action, updateVideo) {
     this.getState = getState;
     this.updateLayer = updateLayer;
     this.action = action;
+    this.updateVideo = updateVideo;
     this.panel = $('#panel-layers');
     this.list = $('#layer-list');
     this.controls = $('#layer-controls');
@@ -83,7 +84,14 @@ export class LayerPanel {
         const layer = state.s.layers.find(l => l.id === state.activeLayerId);
         this.updateLayer(state.activeLayerId, { endTime: input.checked ? null : Math.max(framePlan(state.s).duration, (layer.startTime ?? 0) + 1 / state.s.fps) }); return;
       }
-      if (!key || state.job || !state.activeLayerId) return;
+      const videoKey = input.dataset.videoSetting;
+      if (videoKey && state.activeLayerId === 'video' && state.info.duration && !state.job) {
+        if (input.value === '') return;
+        const value = input.tagName === 'SELECT' ? input.value : Number(input.value);
+        if (input.tagName === 'SELECT' || Number.isFinite(value)) this.updateVideo({ [videoKey]: value });
+        return;
+      }
+      if (!key || state.job || !state.activeLayerId || state.activeLayerId === 'video') return;
       const numeric = input.type === 'number' || input.type === 'range';
       if (numeric && input.value === '') return;
       const value = numeric ? Number(input.value) : input.value;
@@ -102,7 +110,7 @@ export class LayerPanel {
       if (event.target.tagName === 'SELECT') change(event);
     });
     this.panel.addEventListener('focusout', event => {
-      if (event.target.dataset.layerSetting) this.refreshBindings();
+      if (event.target.dataset.layerSetting || event.target.dataset.videoSetting) this.refreshBindings();
     });
   }
 
@@ -112,8 +120,9 @@ export class LayerPanel {
     this.panel.querySelectorAll('[data-action="layer-add-text"], [data-action="layer-add-image"], [data-action="layer-add-patch"], [data-action="layer-add-video-patch"]').forEach(button => {
       button.disabled = Boolean(state.job) || layers.length >= MAX_LAYERS;
     });
+    const selectedVideo = state.activeLayerId === 'video';
     const selected = layers.find(layer => layer.id === state.activeLayerId);
-    const listKey = JSON.stringify(layers.map(layer => [layer.id, layer.type, layerLabel(layer), layer.visible, layer.placement]).concat([[state.activeLayerId]]));
+    const listKey = JSON.stringify(layers.map(layer => [layer.id, layer.type, layerLabel(layer), layer.visible, layer.placement]).concat([[state.activeLayerId, state.info.duration]]));
     if (this.listKey !== listKey) {
       this.listKey = listKey;
       this.list.innerHTML = [...layers].sort((a,b)=>Number(b.placement==='below')-Number(a.placement==='below')).reverse().map(layer => {
@@ -122,7 +131,7 @@ export class LayerPanel {
         const visible = layer.visible !== false;
         const active = layer.id === state.activeLayerId;
         const firstBelow=layer.placement==='below' && layers.filter(l=>l.placement==='below').at(-1)?.id===layer.id;
-        return `${firstBelow ? '<div class="layer-video-marker" role="listitem">Video · locked in Layers</div>' : ''}<div class="layer-item${active ? ' selected' : ''}${visible ? '' : ' muted'}" role="listitem">
+        return `${firstBelow ? this.videoRow(state) : ''}<div class="layer-item${active ? ' selected' : ''}${visible ? '' : ' muted'}" role="listitem">
           <div class="layer-item-head">
             <button class="layer-select" data-layer-action="select" data-layer-id="${id}" aria-pressed="${active}" title="${label}"><span class="layer-type">${layer.type === 'text' ? 'T' : icon('Layers', 17)}</span><span><b>${label}</b><small>${layer.placement === 'below' ? 'Below video · ' : 'Above video · '}${layer.videoPatch ? 'Video patch' : layer.patch ? 'Patch' : layer.type === 'text' ? 'Text' : 'Image'}</small></span></button>
             <button class="text-btn layer-visibility" data-layer-action="toggle" data-layer-id="${id}" aria-label="${visible ? 'Hide' : 'Show'} ${label}" aria-pressed="${visible}">${visible ? 'Hide' : 'Show'}</button>
@@ -134,21 +143,21 @@ export class LayerPanel {
             <button class="text-btn" data-layer-action="delete" data-layer-id="${id}" aria-label="Delete ${label}">Delete</button>
           </div>
         </div>`;
-      }).join('') + (layers.some(l=>l.placement==='below') ? '' : '<div class="layer-video-marker" role="listitem">Video · locked in Layers</div>');
+      }).join('') + (layers.some(l=>l.placement==='below') ? '' : this.videoRow(state));
     }
-    $('#layer-empty').hidden = layers.length > 0;
-    this.controls.hidden = !selected;
-    const controlsKey = selected ? `${selected.id}:${selected.type}:${Boolean(selected.patch)}:${Boolean(selected.videoPatch)}` : '';
+    $('#layer-empty').hidden = layers.length > 0 || selectedVideo && Boolean(state.info.duration);
+    this.controls.hidden = !selected && !selectedVideo;
+    const controlsKey = selectedVideo ? 'video' : selected ? `${selected.id}:${selected.type}:${Boolean(selected.patch)}:${Boolean(selected.videoPatch)}` : '';
     if (this.controlsKey !== controlsKey) {
       this.fillEditor?.destroy();
       this.fillEditor = null;
       this.controlsKey = controlsKey;
-      this.controls.innerHTML = selected ? this.fields(selected.type, selected.patch, selected.videoPatch) : '';
+      this.controls.innerHTML = selectedVideo ? this.videoFields() : selected ? this.fields(selected.type, selected.patch, selected.videoPatch) : '';
       const fillHost = this.controls.querySelector('[data-text-fill-editor]');
       if (fillHost) this.fillEditor = new TextFillEditor(fillHost, this.getState, this.updateLayer);
     }
     this.panel.querySelectorAll('[data-layer-action]').forEach(button => {
-      button.disabled = Boolean(state.job) || button.hasAttribute('data-order-disabled');
+      button.disabled = Boolean(state.job) || button.hasAttribute('data-order-disabled') || button.dataset.layerAction === 'select-video' && !state.info.duration;
     });
     const deviceFonts = this.controls.querySelector('[data-action="layer-device-fonts"]');
     if (deviceFonts) {
@@ -160,6 +169,25 @@ export class LayerPanel {
     const uploadFonts = this.controls.querySelector('[data-action="layer-upload-fonts"]');
     if (uploadFonts) uploadFonts.disabled = Boolean(state.job);
     this.refreshBindings();
+  }
+
+  videoRow(state) {
+    return `<div class="layer-video-marker${state.activeLayerId === 'video' ? ' selected' : ''}" role="listitem"><button class="layer-select" data-layer-action="select-video" aria-pressed="${state.activeLayerId === 'video'}" aria-label="Select video settings"><span class="layer-type">${icon('Layers', 17)}</span><span><b>Video</b><small>Video framing · select to edit</small></span></button></div>`;
+  }
+
+  videoFields() {
+    return `<p class="micro">Set the video's position and scale here. Dragging the video stays locked in Layers.</p>
+      ${selectField('fit', 'Fit video', [['contain','Fit'],['cover','Fill & crop'],['stretch','Stretch']]).replace('data-layer-setting','data-video-setting')}
+      <div class="fields two">
+        ${numberField('zoom','Video scale',25,400,'%',0.1).replace('data-layer-setting','data-video-setting')}
+        ${numberField('rotate','Video rotation',-360,360,'°',0.1).replace('data-layer-setting','data-video-setting')}
+      </div>
+      <div class="fields two">
+        ${numberField('cropX','Horizontal position',0,100,'%',0.1).replace('data-layer-setting','data-video-setting')}
+        ${numberField('cropY','Vertical position',0,100,'%',0.1).replace('data-layer-setting','data-video-setting')}
+      </div>
+      <div class="field"><span>Align video to frame</span><div class="alignment-controls" role="group" aria-label="Align video to frame">${ALIGNMENTS.map(([key,label])=>`<button class="text-btn" data-video-align="${key}" title="${label}">${label}</button>`).join('')}</div></div>
+      <button class="btn secondary" type="button" data-action="reset-framing" aria-label="Reset video scale, position, and rotation">Reset video framing</button>`;
   }
 
   fields(type, patch = false, videoPatch = false) {
@@ -228,6 +256,15 @@ export class LayerPanel {
   refreshBindings() {
     const state = this.getState();
     const layer = (state.s.layers || []).find(item => item.id === state.activeLayerId);
+    if (state.activeLayerId === 'video') {
+      this.controls.querySelectorAll('[data-video-setting]').forEach(input => {
+        if (input === document.activeElement && input.tagName !== 'SELECT') return;
+        const raw = state.s[input.dataset.videoSetting];
+        input.value = String(raw);
+        input.disabled = Boolean(state.job) || !state.info.duration;
+      });
+      return;
+    }
     if (!layer) return;
     this.refreshFontOptions();
     this.fillEditor?.refresh(layer, { disabled: Boolean(state.job) });
