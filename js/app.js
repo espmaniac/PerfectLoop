@@ -1141,7 +1141,7 @@ const actions = {
   'layer-add-image': () => $('#layer-image-input').click(),
   'layer-upload-fonts': () => $('#layer-font-input').click(),
   'layer-device-fonts': useDeviceFonts,
-  open: () => $('#file-input').click(), 'open-photo': () => $('#wallpaper-photo-input').click(), help: () => $('#help-dialog').showModal(), 'close-help': () => $('#help-dialog').close(),
+  open: () => $('#file-input').click(), 'open-photo': () => $('#wallpaper-photo-input').click(), 'show-preview': () => $('.preview-panel').scrollIntoView({ block: 'start' }), help: () => $('#help-dialog').showModal(), 'close-help': () => $('#help-dialog').close(),
   undo, redo, reset: () => update({ ...DEFAULTS, end: Math.min(state.info.duration || 6, 6) }),
   proxy: makeProxy, search: runSearch, render: () => runRender(true), export: () => runRender(false), inspect, batch: batchExport, cancel,
   'dismiss-error': () => { state.error = ''; refreshStatus(); }, 'dismiss-notice': () => notice(''),
