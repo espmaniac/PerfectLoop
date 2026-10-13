@@ -1,3 +1,4 @@
+import { alignmentDelta } from './alignment.js';
 // Scale applies in output axes after rotation; horizontal mirroring is applied
 // separately after rotation by the canvas and FFmpeg renderers.
 export function rotatedDimensions(sourceWidth, sourceHeight, rotation = 0) {
@@ -65,4 +66,21 @@ export function videoRotate(settings, info, targetAngle, dimensions = settings) 
         cropX: position(original.offsetX, width - next.scaledWidth),
         cropY: position(original.offsetY, height - next.scaledHeight),
     };
+}
+
+export function alignVideoToFrame(settings, info, alignment) {
+    const shape=videoSelectionGeometry(settings,info);
+    const delta=alignmentDelta(shape.corners,settings.width,settings.height,alignment);
+    const transform=videoTransform(settings,info.width,info.height);
+    const move=(value,change,span)=>Math.abs(span)<1e-9?50:Math.max(0,Math.min(100,value+change/span*100));
+    return {cropX:move(settings.cropX,delta.x,settings.width-transform.scaledWidth),
+        cropY:move(settings.cropY,delta.y,settings.height-transform.scaledHeight)};
+}
+
+export function pointInsideVideo(settings, info, x, y, dimensions=settings) {
+    const t=videoTransform(settings,info.width,info.height,dimensions.width,dimensions.height);
+    const dx=(x-dimensions.width/2-t.offsetX)/(t.sx*(settings.mirror?-1:1));
+    const dy=(y-dimensions.height/2-t.offsetY)/t.sy,angle=settings.rotate*Math.PI/180;
+    return Math.abs(dx*Math.cos(angle)+dy*Math.sin(angle))<=info.width/2
+        && Math.abs(-dx*Math.sin(angle)+dy*Math.cos(angle))<=info.height/2;
 }

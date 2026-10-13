@@ -16,9 +16,19 @@ export function layerOverlayGraph(settings, sprites, inputLabel = 'outv', output
         // positions and angles use exactly the same coefficients as frame zero.
         return `mod(if(lt(abs(${raw}-${nearest}),0.000000000001),${nearest},${raw}),1)`;
     };
-    const inputs = [], pieces = [`[${inputLabel}]format=rgba[layer-base]`];
+    const belowCount=sprites.filter(sprite=>sprite.layer.placement==='below').length;
+    const inputs = [], pieces = belowCount
+        ? [`color=c=0x${settings.background.slice(1)}:s=${settings.width}x${settings.height}:r=${settings.fps}:d=${duration},format=rgba[layer-base]`,
+           `[${sprites.length+1}:v]format=gray[video-alpha]`,
+           `[${inputLabel}]format=rgb24[video-rgb]`, '[video-rgb][video-alpha]alphamerge[video-foreground]']
+        : [`[${inputLabel}]format=rgba[layer-base]`];
     let previous = 'layer-base';
+    const compositeVideo=()=>{
+        pieces.push(`[${previous}][video-foreground]overlay=shortest=1:format=auto[video-composite]`);
+        previous='video-composite';
+    };
     sprites.forEach((sprite, index) => {
+        if(belowCount && index===belowCount)compositeVideo();
         inputs.push(...(sprite.animated ? [] : ['-loop', '1']), '-framerate', String(settings.fps), '-i', sprite.animated ? `layer-${index}-%06d.png` : `layer-${index}.png`);
         const { layer, width, height } = sprite;
         const active = (layer.startTime ?? 0) > 0 || layer.endTime != null
@@ -53,6 +63,10 @@ export function layerOverlayGraph(settings, sprites, inputLabel = 'outv', output
             previous = next;
         });
     });
+    if(belowCount) {
+        if(belowCount===sprites.length)compositeVideo();
+        inputs.push('-loop','1','-framerate',String(settings.fps),'-i','video-mask.png');
+    }
     pieces.push(`[${previous}]format=yuv420p[${outputLabel}]`);
     return { graph: pieces.join(';'), inputs, outputLabel };
 }
