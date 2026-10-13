@@ -29,7 +29,7 @@ test('Video framing scales, crops and pads each output axis using the same posit
     near(padded.offsetY, -27);
 });
 
-test('Quarter rotations swap the source axes before stretch and alternate preview sizes scale proportionally', () => {
+test('Quarter rotations swap the source axes before stretch and editor preview sizes scale proportionally', () => {
     const options = { ...settings, width: 200, height: 100, fit: 'stretch', zoom: 125, rotate: 90, mirror: true, cropX: 100, cropY: 0 };
     const full = videoTransform(options, 320, 180);
     near(full.sx, 25 / 18);

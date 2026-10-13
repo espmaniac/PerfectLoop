@@ -22,9 +22,3 @@ export function selectedAspect(settings) {
   if (settings.width === settings.height) return '1:1';
   return 'custom';
 }
-
-export function alternateFormat(settings) {
-  return settings.width > settings.height
-    ? { aspect: '9:16', width: 720, height: 1280 }
-    : { aspect: '16:9', width: 1280, height: 720 };
-}
