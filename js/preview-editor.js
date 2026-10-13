@@ -3,7 +3,7 @@ import { videoTransform, videoSelectionGeometry, videoRotate } from './framing.j
 import { hitTestLayers, layerSelectionGeometry, layerDragPosition, layerResize, layerRotate } from './layers.js';
 
 const layerValues = layer => ['x', 'y', 'width', 'fontSize', 'rotation', 'motion', 'spin', 'motionCycles', 'spinCycles', 'opacity',
-    'text', 'fontFamily', 'align', 'assetId', 'visible'].map(key => layer?.[key]);
+    'placement', 'text', 'fontFamily', 'align', 'assetId', 'visible'].map(key => layer?.[key]);
 const degrees = radians => radians * 180 / Math.PI;
 const normalizeAngle = angle => ((angle + 180) % 360 + 360) % 360 - 180;
 
@@ -102,7 +102,7 @@ export class PreviewEditor {
         const y = (event.clientY - box.top) * height / box.height;
         const time = this.getTime(), period = framePlan(state.s).duration;
         const hit = state.tab === 'layers'
-            ? hitTestLayers(state.s.layers, state.s, time, period, x, y, { width, height }, allowOutside) : null;
+            ? hitTestLayers(state.s.layers, state.s, time, period, x, y, { width, height }, allowOutside, state.info) : null;
         if (state.tab === 'layers' && !hit)
             return false;
         if (hit) this.selectLayer(hit.layer.id);

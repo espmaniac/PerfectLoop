@@ -1,3 +1,5 @@
+import { alignVideoToFrame } from './framing.js';
+import { ALIGNMENTS } from './alignment.js';
 import { autoRepair } from './auto-repair.js';
 import { reviewAutoRepair } from './auto-repair-dialog.js';
 import { REPAIR_KEYS, repairSignature } from './repair.js';
@@ -18,7 +20,7 @@ import { Timeline } from './timeline.js';
 import { WallpaperPreview } from './wallpaper-preview.js';
 import { keyPhotoTime, phoneProfile, wallpaperCompatibilityProfile, wallpaperExportSettings, wallpaperPreset, wallpaperRange } from './wallpaper.js';
 import { saveWallpaperPackage, wallpaperDownload } from './wallpaper-export.js';
-import { createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, hitTestLayers, MAX_LAYERS } from './layers.js';
+import { alignLayerToFrame, createTextLayer, importImageLayer, duplicateLayer, validateLayers, clearLayerAssets, discardImportedImageLayer, animationCycles, hitTestLayers, MAX_LAYERS } from './layers.js';
 import { LayerPanel } from './layer-panel.js';
 import { loadFont, importFontFile, discoverDeviceFonts, clearFonts } from './fonts.js';
 import { $, $$, decorateIcons, escapeHTML, icon, initializeFields, supportsPackageSave } from './ui.js';
@@ -418,6 +420,7 @@ function refresh() {
   $('#preview-edit-hint').textContent = state.tab === 'layers'
     ? 'Drag the box to move it, a square to resize, or just outside a corner to rotate. Shift snaps rotation to 15°. Fit view shows the full box. Video framing is locked in Layers.'
     : 'Drag the video to move it, a square to resize, or just outside a corner to rotate. Shift snaps rotation to 15°. Fit view shows the full box. Open Layers to edit text and images.';
+  $('#video-alignment').hidden = state.tab === 'layers';
   $('#preview-video-scale').hidden = $('[data-action="reset-framing"]').hidden = state.tab === 'layers';
   if (!s.layers.some(layer => layer.id === state.activeLayerId)) state.activeLayerId = s.layers.at(-1)?.id || '';
   layerPanel?.render();
@@ -874,11 +877,17 @@ function layerAction(action, id, value) {
   if (!layer) return;
   if (action === 'select') { state.activeLayerId = id; preview.setMode('composition'); return; }
   if (action === 'toggle') { editLayer(id, { visible: !layer.visible }); return; }
+  if (action.startsWith('align-')) {
+    try { editLayer(id, alignLayerToFrame(layer,state.s,action.slice(6))); preview.pause(); preview.compositionTime=0; preview.dirtyFrame=true; } catch(error) { report(error); }
+    return;
+  }
   if (action === 'duplicate') { addLayer(duplicateLayer(layer)); return; }
   const next = [...layers];
   if (action === 'delete') next.splice(index, 1);
   else {
-    const target = index + (action === 'up' ? 1 : action === 'down' ? -1 : 0);
+    const group=layers.map((l,i)=>({l,i})).filter(({l})=>(l.placement||'above')===(layer.placement||'above'));
+    const position=group.findIndex(({i})=>i===index);
+    const target=group[position+(action==='up'?1:action==='down'?-1:0)]?.i ?? index;
     if (target === index || target < 0 || target >= next.length) return;
     [next[index], next[target]] = [next[target], next[index]];
   }
@@ -1046,7 +1055,7 @@ $('#preview-transform').addEventListener('pointerdown', event => {
     const box = preview.canvas.getBoundingClientRect(), dimensions = { width: preview.canvas.width, height: preview.canvas.height };
     const x = (event.clientX - box.left) / box.width * dimensions.width, y = (event.clientY - box.top) / box.height * dimensions.height;
     const inside = state.tab === 'layers'
-      ? hitTestLayers(state.s.layers, state.s, preview.compositionTime, framePlan(state.s).duration, x, y, dimensions, true)
+      ? hitTestLayers(state.s.layers, state.s, preview.compositionTime, framePlan(state.s).duration, x, y, dimensions, true, state.info)
       : previewEditor.selection().some(shape => insideSelectionShape(shape, x, y));
     if (inside) { previewEditor.startMove(event); return; }
   }
@@ -1162,9 +1171,11 @@ const actions = {
   'download-again': () => { if (state.lastExport) download(state.lastExport.blob, state.lastExport.name); },
   'select-top': () => { state.selected = state.selected.size ? new Set() : new Set(state.candidates.slice(0, 5).map(candidate => candidate.id)); renderCandidates(); },
 };
+$('#video-alignment').innerHTML = ALIGNMENTS.map(([key,label])=>`<button class="text-btn" data-video-align="${key}" data-disable title="Align video: ${label}">${label}</button>`).join('');
 document.addEventListener('click', event => {
   const button = event.target.closest('button'); if (!button || button.matches(':disabled')) return;
-  if (button.dataset.method) update({ method: button.dataset.method, shift: button.dataset.method === 'offset' ? 50 : 0 });
+  if (button.dataset.videoAlign) { if(!busy() && state.tab !== 'layers') updateFraming(alignVideoToFrame(state.s,state.info,button.dataset.videoAlign)); }
+  else if (button.dataset.method) update({ method: button.dataset.method, shift: button.dataset.method === 'offset' ? 50 : 0 });
   else if (button.dataset.aspect) setAspect(button.dataset.aspect);
   else if (button.dataset.fit) updateFraming({ fit: button.dataset.fit });
   else if (button.dataset.tab) {

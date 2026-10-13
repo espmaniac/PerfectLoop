@@ -4,12 +4,13 @@ import { $, icon } from './ui.js';
 import { alternateFormat } from './aspect.js';
 import { videoTransform } from './framing.js';
 
-export function drawFrame(canvas, video, settings, rendered) {
+export function drawFrame(canvas, video, settings, rendered, layerTime = null) {
   // Keep the last frame while the decoder seeks across the loop boundary.
   if (!video.videoWidth || !video.videoHeight || video.readyState < 2 || video.seeking) return false;
   const ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
   ctx.fillStyle = settings.background; ctx.fillRect(0, 0, w, h);
   if (rendered) { ctx.drawImage(video, 0, 0, w, h); return true; }
+  if (layerTime !== null) drawLayers(ctx, (settings.layers || []).filter(layer => layer.placement === 'below'), settings, layerTime, framePlan(settings).duration);
   const sw = video.videoWidth, sh = video.videoHeight;
   const { sx, sy, offsetX, offsetY } = videoTransform(settings, sw, sh, w, h);
   ctx.save(); ctx.translate(w / 2 + offsetX, h / 2 + offsetY); ctx.scale(settings.mirror ? -sx : sx, sy);
@@ -164,8 +165,8 @@ export class Preview {
     const key = `${st.mode}-${video.currentTime}-${video.readyState}-${st.mode === 'composition' ? this.compositionTime : ''}`;
     if (this.dirtyFrame || key !== this.lastFrame) {
       // Composition uses live framing; encoded output already includes its layers.
-      if (drawFrame(this.canvas, video, st.s, st.mode !== 'composition')) {
-        if (st.mode === 'composition') drawLayers(this.canvas.getContext('2d'), st.s.layers || [], st.s,
+      if (drawFrame(this.canvas, video, st.s, st.mode !== 'composition', st.mode === 'composition' ? this.compositionTime : null)) {
+        if (st.mode === 'composition') drawLayers(this.canvas.getContext('2d'), (st.s.layers || []).filter(layer => layer.placement !== 'below'), st.s,
           this.compositionTime, framePlan(st.s).duration);
         this.lastFrame = key; this.dirtyFrame = false;
       }

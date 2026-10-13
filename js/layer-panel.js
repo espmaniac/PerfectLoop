@@ -1,3 +1,4 @@
+import { ALIGNMENTS } from './alignment.js';
 import { $, escapeHTML, icon } from './ui.js';
 import { MAX_LAYERS, MAX_ANIMATION_CYCLES, animationCycles } from './layers.js';
 import { patchInterval } from './video-patch.js';
@@ -72,7 +73,7 @@ export class LayerPanel {
     this.panel.addEventListener('click', event => {
       const button = event.target.closest('[data-layer-action]');
       if (!button || button.disabled || this.getState().job) return;
-      this.action(button.dataset.layerAction, button.dataset.layerId);
+      this.action(button.dataset.layerAction, button.dataset.layerId || this.getState().activeLayerId);
     });
     const change = event => {
       const input = event.target;
@@ -112,27 +113,28 @@ export class LayerPanel {
       button.disabled = Boolean(state.job) || layers.length >= MAX_LAYERS;
     });
     const selected = layers.find(layer => layer.id === state.activeLayerId);
-    const listKey = JSON.stringify(layers.map(layer => [layer.id, layer.type, layerLabel(layer), layer.visible]).concat([[state.activeLayerId]]));
+    const listKey = JSON.stringify(layers.map(layer => [layer.id, layer.type, layerLabel(layer), layer.visible, layer.placement]).concat([[state.activeLayerId]]));
     if (this.listKey !== listKey) {
       this.listKey = listKey;
-      this.list.innerHTML = [...layers].reverse().map((layer, index) => {
+      this.list.innerHTML = [...layers].sort((a,b)=>Number(b.placement==='below')-Number(a.placement==='below')).reverse().map(layer => {
         const id = escapeHTML(layer.id);
         const label = escapeHTML(layerLabel(layer));
         const visible = layer.visible !== false;
         const active = layer.id === state.activeLayerId;
-        return `<div class="layer-item${active ? ' selected' : ''}${visible ? '' : ' muted'}" role="listitem">
+        const firstBelow=layer.placement==='below' && layers.filter(l=>l.placement==='below').at(-1)?.id===layer.id;
+        return `${firstBelow ? '<div class="layer-video-marker" role="listitem">Video · locked in Layers</div>' : ''}<div class="layer-item${active ? ' selected' : ''}${visible ? '' : ' muted'}" role="listitem">
           <div class="layer-item-head">
-            <button class="layer-select" data-layer-action="select" data-layer-id="${id}" aria-pressed="${active}" title="${label}"><span class="layer-type">${layer.type === 'text' ? 'T' : icon('Layers', 17)}</span><span><b>${label}</b><small>${layer.videoPatch ? 'Video patch' : layer.patch ? 'Patch' : layer.type === 'text' ? 'Text' : 'Image'}</small></span></button>
+            <button class="layer-select" data-layer-action="select" data-layer-id="${id}" aria-pressed="${active}" title="${label}"><span class="layer-type">${layer.type === 'text' ? 'T' : icon('Layers', 17)}</span><span><b>${label}</b><small>${layer.placement === 'below' ? 'Below video · ' : 'Above video · '}${layer.videoPatch ? 'Video patch' : layer.patch ? 'Patch' : layer.type === 'text' ? 'Text' : 'Image'}</small></span></button>
             <button class="text-btn layer-visibility" data-layer-action="toggle" data-layer-id="${id}" aria-label="${visible ? 'Hide' : 'Show'} ${label}" aria-pressed="${visible}">${visible ? 'Hide' : 'Show'}</button>
           </div>
           <div class="layer-item-actions">
-            <button class="icon-btn" data-layer-action="up" data-layer-id="${id}" aria-label="Move ${label} up" ${index === 0 ? 'data-order-disabled' : ''}>↑</button>
-            <button class="icon-btn" data-layer-action="down" data-layer-id="${id}" aria-label="Move ${label} down" ${index === layers.length - 1 ? 'data-order-disabled' : ''}>↓</button>
+            <button class="icon-btn" data-layer-action="up" data-layer-id="${id}" aria-label="Move ${label} up" ${layers.filter(l=>(l.placement||'above')===(layer.placement||'above')).at(-1)?.id===layer.id ? 'data-order-disabled' : ''}>↑</button>
+            <button class="icon-btn" data-layer-action="down" data-layer-id="${id}" aria-label="Move ${label} down" ${layers.find(l=>(l.placement||'above')===(layer.placement||'above'))?.id===layer.id ? 'data-order-disabled' : ''}>↓</button>
             <button class="text-btn" data-layer-action="duplicate" data-layer-id="${id}">Duplicate</button>
             <button class="text-btn" data-layer-action="delete" data-layer-id="${id}" aria-label="Delete ${label}">Delete</button>
           </div>
         </div>`;
-      }).join('');
+      }).join('') + (layers.some(l=>l.placement==='below') ? '' : '<div class="layer-video-marker" role="listitem">Video · locked in Layers</div>');
     }
     $('#layer-empty').hidden = layers.length > 0;
     this.controls.hidden = !selected;
@@ -170,7 +172,7 @@ export class LayerPanel {
           : 'This browser cannot list installed fonts. Upload TTF, OTF, WOFF, or WOFF2 files instead.'}</p>`
         + numberField('fontSize', 'Font size', 8, 256, 'px')
         + `<div class="text-fill-editor" data-text-fill-editor></div>`
-        + selectField('align', 'Alignment', [['left', 'Left'], ['center', 'Center'], ['right', 'Right']])
+        + selectField('align', 'Text alignment', [['left', 'Left'], ['center', 'Center'], ['right', 'Right']])
       : numberField('width', patch ? 'Patch width' : 'Image width', 1, 400, '%');
     return (videoPatch ? '<p class="micro">Video patch · one forward cycle fits the active interval. Adjust seam blending to soften the repeat. Recreate it to change the donor fragment or video framing. No motion tracking or audio.</p>' : patch ? '<p class="micro">Patch layer · fixed frame fragment. Recreate it after changing video framing. There is no motion tracking.</p>' : '') + content
       + `<details class="disclosure" ${patch ? 'open' : ''}><summary>Active time</summary><div class="disclosure-content"><p class="micro">Seconds in each finished loop, not source timestamps. The interval repeats with the loop.</p>
@@ -179,6 +181,9 @@ export class LayerPanel {
       ${numberField('endTime', 'Show until', 0, 86400, 's', 0.001)}<p class="micro" data-layer-time-note></p></div></details>`
       + (videoPatch ? '<p class="micro" data-video-patch-summary></p>' + numberField('seamBlend', 'Seam blend', 0, 40, '%')
         + `<div class="fields two">${numberField('fadeIn', 'Fade in', 0, 60, 's', 0.05)}${numberField('fadeOut', 'Fade out', 0, 60, 's', 0.05)}</div><p class="micro">Fades are limited to half the active interval. Leave both at zero for a continuous patch across the loop boundary.</p>` : '')
+      + selectField('placement', 'Stack position', [['above','Above video'],['below','Below video']])
+      + '<p class="micro">Below-video layers appear where the video leaves space. Use Fit or reduce the video scale to reveal them.</p>'
+      + `<div class="field"><span>Align to frame · starting position</span><div class="alignment-controls" role="group" aria-label="Align layer to frame">${ALIGNMENTS.map(([key,label])=>`<button class="text-btn" data-layer-action="align-${key}" title="${label}">${label}</button>`).join('')}</div></div>`
       + `<div class="fields two">${numberField('x', 'Horizontal', 0, 100, '%', 0.1)}${numberField('y', 'Vertical', 0, 100, '%', 0.1)}</div>`
       + `<div class="fields two">${numberField('rotation', 'Rotation', -360, 360, '°')}${numberField('opacity', 'Opacity', 0, 100, '%')}</div>`
       + (patch ? '<details class="disclosure"><summary>Optional animation</summary><div class="disclosure-content">' : '')
@@ -245,7 +250,7 @@ export class LayerPanel {
       const key = input.dataset.layerSetting;
       const raw = key === 'motionCycles' || key === 'spinCycles'
         ? animationCycles(layer, key === 'motionCycles' ? 'motion' : 'spin')
-        : layer[key] ?? (key === 'spin' ? 'none' : key === 'startTime' ? 0 : key === 'endTime' ? framePlan(state.s).duration : '');
+        : layer[key] ?? (key === 'placement' ? 'above' : key === 'spin' ? 'none' : key === 'startTime' ? 0 : key === 'endTime' ? framePlan(state.s).duration : '');
       const value = String(typeof raw === 'number' ? Math.round(raw * 1000) / 1000 : raw);
       if (input.value !== value) input.value = value;
     });

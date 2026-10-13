@@ -170,3 +170,9 @@ When opening a video, the editor checks a small readable prefix before replacing
 ## License
 
 Application source: **GPL-3.0-or-later**. Bundled dependencies retain their own licenses. See [LICENSE](./LICENSE) and [THIRD-PARTY-NOTICES.txt](./THIRD-PARTY-NOTICES.txt).
+
+## Layer placement and alignment
+
+In **Layers**, use **Stack position → Below video** to place an image or text behind the source video. The layer list shows the video between the two groups; arrows reorder layers within their group. Lower layers appear in the space around a fitted, scaled-down, or rotated video. An opaque video filling the entire frame hides them. Video remains locked while editing Layers.
+
+**Align to frame** positions the selected layer at the left, center, right, top, or bottom of the output frame, accounting for its rotation. For animated layers this sets the starting position and returns the composition animation to its beginning. **Text alignment** separately controls lines within a text block. Video alignment is available beneath the preview outside Layers. Alignment and stack placement support Undo/Redo and are included in rendered previews and exports.

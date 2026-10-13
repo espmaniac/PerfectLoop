@@ -1,3 +1,5 @@
+import { pointInsideVideo } from './framing.js';
+import { alignmentDelta } from './alignment.js';
 // Layer pixels and movement geometry are shared by canvas previews and exports.
 import { patchSamples, patchFade, MAX_PATCH_BYTES } from './video-patch.js';
 import { framePlan } from './logic.js';
@@ -172,6 +174,7 @@ export function validateLayers(layers, settings) {
         if (typeof layer.id !== 'string' || !layer.id || ids.has(layer.id))
             issues.push(`${label} needs a unique ID.`);
         ids.add(layer.id);
+        if(layer.placement !== undefined && !['above','below'].includes(layer.placement)) issues.push(`${label} stack position is invalid.`);
         if (layer.startTime !== undefined && (!Number.isFinite(layer.startTime) || layer.startTime < 0)
             || layer.endTime != null && (!Number.isFinite(layer.endTime) || layer.endTime <= (layer.startTime ?? 0)))
             issues.push(`${label} needs a nonnegative start and an end after its start.`);
@@ -479,6 +482,19 @@ export function layerSelectionGeometry(layer, settings, time, period, dimensions
             && Math.max(...copy.corners.map(point => point.y)) > 0 && Math.min(...copy.corners.map(point => point.y)) < dimensions.height);
 }
 
+export function alignLayerToFrame(layer, settings, alignment) {
+    const still={...layer,visible:true,opacity:100,startTime:0,endTime:null,motion:'none',spin:'none'};
+    const shape=layerSelectionGeometry(still,settings,0,1)[0];
+    if(!shape) throw new Error('This layer must be visible in the frame before aligning it.');
+    const delta=alignmentDelta(shape.corners,settings.width,settings.height,alignment);
+    const horizontal=['left','center-x','right'].includes(alignment);
+    const x=horizontal?(shape.centerX+delta.x)/settings.width*100:layer.x;
+    const y=horizontal?layer.y:(shape.centerY+delta.y)/settings.height*100;
+    if(x < -1e-6 || x > 100+1e-6 || y < -1e-6 || y > 100+1e-6)
+        throw new Error('Reduce the layer size before aligning this edge. Center alignment is available for oversized layers.');
+    return {x:Math.max(0,Math.min(100,x)),y:Math.max(0,Math.min(100,y))};
+}
+
 // At a paused animation phase, changing an angled path's anchor can also change
 // its travel distance. Solve the anchor from the desired displayed position so
 // the painted layer follows the pointer without changing its animation.
@@ -604,12 +620,14 @@ export function layerRotate(layer, settings, time, period, targetAngle, shape, d
 
 // Use the same rotated content rectangle for selection and outlines. Spaces,
 // line gaps, and transparent image pixels belong to the selected layer.
-export function hitTestLayers(layers, settings, time, period, x, y, dimensions = settings, allowOutside = false) {
+export function hitTestLayers(layers, settings, time, period, x, y, dimensions = settings, allowOutside = false, videoInfo = null) {
     if (!Number.isFinite(x) || !Number.isFinite(y)
         || !allowOutside && !(x >= 0 && x < dimensions.width && y >= 0 && y < dimensions.height))
         return null;
-    for (let index = (layers || []).length - 1; index >= 0; index--) {
-        const layer = layers[index];
+    const ordered = [...(layers || []).filter(l=>l.placement==='below'), ...(layers || []).filter(l=>l.placement!=='below')];
+    for (let index = ordered.length - 1; index >= 0; index--) {
+        const layer = ordered[index];
+        if(layer.placement === 'below' && videoInfo && pointInsideVideo(settings,videoInfo,x,y,dimensions)) continue;
         if (!layerActive(layer, time, period)) continue;
         const sprite = drawableSprite(layer, settings, dimensions);
         if (!sprite)

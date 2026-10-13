@@ -1,3 +1,4 @@
+import { videoSelectionGeometry } from './framing.js';
 import { FFmpeg, FFFSType } from '../vendor/ffmpeg/index.js';
 import { gunzipSync } from '../vendor/fflate.js';
 import { audioGraph, framePlan, geometry, validate, videoGraph } from './logic.js';
@@ -141,7 +142,7 @@ export class VideoEngine {
         }
         try {
             for (const item of await this.ff.listDir('/'))
-                if (!item.isDir && (/^(clip|cyclic|audio|result|proxy|probe|wallpaper|photo)\./.test(item.name) || /^layer-\d+(?:-\d+)?\.png$/.test(item.name)))
+                if (!item.isDir && (item.name === 'video-mask.png' || /^(clip|cyclic|audio|result|proxy|probe|wallpaper|photo)\./.test(item.name) || /^layer-\d+(?:-\d+)?\.png$/.test(item.name)))
                     await this.ff.deleteFile(item.name);
         }
         catch { /* terminated workers have no filesystem */ }
@@ -199,6 +200,7 @@ export class VideoEngine {
             if (original.layers?.some(layer => layer.visible))
                 onProgress(0, 'Preparing layers…');
             const sprites = await rasterizeLayers(original.layers || [], s, original);
+            sprites.sort((a,b)=>Number(b.layer.placement==='below')-Number(a.layer.placement==='below'));
             const patchBytes = sprites.filter(sprite => sprite.animated).reduce((sum, sprite) => sum + sprite.width * sprite.height * 4 * plan.outputFrames, 0);
             if (patchBytes > 256 * 1024 ** 2)
                 throw new Error('Video patches are too large for this export. Reduce patch size, output resolution, or loop duration.');
@@ -239,6 +241,16 @@ export class VideoEngine {
                 await this.ff.writeFile(`layer-${index}.png`, sprite.png.slice());
             }
             checkCancelled();
+            if(sprites.some(sprite=>sprite.layer.placement==='below')) {
+                const mask=document.createElement('canvas');mask.width=s.width;mask.height=s.height;
+                const ctx=mask.getContext('2d');ctx.fillStyle='#000';ctx.fillRect(0,0,s.width,s.height);
+                const shape=videoSelectionGeometry(s,info);ctx.fillStyle='#fff';ctx.beginPath();
+                shape.corners.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.fill();
+                const blob=await new Promise(resolve=>mask.toBlob(resolve,'image/png'));
+                if(!blob)throw new Error('Could not prepare the video coverage mask.');
+                await this.ff.writeFile('video-mask.png',new Uint8Array(await blob.arrayBuffer()));
+                mask.width=mask.height=1;checkCancelled();
+            }
             const overlay = layerOverlayGraph(s, sprites);
             const graph = [videoGraph(s), overlay.graph].filter(Boolean).join(';');
             await this.exec(['-i', 'clip.mp4', ...overlay.inputs, '-filter_complex', graph, '-map', `[${overlay.outputLabel}]`, '-an', ...codec, '-threads', '1', '-pix_fmt', 'yuv420p', '-frames:v', String(plan.outputFrames), '-r', String(s.fps), '-map_metadata', '-1', `cyclic.${ext}`], plan.duration, 0.35, 0.75, 'Building the loop and smoothing the transition…', onProgress);

@@ -759,3 +759,8 @@ input[type=range]::-moz-range-thumb { box-shadow: var(--raised-shadow); }
 .auto-repair-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; margin-top: 18px; }
 .auto-repair-dialog > details { font-size: 12px; }
 @media (max-width: 739px) { .auto-repair-comparison { grid-template-columns: 1fr; } }
+
+.alignment-controls { display: flex; flex-wrap: wrap; gap: 4px; }
+.alignment-controls .text-btn { padding: 5px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--control); }
+
+.layer-video-marker { padding: 8px; color: var(--muted); font-size: 11px; border-block: 1px solid var(--line); }
