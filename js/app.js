@@ -1,5 +1,4 @@
 import { alignVideoToFrame } from './framing.js';
-import { ALIGNMENTS } from './alignment.js';
 import { autoRepair } from './auto-repair.js';
 import { reviewAutoRepair } from './auto-repair-dialog.js';
 import { REPAIR_KEYS, repairSignature } from './repair.js';
@@ -136,7 +135,7 @@ function beginPreviewEdit() {
 function playPreview() { previewEditor?.finish(); return preview.play(); }
 function stepPreview(direction) { previewEditor?.finish(); preview.step(direction); }
 function updateFraming(partial, saveHistory = true) {
-  if (busy() || state.tab === 'layers') return;
+  if (busy() || state.tab === 'layers' && state.activeLayerId !== 'video') return;
   beginPreviewEdit();
   update(partial, saveHistory);
 }
@@ -355,7 +354,8 @@ function refreshHeaderHint(issues, plan) {
     const spinning = layer?.spin === 'clockwise' || layer?.spin === 'counterclockwise';
     const turns = animationCycles(layer, 'spin'), passes = animationCycles(layer, 'motion');
     const turnText = `${turns} ${turns === 1 ? 'turn' : 'turns'}`, passText = `${passes} ${passes === 1 ? 'pass' : 'passes'}`;
-    message = !layer ? 'Add text, an image, or a still/video patch from a clean source region.'
+    message = state.activeLayerId === 'video' ? 'Video selected. Set its scale, rotation, position, and alignment in Layers. Dragging remains locked here.'
+      : !layer ? 'Add text, an image, or a still/video patch from a clean source region.'
       : spinning && layer.motion !== 'none' ? `This element completes ${turnText} and ${passText} per loop.${layer.motion === 'along-angle' || layer.motion === 'against-angle' ? ` Its path runs ${layer.motion === 'along-angle' ? 'along' : 'opposite'} the starting angle.` : ' Movement and rotation speeds are independent.'}`
       : spinning ? `${layer.spin === 'clockwise' ? 'Clockwise' : 'Counterclockwise'} completes ${turnText} per finished loop. Rotation sets the starting angle.`
       : layer.motion === 'along-angle' ? `Along rotation completes ${passText} per loop in the direction of this element’s angle.`
@@ -418,11 +418,9 @@ function refresh() {
   $('[data-mode="composition"]').hidden = !info.duration || (!['edit', 'layers'].includes(state.tab) && !wallpaper);
   $('#preview-framing').hidden = !info.duration || staticWallpaperLayout() || !['edit', 'layers'].includes(state.tab);
   $('#preview-edit-hint').textContent = state.tab === 'layers'
-    ? 'Drag the box to move it, a square to resize, or just outside a corner to rotate. Shift snaps rotation to 15°. Fit view shows the full box. Video framing is locked in Layers.'
+    ? state.activeLayerId === 'video' ? 'Use the video controls in Layers. Video dragging stays locked in the preview.' : 'Drag the box to move it, a square to resize, or just outside a corner to rotate. Shift snaps rotation to 15°. Fit view shows the full box.'
     : 'Drag the video to move it, a square to resize, or just outside a corner to rotate. Shift snaps rotation to 15°. Fit view shows the full box. Open Layers to edit text and images.';
-  $('#video-alignment').hidden = state.tab === 'layers';
-  $('#preview-video-scale').hidden = $('[data-action="reset-framing"]').hidden = state.tab === 'layers';
-  if (!s.layers.some(layer => layer.id === state.activeLayerId)) state.activeLayerId = s.layers.at(-1)?.id || '';
+  if (state.activeLayerId !== 'video' && !s.layers.some(layer => layer.id === state.activeLayerId)) state.activeLayerId = state.tab === 'layers' ? 'video' : s.layers.at(-1)?.id || '';
   layerPanel?.render();
   refreshRepair();
   $$('[data-method]').forEach(button => { const active = button.dataset.method === s.method; button.classList.toggle('selected', active); button.setAttribute('aria-pressed', String(active)); });
@@ -874,6 +872,7 @@ function layerAction(action, id, value) {
   if (busy()) return;
   if (action === 'font') { void selectLayerFont(id, value); return; }
   const layers = state.s.layers, index = layers.findIndex(layer => layer.id === id), layer = layers[index];
+  if (action === 'select-video') { state.activeLayerId = 'video'; preview.setMode('composition'); refresh(); return; }
   if (!layer) return;
   if (action === 'select') { state.activeLayerId = id; preview.setMode('composition'); return; }
   if (action === 'toggle') { editLayer(id, { visible: !layer.visible }); return; }
@@ -1028,7 +1027,7 @@ timeline = new Timeline(() => state, updateActiveRange, time => {
   state.wallpaperScreen = 'editor';
   preview.seek(time, state.mode === 'loop' ? 'loop' : state.tab === 'find' ? 'source' : state.mode);
 }, remember);
-layerPanel = new LayerPanel(() => state, editLayer, layerAction);
+layerPanel = new LayerPanel(() => state, editLayer, layerAction, updateFraming);
 wallpaperPreview = new WallpaperPreview($('#wallpaper-screen-controls'), $('#preview-stage'), setWallpaperScreen);
 previewViewport = new PreviewViewport(preview.canvas, $('#preview-stage'));
 previewEditor = new PreviewEditor(preview.canvas, () => state, {
@@ -1171,10 +1170,9 @@ const actions = {
   'download-again': () => { if (state.lastExport) download(state.lastExport.blob, state.lastExport.name); },
   'select-top': () => { state.selected = state.selected.size ? new Set() : new Set(state.candidates.slice(0, 5).map(candidate => candidate.id)); renderCandidates(); },
 };
-$('#video-alignment').innerHTML = ALIGNMENTS.map(([key,label])=>`<button class="text-btn" data-video-align="${key}" data-disable title="Align video: ${label}">${label}</button>`).join('');
 document.addEventListener('click', event => {
   const button = event.target.closest('button'); if (!button || button.matches(':disabled')) return;
-  if (button.dataset.videoAlign) { if(!busy() && state.tab !== 'layers') updateFraming(alignVideoToFrame(state.s,state.info,button.dataset.videoAlign)); }
+  if (button.dataset.videoAlign) { if(!busy() && state.tab === 'layers' && state.activeLayerId === 'video') updateFraming(alignVideoToFrame(state.s,state.info,button.dataset.videoAlign)); }
   else if (button.dataset.method) update({ method: button.dataset.method, shift: button.dataset.method === 'offset' ? 50 : 0 });
   else if (button.dataset.aspect) setAspect(button.dataset.aspect);
   else if (button.dataset.fit) updateFraming({ fit: button.dataset.fit });

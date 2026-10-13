@@ -763,4 +763,6 @@ input[type=range]::-moz-range-thumb { box-shadow: var(--raised-shadow); }
 .alignment-controls { display: flex; flex-wrap: wrap; gap: 4px; }
 .alignment-controls .text-btn { padding: 5px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--control); }
 
-.layer-video-marker { padding: 8px; color: var(--muted); font-size: 11px; border-block: 1px solid var(--line); }
+.layer-video-marker { padding: 4px; color: var(--muted); font-size: 11px; border-block: 1px solid var(--line); }
+.layer-video-marker.selected { background: var(--control); border-color: var(--selection-edge); }
+.layer-video-marker .layer-select { width: 100%; text-align: left; }
