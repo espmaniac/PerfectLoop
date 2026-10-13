@@ -86,9 +86,9 @@ export class LayerPanel {
       }
       const videoKey = input.dataset.videoSetting;
       if (videoKey && state.activeLayerId === 'video' && state.info.duration && !state.job) {
-        if (input.value === '') return;
-        const value = input.tagName === 'SELECT' ? input.value : Number(input.value);
-        if (input.tagName === 'SELECT' || Number.isFinite(value)) this.updateVideo({ [videoKey]: value });
+        if (input.value === '' && input.type === 'number') return;
+        const value = input.type === 'checkbox' ? input.checked : input.tagName === 'SELECT' || input.type === 'color' ? input.value : Number(input.value);
+        if (typeof value !== 'number' || Number.isFinite(value)) this.updateVideo({ [videoKey]: value });
         return;
       }
       if (!key || state.job || !state.activeLayerId || state.activeLayerId === 'video') return;
@@ -186,6 +186,7 @@ export class LayerPanel {
         ${numberField('cropX','Horizontal position',0,100,'%',0.1).replace('data-layer-setting','data-video-setting')}
         ${numberField('cropY','Vertical position',0,100,'%',0.1).replace('data-layer-setting','data-video-setting')}
       </div>
+      <div class="fields two"><label class="field"><span>Border color</span><input type="color" data-video-setting="background" aria-label="Border color"></label><label class="toggle-row"><span>Mirror horizontally</span><input type="checkbox" data-video-setting="mirror"><span class="switch" aria-hidden="true"></span></label></div>
       <div class="field"><span>Align video to frame</span><div class="alignment-controls" role="group" aria-label="Align video to frame">${ALIGNMENTS.map(([key,label])=>`<button class="text-btn" data-video-align="${key}" title="${label}">${label}</button>`).join('')}</div></div>
       <button class="btn secondary" type="button" data-action="reset-framing" aria-label="Reset video scale, position, and rotation">Reset video framing</button>`;
   }
@@ -258,9 +259,10 @@ export class LayerPanel {
     const layer = (state.s.layers || []).find(item => item.id === state.activeLayerId);
     if (state.activeLayerId === 'video') {
       this.controls.querySelectorAll('[data-video-setting]').forEach(input => {
-        if (input === document.activeElement && input.tagName !== 'SELECT') return;
+        if (input === document.activeElement && input.type === 'number') return;
         const raw = state.s[input.dataset.videoSetting];
-        input.value = String(raw);
+        if (input.type === 'checkbox') input.checked = Boolean(raw);
+        else input.value = String(raw);
         input.disabled = Boolean(state.job) || !state.info.duration;
       });
       return;

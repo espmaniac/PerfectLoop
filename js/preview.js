@@ -1,7 +1,6 @@
 import { clamp, download, timecode, framePlan } from './logic.js';
 import { drawLayers } from './layers.js';
 import { $, icon } from './ui.js';
-import { alternateFormat } from './aspect.js';
 import { videoTransform } from './framing.js';
 
 export function drawFrame(canvas, video, settings, rendered, layerTime = null) {
@@ -26,7 +25,6 @@ export class Preview {
   constructor(getState, onMode, onTime) {
     this.getState = getState; this.onMode = onMode; this.onTime = onTime;
     this.source = $('#source-video'); this.output = $('#loop-video'); this.canvas = $('#preview-canvas');
-    this.alternate = $('#alternate-canvas');
     this.muted = true; this.guides = false; this.dirtyFrame = true; this.lastFrame = ''; this.lastTick = 0; this.playing = null;
     this.compositionTime = 0; this.compositionTick = null;
     this.source.addEventListener('pause', () => this.syncPlayButton());
@@ -57,7 +55,6 @@ export class Preview {
   pause() { this.source.pause(); this.output.pause(); this.syncPlayButton(); }
   setSource(url) {
     if (this.active() === this.source) clearFrame(this.canvas);
-    clearFrame(this.alternate);
     this.pause(); this.source.removeAttribute('src');
     if (url) this.source.src = url;
     this.source.muted = this.muted; this.source.load(); this.dirtyFrame = true;
@@ -87,10 +84,6 @@ export class Preview {
     if (this.canvas.width !== w) this.canvas.width = w;
     if (this.canvas.height !== h) this.canvas.height = h;
     this.canvas.style.setProperty('--preview-aspect', String(aspect));
-    const alternate = alternateFormat(st.s), alternateRatio = alternate.width / alternate.height;
-    const alternateWidth = Math.round(Math.min(128, 128 * alternateRatio)), alternateHeight = Math.round(alternateWidth / alternateRatio);
-    if (this.alternate.width !== alternateWidth) this.alternate.width = alternateWidth;
-    if (this.alternate.height !== alternateHeight) this.alternate.height = alternateHeight;
     this.source.playbackRate = clamp(st.s.speed || 1, 0.25, 4);
     this.dirtyFrame = true;
     this.syncPlayButton();
@@ -174,7 +167,6 @@ export class Preview {
     if (now - this.lastTick > 100) {
       const duration = st.mode === 'loop' ? st.render?.duration || video.duration || 0 : st.mode === 'composition' ? framePlan(st.s).duration : st.info.duration;
       $('#transport-time').textContent = `${timecode(st.mode === 'composition' ? this.compositionTime % duration : video.currentTime)} / ${timecode(duration)}`;
-      drawFrame(this.alternate, this.source, { ...st.s, ...alternateFormat(st.s) }, false);
       this.lastTick = now; this.syncPlayButton();
     }
     this.onTime(video.currentTime, st.mode);

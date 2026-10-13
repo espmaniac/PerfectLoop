@@ -5,7 +5,7 @@ import { REPAIR_KEYS, repairSignature } from './repair.js';
 import { analyzeLoopRepair } from './repair-analysis.js';
 import { zipSync } from '../vendor/fflate.js';
 import { DEFAULTS, METHODS } from './constants.js';
-import { alternateFormat, dimensionsForAspect, selectedAspect } from './aspect.js';
+import { dimensionsForAspect, selectedAspect } from './aspect.js';
 import { clamp, download, framePlan, humanSize, timecode, validate } from './logic.js';
 import { VideoEngine } from './engine.js';
 import { capture, inspectSeam, openVideo, releaseVideo, searchVideo, seekVideo, thumbnails } from './media.js';
@@ -40,7 +40,6 @@ const state = {
 const history = { past: [], future: [] }, engine = new VideoEngine();
 let preview, previewEditor, previewViewport, timeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
 let selectionSignature = '';
-const framingSettings = new Set(['zoom', 'cropX', 'cropY', 'rotate', 'mirror', 'fit', 'background']);
 const videoSignature = settings => JSON.stringify({ ...settings, wallpaperPoster: undefined, wallpaperDevice: undefined });
 const pairedWallpaperKind = kind => ['pvt', 'live-photo', 'kit'].includes(kind);
 const downloadSettings = settings => settings.preset === 'iphone' && pairedWallpaperKind(state.wallpaperDownload)
@@ -285,7 +284,6 @@ function syncDisabled() {
   $('[data-action="undo"]').disabled = busy() || !history.past.length;
   $('[data-action="redo"]').disabled = busy() || !history.future.length;
   $$('[data-action="play"], [data-action="previous-frame"], [data-action="next-frame"], [data-action="frame-png"]').forEach(el => { el.disabled = disabled || staticWallpaperLayout(); });
-  $('[data-action="alternate"]').disabled = disabled;
   $$('[data-action="mark-in"], [data-action="mark-out"], [data-action="zoom"]').forEach(button => {
     button.hidden = rendered; button.disabled = disabled || rendered;
   });
@@ -300,9 +298,6 @@ function syncDisabled() {
   $('[data-action="open-photo"]').disabled = busy();
   $('[data-setting="preset"]').disabled = busy();
   $$('[data-wallpaper-screen]').forEach(button => { button.disabled = busy(); });
-  $$('[data-setting], [data-fit]').forEach(input => {
-    if (framingSettings.has(input.dataset.setting) || input.dataset.fit) input.disabled = disabled || state.tab === 'layers';
-  });
 }
 function refreshBindings() {
   $$('[data-setting], [data-search]').forEach(input => {
@@ -437,7 +432,6 @@ function refresh() {
   $('#field-setting-curve').hidden = !blending;
   $('#overlap-note').hidden = !blending;
   $('#overlap-note').textContent = `Actual overlap: ${(plan.overlap / s.fps).toFixed(3)}s (${plan.overlap} frames). Overlap is limited to less than half the selected clip.`;
-  $('#field-setting-cropX').hidden = $('#field-setting-cropY').hidden = false;
   $('#field-audio-strip').hidden = isGif;
   $('#gif-playback-settings').hidden = !isGif;
   $('#gif-pingpong-note').hidden = !pingpong;
@@ -456,14 +450,8 @@ function refresh() {
   const aspect = selectedAspect(s);
   $('#dimension-fields').hidden = $('#dimension-note').hidden = aspect !== 'custom';
   $$('[data-aspect]').forEach(button => { const active = button.dataset.aspect === aspect; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
-  $$('[data-fit]').forEach(button => { const active = button.dataset.fit === s.fit; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   $('#dimension-caption').textContent = `${s.width} × ${s.height}`;
   $('#destination-label').textContent = s.preset === 'spotify' ? 'Spotify Canvas' : s.preset === 'vertical' ? 'Music visual' : wallpaper ? 'iPhone wallpaper' : 'Custom';
-  $('.alternate-format').hidden = wallpaper;
-  const alternate = alternateFormat(s);
-  $('#alternate-label').textContent = alternate.aspect;
-  $('#alternate-dimensions').textContent = `${alternate.width} × ${alternate.height}`;
-  $('[data-action="alternate"]').setAttribute('aria-label', `Use ${alternate.aspect} alternate output format`);
   document.documentElement.style.setProperty('--source-aspect', String(state.mode === 'loop' && state.render ? state.render.width / state.render.height : state.mode === 'composition' ? s.width / s.height : info.width / info.height || 9 / 16));
   $('#finished-duration').textContent = exportPlan.totalDuration.toFixed(3);
   $('#output-meta').textContent = `${exportPlan.totalFrames} frames · ${exportSettings.width} × ${exportSettings.height}`;
@@ -1110,12 +1098,6 @@ function changeField(event) {
     updateActiveRange({ [input.dataset.setting]: value });
     timeline.previewEdge(input.dataset.setting);
   }
-  else if (input.dataset.setting === 'zoom') {
-    const zoom = clamp(value, 25, 400);
-    if (zoom === (state.s.zoom ?? 100) || busy()) return;
-    updateFraming({ zoom });
-  }
-  else if (framingSettings.has(input.dataset.setting)) updateFraming({ [input.dataset.setting]: value });
   else if (input.dataset.setting === 'preset') setPreset(value);
   else if (input.dataset.setting === 'wallpaperDevice') {
     const profile = phoneProfile({ ...state.s, wallpaperDevice: value });
@@ -1166,7 +1148,6 @@ const actions = {
   play: () => staticWallpaperLayout() ? undefined : playPreview(), 'previous-frame': () => { if (!staticWallpaperLayout()) stepPreview(-1); }, 'next-frame': () => { if (!staticWallpaperLayout()) stepPreview(1); },
   mute: () => preview.toggleMute(), guides: () => preview.toggleGuides(), fullscreen: () => preview.fullscreen(), 'frame-png': () => { if (!staticWallpaperLayout()) preview.saveFrame(); },
   zoom: () => timeline.toggleZoom(), 'mark-in': () => mark('start'), 'mark-out': () => mark('end'), 'fit-duration': fitDuration,
-  alternate: () => { const { aspect, width, height } = alternateFormat(state.s); setAspect(aspect, { width, height }); },
   'download-again': () => { if (state.lastExport) download(state.lastExport.blob, state.lastExport.name); },
   'select-top': () => { state.selected = state.selected.size ? new Set() : new Set(state.candidates.slice(0, 5).map(candidate => candidate.id)); renderCandidates(); },
 };
@@ -1175,7 +1156,6 @@ document.addEventListener('click', event => {
   if (button.dataset.videoAlign) { if(!busy() && state.tab === 'layers' && state.activeLayerId === 'video') updateFraming(alignVideoToFrame(state.s,state.info,button.dataset.videoAlign)); }
   else if (button.dataset.method) update({ method: button.dataset.method, shift: button.dataset.method === 'offset' ? 50 : 0 });
   else if (button.dataset.aspect) setAspect(button.dataset.aspect);
-  else if (button.dataset.fit) updateFraming({ fit: button.dataset.fit });
   else if (button.dataset.tab) {
     state.tab = button.dataset.tab;
     if (state.tab === 'layers') { state.wallpaperScreen = 'editor'; preview.setMode('composition'); }

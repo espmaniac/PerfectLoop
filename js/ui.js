@@ -39,12 +39,7 @@ export function initializeFields() {
     + selectField('curve', 'Blend curve', [['linear', 'Linear'], ['smooth', 'Smoothstep'], ['cosine', 'Cosine']])
     + numberField('shift', 'Seam position', { min: 0, max: 99, step: 1, suffix: '%' });
   $('#loop-settings').prepend($('#field-setting-shift'));
-  $('#framing-fields').innerHTML = selectField('fit', 'Fit mode', [['cover', 'Fill & crop'], ['contain', 'Fit with borders'], ['stretch', 'Stretch']])
-    + numberField('zoom', 'Video scale', { min: 25, max: 400, step: 1, suffix: '%' })
-    + rangeField('cropX', 'Horizontal position') + rangeField('cropY', 'Vertical position')
-    + `<div class="fields two">${numberField('rotate', 'Rotation', { min: -360, max: 360, step: 1, suffix: '°' })}<label class="field"><span>Border color</span><input type="color" data-setting="background" aria-label="Border color"></label></div>`
-    + toggleField('mirror', 'Mirror horizontally')
-    + toggleField('interpolate', 'Motion interpolation', { detail: 'Smoother speed changes; significantly slower to render.' });
+  $('#motion-fields').innerHTML = toggleField('interpolate', 'Motion interpolation', { detail: 'Smoother speed changes; significantly slower to render.' });
   $('#search-range-fields').innerHTML = numberField('from', 'Search from', { suffix: 's', scope: 'search' })
     + numberField('to', 'Search to', { suffix: 's', scope: 'search' })
     + numberField('min', 'Min loop length', { min: 0.1, suffix: 's', scope: 'search' })

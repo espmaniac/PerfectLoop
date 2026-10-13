@@ -56,10 +56,10 @@ function fixture(t) {
     const previous = new Map(['document', 'requestAnimationFrame', 'cancelAnimationFrame']
         .map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
     const source = new FakeVideo('#2468ac'), output = new FakeVideo('#64ac24');
-    const canvas = new FakeCanvas(), alternate = new FakeCanvas();
+    const canvas = new FakeCanvas();
     const elements = new Map([
         ['#source-video', source], ['#loop-video', output], ['#preview-canvas', canvas],
-        ['#alternate-canvas', alternate], ['[data-action="play"]', new FakeElement()],
+        ['[data-action="play"]', new FakeElement()],
         ['#transport-time', new FakeElement()],
     ]);
     let nextId = 0, now = 101;
@@ -84,7 +84,7 @@ function fixture(t) {
     });
     preview.refresh();
     return {
-        preview, state, source, output, canvas, alternate, times, transport: elements.get('#transport-time'),
+        preview, state, source, output, canvas, times, transport: elements.get('#transport-time'),
         tick(time = now) {
             const [id, callback] = frames.entries().next().value;
             frames.delete(id);
@@ -161,22 +161,21 @@ test('Replacing active media clears the previous image before the new video load
     f.tick();
     f.preview.setOutput('replacement-loop.mp4');
     assert.notEqual(f.canvas.pixel, '#64ac24');
-    assert.equal(f.alternate.pixel, '#2468ac', 'the source framing preview remains available');
 
     f.preview.setMode('source');
     f.tick();
     assert.equal(f.canvas.pixel, '#2468ac');
     f.preview.setSource('replacement-source.mp4');
     assert.notEqual(f.canvas.pixel, '#2468ac');
-    assert.notEqual(f.alternate.pixel, '#2468ac');
 });
 
-test('Refreshing unchanged dimensions preserves the source framing preview', t => {
+test('Refreshing unchanged dimensions preserves the active preview frame', t => {
     const f = fixture(t);
     f.tick();
-    assert.equal(f.alternate.pixel, '#2468ac');
+    assert.equal(f.canvas.pixel, '#64ac24');
     f.preview.refresh();
-    assert.equal(f.alternate.pixel, '#2468ac');
+    f.tick();
+    assert.equal(f.canvas.pixel, '#64ac24');
 });
 
 test('Playback publishes the active media time on every animation frame', t => {
