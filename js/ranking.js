@@ -92,21 +92,31 @@ export function rankFrames(frames, opts) {
                 break;
         }
     }
-    return distinctCandidates(shortlist, opts);
+    const candidates = distinctCandidates(shortlist, opts);
+    // Always validate the complete selected cycle, even if coarse sampling favors
+    // a shorter fragment or its global score falls below the shortlist cutoff.
+    const duration = opts.endBoundary - frames[0]?.time;
+    if (frames.length >= 2 && opts.endBoundary <= opts.to + 1e-7 && duration >= opts.min - 1e-6 && duration <= opts.max + 1e-6
+        && (!opts.avoidCuts || prefix.at(-1) === 0)) {
+        const full = { id: 'full-range', ...pairScore(frames[0], frames[1], frames.at(-2), frames.at(-1), opts.preferMotion, prefix.at(-1)), end: opts.endBoundary };
+        if (!candidates.some(c => Math.abs(c.start-full.start)<1e-7 && Math.abs(c.end-full.end)<1e-7)) candidates.push(full);
+    }
+    return candidates;
 }
 export function distinctCandidates(candidates, opts) {
+    const limit = opts.limit ?? 16;
     const best = [...candidates].sort((x, y) => y.score - x.score);
     const distinct = [];
     const separation = opts.precision === 'detailed' ? 0.3 : 0.6;
     const duplicate = c => distinct.some(x => Math.abs(x.start - c.start) < separation && Math.abs((x.end - x.start) - (c.end - c.start)) < 0.35);
-    for (let index = 0; index < best.length && distinct.length < 16;) {
+    for (let index = 0; index < best.length && distinct.length < limit;) {
         let end = index + 1;
         while (end < best.length && Math.abs(best[end].score - best[index].score) < 1e-8)
             end++;
         // Equal quality carries no reason to prefer the beginning of a video.
         // Spread ties across source time, without promoting weaker matches.
         const ties = best.slice(index, end);
-        while (ties.length && distinct.length < 16) {
+        while (ties.length && distinct.length < limit) {
             let chosen = -1, widest = -1, durationGap = -1;
             for (let i = 0; i < ties.length; i++) {
                 const c = ties[i];
@@ -128,4 +138,21 @@ export function distinctCandidates(candidates, opts) {
         index = end;
     }
     return distinct;
+}
+
+// Nonmaximum suppression keeps the strongest representative of overlapping clips.
+// Compare with retained clips, so a chain of overlaps cannot hide a distant scene.
+export function filterSimilarRanges(candidates, hideSimilar = true, limit = hideSimilar ? 16 : 48) {
+    const visible = [];
+    for (const candidate of [...candidates].sort((a,b) => b.score-a.score)) {
+        const duplicate = visible.some(other => {
+            if (Math.abs(candidate.start-other.start)<1e-7 && Math.abs(candidate.end-other.end)<1e-7) return true;
+            if (!hideSimilar) return false;
+            const overlap = Math.max(0, Math.min(candidate.end,other.end)-Math.max(candidate.start,other.start));
+            return overlap / Math.min(candidate.end-candidate.start,other.end-other.start) >= .75;
+        });
+        if (!duplicate) visible.push(candidate);
+        if (visible.length >= limit) break;
+    }
+    return visible;
 }

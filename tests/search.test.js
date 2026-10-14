@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { distinctCandidates, pairScore, rankFrames } from '../js/ranking.js';
+import { distinctCandidates, filterSimilarRanges, pairScore, rankFrames } from '../js/ranking.js';
 import { searchSamplePlan, searchVideo } from '../js/media.js';
 
 const options = { from: 0, to: 60, min: 3, max: 8, precision: 'balanced', preferMotion: false, avoidCuts: true };
@@ -143,4 +143,44 @@ test('An exact-length selection at low frame rates refines its terminal seam wit
     assert.equal(result.candidates[0].refined, true, 'The terminal candidate must receive frame-level refinement');
     assert.ok(seeks.every(time => time >= 40 && time < 56));
     assert.ok(seeks.some(time => Math.abs(time - (56 - 1.5 / 6)) < 1e-7), 'Boundary motion needs a real penultimate frame');
+});
+
+test('A weak coarse full-range match still reaches detailed seam verification', () => {
+    const frames = Array.from({length:17}, (_,i)=>frame(i/2, .4));
+    frames.at(-1).pixels.fill(.61);
+    const candidates = rankFrames(frames, {...options,to:8.5,endBoundary:8.5,max:8.5,limit:1});
+    assert.ok(candidates.some(c=>c.start===0 && c.end===8.5), 'The complete cycle must not be lost to a shorter coarse match');
+    const cutFrames = frames.map(f=>({...f,pixels:f.pixels.slice()}));
+    cutFrames[8].pixels.fill(.9);
+    assert.ok(!rankFrames(cutFrames,{...options,to:8.5,endBoundary:8.5,max:8.5,limit:1}).some(c=>c.id==='full-range'), 'Avoid scene cuts still applies to the full-range candidate');
+});
+
+test('Video-track duration excludes cloned frames in a longer audio tail', () => {
+    const plan = searchSamplePlan({...options,to:8.107,videoDuration:8},24,8.107);
+    assert.equal(plan.end,8);
+    assert.equal(plan.last,191/24);
+    assert.ok(plan.times.every(time=>time+.5/24<8));
+    const partial = searchSamplePlan({...options,from:1,to:6,videoDuration:8},24,8.107);
+    assert.equal(partial.first,1); assert.equal(partial.end,6);
+});
+
+
+test('Similar-range filtering keeps the best overlapping clip and exposes alternatives when off', () => {
+    const candidates = [
+        {id:'worse',start:1,end:8,score:80},
+        {id:'best',start:0,end:8,score:95},
+        {id:'nested',start:2,end:6,score:85},
+        {id:'next',start:7,end:15,score:90},
+        {id:'late',start:40,end:48,score:88},
+        {id:'identical',start:0,end:8,score:70},
+    ];
+    const snapshot=JSON.stringify(candidates);
+    assert.deepEqual(filterSimilarRanges(candidates).map(c=>c.id),['best','next','late']);
+    assert.deepEqual(filterSimilarRanges(candidates,false).map(c=>c.id),['best','next','late','nested','worse']);
+    assert.equal(JSON.stringify(candidates),snapshot);
+});
+
+test('Overlap chains do not suppress a separate range indirectly', () => {
+    const clips=Array.from({length:3},(_,i)=>({id:i,start:i*2,end:i*2+8,score:100-i}));
+    assert.deepEqual(filterSimilarRanges(clips).map(c=>c.id),[0,2]);
 });
