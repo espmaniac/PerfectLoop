@@ -827,3 +827,10 @@ input[type=range]::-moz-range-thumb { box-shadow: var(--raised-shadow); }
 /* Distinguish applying a loop from selecting it for batch export. */
 .candidate-check > span { font-size: 9px; color: var(--dim); }
 .candidate-use { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--control, #717171); font-size: 11px; }
+
+.seam-pause-controls { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.pause-frame-field { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px 8px; margin: 12px 0; }
+.pause-frame-field .field { margin: 0; }
+.pause-frame-field > input[type=range] { grid-column: 1 / -1; width: 100%; }
+.pause-step-buttons { display: flex; align-items: end; gap: 4px; }
+.pause-trim-region { position: absolute; top: 0; bottom: 0; background: #c5945077; border-inline: 1px solid #d5ac73; pointer-events: none; z-index: 2; }

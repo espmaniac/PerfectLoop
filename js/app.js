@@ -1,3 +1,5 @@
+import { pauseBasis, pauseTrim } from './seam-pause.js';
+import { analyzeSeamPause } from './seam-pause-analysis.js';
 import { AutoPreview } from './auto-preview.js';
 import { compareLoopMethods } from './method-comparison.js';
 import { methodContext } from './method-fit.js';
@@ -39,7 +41,7 @@ const state = {
   renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
   wallpaperScreen: 'editor', wallpaperDownload: supportsPackageSave() ? 'pvt' : 'live-photo', wallpaperPosterURL: '', wallpaperPosterSignature: '',
   opts: { from: 0, to: 18, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true, hideSimilar: true },
-  candidates: [], selected: new Set(), seam: null, repairAnalysis: null, methodComparison: null,
+  pauseDraft: null, pauseAnalysis: null, pauseHighlights: null, candidates: [], selected: new Set(), seam: null, repairAnalysis: null, methodComparison: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
@@ -117,6 +119,7 @@ function remember() {
   history.past.push(snapshot()); if (history.past.length > 60) history.past.shift(); history.future = [];
 }
 function update(partial, saveHistory = true) {
+  if (!('seamPause' in partial) && ['start','end','speed'].some(key=>key in partial && partial[key]!==state.s[key])) partial={...partial,seamPause:null};
   if ('width' in partial || 'height' in partial) partial = { aspect: 'custom', ...partial };
   if ('rotate' in partial && state.s.aspect === 'original' && partial.aspect !== 'custom') partial = { ...partial, ...dimensionsForAspect('original', state.info, partial.rotate), aspect: 'original' };
   if (busy() || Object.entries(partial).every(([key, value]) => state.s[key] === value)) return;
@@ -131,7 +134,11 @@ function update(partial, saveHistory = true) {
 }
 function restore(value) {
   const searchChanged = Object.keys(state.opts).some(key => key !== 'hideSimilar' && state.opts[key] !== value.opts[key]);
-  state.s = value.s; state.opts = value.opts;
+  const duration=state.info.videoDuration||state.info.duration;
+  const end=Math.min(value.s.end,duration),start=end<value.s.end ? Math.min(value.s.start,Math.max(0,end-3*value.s.speed/value.s.fps)) : value.s.start;
+  state.s=start!==value.s.start||end!==value.s.end ? {...value.s,start,end,repair:null,seamPause:null} : value.s;
+  state.opts={...value.opts,to:Math.min(value.opts.to,duration)};
+  state.opts.from=Math.min(state.opts.from,Math.max(0,state.opts.to-1/(state.info.fps||30)));
   if (searchChanged) clearCandidates();
   else { state.selected = new Set(); renderCandidates(); }
   clearSeam();
@@ -458,6 +465,7 @@ function refresh() {
   if (state.activeLayerId !== 'video' && !s.layers.some(layer => layer.id === state.activeLayerId)) state.activeLayerId = state.tab === 'layers' ? 'video' : s.layers.at(-1)?.id || '';
   layerPanel?.render();
   refreshRepair();
+  refreshPause();
   refreshMethodComparison();
   $$('[data-method]').forEach(button => { const active = button.dataset.method === s.method; button.classList.toggle('selected', active); button.setAttribute('aria-pressed', String(active)); });
   $('#method-detail').textContent = METHODS.find(method => method.id === s.method).detail;
@@ -576,14 +584,14 @@ async function loadFile(file, sample = false) {
   if (state.renderURL) URL.revokeObjectURL(state.renderURL);
   Object.assign(state, { file, info: { ...emptyInfo, name: file.name, size: file.size }, sourceURL: URL.createObjectURL(file), renderURL: '',
     render: null, renderSettings: null, renderPlayhead: 0, renderFilmstrip: [], playhead: 0,
-    repairAnalysis: null, lastExport: null, filmstrip: [], candidates: [], selected: new Set(), error: '', nativeError: '', mode: 'source',
+    pauseDraft: null, pauseAnalysis: null, pauseHighlights: null, repairAnalysis: null, lastExport: null, filmstrip: [], candidates: [], selected: new Set(), error: '', nativeError: '', mode: 'source',
     notice: '' });
   clearSeam(); renderCandidates(); preview.setSource(state.sourceURL); preview.setOutput(''); refresh();
   try {
     const video = await openVideo(state.sourceURL, controller.signal);
     const info = { name: file.name, size: file.size, width: video.videoWidth, height: video.videoHeight, duration: video.duration, fps: sample ? 24 : 0, hasAudio: true };
     releaseVideo(video); if (controller.signal.aborted || state.file !== file) return;
-    state.info = info; state.s = { ...state.s, start: 0, end: info.duration, repeats: 1, repair: null };
+    state.info = info; state.s = { ...state.s, start: 0, end: info.duration, speed: pauseBasis(state.s)?.base.speed || state.s.speed, repeats: 1, repair: null, seamPause: null };
     if (state.s.preset === 'spotify' && (info.duration < 3 || info.duration > 8)) state.s = { ...state.s, preset: 'custom' };
     if (state.s.preset === 'iphone') state.s = { ...state.s, ...wallpaperRange(downloadSettings(state.s), info) };
     if (state.s.aspect === 'original') state.s = { ...state.s, ...dimensionsForAspect('original', info, state.s.rotate) };
@@ -647,7 +655,7 @@ async function makeProxy() {
     state.info = { ...state.info, width: stream?.width || video.videoWidth, height: stream?.height || video.videoHeight, duration: video.duration,
       fps: Number(rate[0]) / Number(rate[1]) || 30, hasAudio: result.probe.streams.some(item => item.codec_type === 'audio') };
     releaseVideo(video); URL.revokeObjectURL(state.sourceURL); state.sourceURL = proxyURL; proxyURL = null;
-    state.nativeError = ''; state.s = { ...state.s, repair: null, start: 0, end: state.info.duration }; state.repairAnalysis = null;
+    state.nativeError = ''; state.s = { ...state.s, speed: pauseBasis(state.s)?.base.speed || state.s.speed, seamPause:null, repair: null, start: 0, end: state.info.duration }; state.repairAnalysis = null;
     if (state.s.aspect === 'original') state.s = { ...state.s, ...dimensionsForAspect('original', state.info, state.s.rotate) };
     state.opts = { ...state.opts, from: 0, to: state.info.duration };
     clearCandidates(); history.past = []; history.future = [];
@@ -798,6 +806,87 @@ function showRenderedPreview(settings, result) {
 function currentRepairAnalysis() {
   const analysis = state.repairAnalysis;
   return analysis?.source === state.sourceURL && analysis.signature === repairSignature(state.s) ? analysis : null;
+}
+function pauseDraft() {
+  const prior=pauseBasis(state.s), base=prior?.base || {start:state.s.start,end:state.s.end,speed:state.s.speed};
+  const rate=prior?.rate || state.info.fps || state.s.fps;
+  const key=`${state.sourceURL}:${videoSignature(state.s)}:${rate}`;
+  if(state.pauseDraft?.key!==key)state.pauseDraft={key,base,rate,head:prior?.head||0,tail:prior?.tail||0,keep:prior?.keep||false};
+  return state.pauseDraft;
+}
+function pauseAnalysisKey(draft) { return `${state.sourceURL}:${videoSignature({...state.s,...draft.base,seamPause:null,repair:null})}:${draft.rate}`; }
+function pauseProposal(draft=pauseDraft()) { return pauseTrim(state.s,draft.head,draft.tail,draft.rate,draft.keep,state.info); }
+function refreshPause() {
+  const d=pauseDraft();let proposal,error='';
+  try { proposal=pauseProposal(d); } catch(e) {error=e.message;}
+  for(const [key,id,other] of [['head','pause-head','tail'],['tail','pause-tail','head']]) {
+    const number=$(`#${id}`),slider=$(`#${id}-range`);
+    if(document.activeElement!==number)number.value=String(d[key]);
+    const minimum=d.keep ? Math.ceil(framePlan({...state.s,...d.base}).frames/state.s.fps*.25*d.rate-1e-7)
+      : Math.ceil((['crossfade','offset'].includes(state.s.method)?5:3)*d.base.speed/state.s.fps*d.rate-1e-7);
+    slider.max=String(Math.max(0,Math.floor((d.base.end-d.base.start)*d.rate)-minimum-(d[other]||0)));
+    slider.value=String(d[key]||0);number.max=slider.max;
+    $(`[data-action="pause-${key}-minus"]`).disabled=!(d[key]>0);
+    $(`[data-action="pause-${key}-plus"]`).disabled=Number.isFinite(d[key])&&d[key]>=Number(slider.max);
+  }
+  $('#pause-keep').checked=d.keep;
+  $('[data-action="pause-apply"]').disabled=busy()||!state.file||Boolean(error);
+  $('[data-action="pause-preview"]').disabled=busy()||!state.file||Boolean(error);
+  $('[data-action="pause-reset"]').disabled=busy()||!state.file;
+  const before=framePlan({...state.s,...d.base}).duration;
+  $('#pause-summary').textContent=error || `${before.toFixed(3)}s → ${framePlan(proposal).duration.toFixed(3)}s · ${d.head} start / ${d.tail} end frames · frame step ${(1/d.rate).toFixed(3)}s${d.keep?' · playback '+proposal.speed.toFixed(3)+'×':''}`;
+  $('#pause-report').textContent=state.pauseAnalysis?.key===pauseAnalysisKey(d) ? state.pauseAnalysis.message : 'Detect pause to get a suggestion, or choose frame counts manually.';
+  state.pauseHighlights=state.tab==='repair'&&proposal ? {start:d.base.start,end:d.base.end,keptStart:proposal.start,keptEnd:proposal.end}:null;
+}
+function changePause(edge,value) {
+  if(busy())return;
+  const d=pauseDraft();d[edge]=value;
+  selectPreview('original');refreshPause();timeline.render();
+  try { const p=pauseProposal(d);preview.seek(edge==='tail'?Math.max(p.start,p.end-1/d.rate):p.start,'composition'); } catch {}
+}
+async function detectSeamPause() {
+  if(!state.file||busy())return;
+  const issues=validate({...state.s,...pauseDraft().base,repair:null,preset:'custom',method:'natural'},state.info);
+  if(issues.length) {report(new Error(issues[0]));return;}
+  if(!startJob('pause','Detecting seam pause…'))return;
+  preview.pause();autoPreview.stop();state.previewChoice='original';preview.setMode('composition');
+  const source=state.sourceURL,controller=state.controller,signal=controller.signal;
+  try {
+    if(!state.info.videoDuration || !state.info.fps) {
+      const metadata=await engine.inspect(state.file,progress('pause'));signal.throwIfAborted();
+      if(source!==state.sourceURL)return;
+      state.info={...state.info,...metadata,duration:metadata.videoDuration||state.info.duration};
+      if(state.s.end>state.info.duration)state.s={...state.s,end:state.info.duration,seamPause:null,repair:null};
+      state.opts.to=Math.min(state.opts.to,state.info.duration);
+    }
+    const d=pauseDraft(),settings={...state.s,...d.base};
+    const result=await analyzeSeamPause(source,settings,state.info,signal,progress('pause'));signal.throwIfAborted();
+    if(result.head||result.tail) {d.rate=result.rate;d.head=result.head;d.tail=result.tail;}
+    state.pauseAnalysis={key:pauseAnalysisKey(d),message:result.message};
+  } catch(error) {if(state.controller===controller)report(error);}
+  finally {if(state.controller===controller&&state.job?.kind==='pause')finishJob();}
+}
+function applyPauseTrim() {
+  if(busy())return false;
+  try {
+    const p=pauseProposal();
+    if(JSON.stringify(p.seamPause)===JSON.stringify(state.s.seamPause))p.seamPause=state.s.seamPause;
+    state.previewChoice='original';autoPreview.stop();
+    update(p);preview.seek(clamp(preview.source.currentTime,p.start,p.end-.001),'composition');
+    notice('Pause trim applied. Preview seam to check the motion, or use Undo to restore the range.');return true;
+  } catch(error) {report(error);return false;}
+}
+function resetPauseTrim() {
+  if(busy())return;
+  const d=pauseDraft();d.head=0;d.tail=0;d.keep=false;
+  if(applyPauseTrim()) {state.pauseAnalysis=null;notice('Pause trim reset. The previous range and speed are restored.');refresh();}
+}
+async function previewPauseSeam() {
+  if(preview.seamPreview) {preview.pause();return;}
+  if(!applyPauseTrim())return;
+  state.previewChoice='result';refresh();
+  if(dirty())await runRender(true);else preview.setMode('loop');
+  if(!dirty()&&state.renderURL&&!busy())await preview.playSeam();
 }
 async function analyzeRepair() {
   if (!state.file || busy()) return;
@@ -1115,6 +1204,8 @@ async function addFonts(files) {
 }
 
 initializeFields();
+for(const [id,key] of [['pause-head','head'],['pause-head-range','head'],['pause-tail','tail'],['pause-tail-range','tail']]) $(`#${id}`).addEventListener('input',event=>changePause(key,event.target.valueAsNumber));
+$('#pause-keep').addEventListener('change',event=>{pauseDraft().keep=event.target.checked;selectPreview('original');refreshPause();timeline.render();});
 for (const id of ['repair-blend', 'repair-overlap', 'repair-strength']) $(`#${id}`).addEventListener('input', refreshRepair);
 $('#methods').innerHTML = METHODS.map((method, index) => `<button class="method-card" data-method="${method.id}" aria-pressed="false" title="${escapeHTML(method.short)}"><span class="method-icon">${icon(['Scissors', 'Blend', 'Layers', 'Play', 'SmoothWave', 'FadeCircle'][index], 25)}</span><span><b>${method.name}</b><small>${method.short}</small></span><span class="method-score" data-method-score="${method.id}" hidden></span></button>`).join('');
 preview = new Preview(() => state, mode => { state.mode = mode; if (mode === 'source') state.wallpaperScreen = 'editor'; clearSeam(); refresh(); }, (time, mode) => {
@@ -1247,6 +1338,11 @@ const actions = {
   'repair-analyze': analyzeRepair, 'repair-apply': applyRepair,
   'repair-preview': () => { state.previewChoice = 'result'; if (applyRepair()) return runRender(true); },
   'repair-before': () => selectPreview('original'),
+  'pause-detect': detectSeamPause, 'pause-apply': applyPauseTrim, 'pause-preview': previewPauseSeam, 'pause-reset': resetPauseTrim,
+  'pause-head-minus': () => changePause('head',Math.max(0,(pauseDraft().head||0)-1)),
+  'pause-head-plus': () => changePause('head',(pauseDraft().head||0)+1),
+  'pause-tail-minus': () => changePause('tail',Math.max(0,(pauseDraft().tail||0)-1)),
+  'pause-tail-plus': () => changePause('tail',(pauseDraft().tail||0)+1),
   'repair-full': () => { update({ start: 0, end: state.info.duration, method: 'natural', shift: 0, repair: null }); preview.setMode('source'); },
   'repair-cut': () => { const a = currentRepairAnalysis(); if (a?.cut) { update({ start: a.cut.start, end: a.cut.end, method: 'natural', shift: 0, repair: null }); preview.setMode('source'); notice('Suggested cut applied. Analyze again and preview the motion across the boundary.'); } },
   'repair-clear': () => { for (const id of ['repair-flicker', 'repair-alignment', 'repair-blend']) $(`#${id}`).checked = false; update({ repair: null, method: 'natural', shift: 0 }); refreshRepair(); notice('Brightness, alignment, and seam blending removed.'); },

@@ -62,6 +62,12 @@ export class Timeline {
       $('#timeline-preview-duration').textContent = st.render.duration.toFixed(3);
     }
     const left = rendered ? 0 : clamp(percent(range.start), 0, 100), right = rendered ? 100 : clamp(percent(range.end), 0, 100);
+    for(const [id,a,b] of [['pause-trim-head',st.pauseHighlights?.start,st.pauseHighlights?.keptStart],['pause-trim-tail',st.pauseHighlights?.keptEnd,st.pauseHighlights?.end]]) {
+      const region=$(`#${id}`);if(!region)continue;
+      const left=clamp(percent(a),0,100),right=clamp(percent(b),0,100);
+      region.hidden=rendered||!st.pauseHighlights||!(b>a)||right<=left;
+      if(!region.hidden) {region.style.left=`${left}%`;region.style.width=`${right-left}%`;region.title=`Trim source interval ${timecode(a)}–${timecode(b)}`;}
+    }
     $('#shade-left').hidden = rendered; $('#shade-right').hidden = rendered;
     $('#shade-left').style.width = `${left}%`; $('#shade-right').style.width = `${100 - right}%`;
     $('#selection-outline').style.left = `${left}%`; $('#selection-outline').style.width = `${Math.max(0, right - left)}%`;

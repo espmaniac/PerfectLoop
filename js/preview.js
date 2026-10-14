@@ -25,7 +25,7 @@ export class Preview {
   constructor(getState, onMode, onTime) {
     this.getState = getState; this.onMode = onMode; this.onTime = onTime;
     this.source = $('#source-video'); this.output = $('#loop-video'); this.canvas = $('#preview-canvas');
-    this.muted = true; this.guides = false; this.dirtyFrame = true; this.lastFrame = ''; this.lastTick = 0; this.playing = null;
+    this.muted = true; this.guides = false; this.seamPreview = false; this.dirtyFrame = true; this.lastFrame = ''; this.lastTick = 0; this.playing = null;
     this.compositionTime = 0; this.compositionTick = null;
     this.source.addEventListener('pause', () => this.syncPlayButton());
     this.output.addEventListener('pause', () => this.syncPlayButton());
@@ -56,7 +56,21 @@ export class Preview {
     const st = this.getState();
     return st.previewChoice === 'original' ? (st.s.end-st.s.start)/st.s.speed : framePlan(st.s).duration;
   }
-  pause() { this.source.pause(); this.output.pause(); this.syncPlayButton(); }
+  stopSeam() { this.seamPreview=false;this.syncSeamButton(); }
+  syncSeamButton() {
+    const button=$('[data-action="pause-preview"]');
+    if(!button)return;
+    button.setAttribute('aria-pressed',String(this.seamPreview));
+    button.innerHTML=icon(this.seamPreview?'Pause':'Play',16)+`<span>${this.seamPreview?'Stop seam preview':'Preview seam'}</span>`;
+  }
+  pause() { this.stopSeam();this.source.pause(); this.output.pause(); this.syncPlayButton(); }
+  async playSeam() {
+    const st=this.getState();
+    if(st.job||st.mode!=='loop'||!st.renderURL)return;
+    const duration=st.render.duration,span=Math.min(1,duration/3);
+    this.seek(Math.max(0,duration-span),'loop');this.seamPreview=true;this.syncSeamButton();
+    await this.output.play().catch(()=>this.stopSeam());this.syncPlayButton();
+  }
   setSource(url) {
     if (this.active() === this.source) clearFrame(this.canvas);
     this.pause(); this.source.removeAttribute('src');
@@ -104,7 +118,7 @@ export class Preview {
   async play() {
     const st = this.getState(), video = this.active();
     if (st.job || !st.info.duration) return;
-    if (!video.paused) video.pause();
+    if (!video.paused) this.pause();
     else {
       if (st.mode !== 'loop') {
         const range = this.sourceRange();
@@ -116,6 +130,7 @@ export class Preview {
     this.syncPlayButton();
   }
   step(direction) {
+    this.stopSeam();
     const st = this.getState(), video = this.active();
     if (st.job || !st.info.duration) return;
     video.pause();
@@ -155,6 +170,10 @@ export class Preview {
         this.compositionTime = (this.compositionTime + Math.max(0, now - this.compositionTick) / 1000) % period;
       this.compositionTick = now;
     } else this.compositionTick = null;
+    if(this.seamPreview && st.mode==='loop' && !video.paused) {
+      const duration=st.render.duration,span=Math.min(1,duration/3),tail=duration-span;
+      if(video.currentTime>=span && video.currentTime<tail-.005)video.currentTime=tail;
+    }
     if (st.mode !== 'loop' && !video.paused) {
       const range = this.sourceRange();
       if (range.end > range.start && (video.currentTime >= range.end - 0.005 || video.currentTime < range.start - 0.05)) video.currentTime = range.start;

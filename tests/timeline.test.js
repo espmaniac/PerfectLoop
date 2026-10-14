@@ -334,3 +334,16 @@ test('Unavailable and temporarily empty search bounds never create invalid timel
     assert.deepEqual(f.timeline.selection(), { start: 0, end: 60 });
     assert.equal(f.elements.get('#selection-outline').style.width, '100%');
 });
+
+test('Pause trims highlight source intervals, clip to timeline zoom, and stay off the encoded timeline', t => {
+    const f=fixture(t),head=new FakeElement(),tail=new FakeElement();
+    f.elements.set('#pause-trim-head',head);f.elements.set('#pause-trim-tail',tail);
+    f.state.tab='repair';f.state.pauseHighlights={start:10,end:20,keptStart:12,keptEnd:18};
+    f.timeline.render();assert.equal(head.hidden,false);assert.equal(tail.hidden,false);
+    near(parseFloat(head.style.left),100/6);near(parseFloat(head.style.width),100/30);
+    near(parseFloat(tail.style.left),30);near(parseFloat(tail.style.width),100/30);
+    f.state.pauseHighlights={start:0,end:40,keptStart:12,keptEnd:18};f.timeline.toggleZoom();
+    near(parseFloat(head.style.left),0);near(parseFloat(tail.style.left)+parseFloat(tail.style.width),100);
+    f.state.mode='loop';f.timeline.render();assert.equal(head.hidden,true);assert.equal(tail.hidden,true);
+    f.state.mode='source';f.state.pauseHighlights=null;f.timeline.render();assert.equal(head.hidden,true);assert.equal(tail.hidden,true);
+});

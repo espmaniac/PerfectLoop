@@ -152,11 +152,11 @@ export class VideoEngine {
         // The same-origin core assets are cached by the browser.
         this.resetWorker();
     }
-    async render(file, original, info, onProgress, preview = false, wallpaperOptions = null) {
+    async render(file, original, info, onProgress, preview = false, wallpaperOptions = null, previewQuality = 'small') {
         const controller = new AbortController();
         this.renderController = controller;
         try {
-            const result = await this.renderVideo(file, original, info, onProgress, preview, wallpaperOptions);
+            const result = await this.renderVideo(file, original, info, onProgress, preview, wallpaperOptions, previewQuality);
             if (controller.signal.aborted)
                 throw new DOMException('Cancelled', 'AbortError');
             if (result.wallpaper) {
@@ -178,7 +178,7 @@ export class VideoEngine {
                 this.renderController = undefined;
         }
     }
-    async renderVideo(file, original, info, onProgress, preview = false, wallpaperOptions = null) {
+    async renderVideo(file, original, info, onProgress, preview = false, wallpaperOptions = null, previewQuality = 'small') {
         const livePhoto = Boolean(wallpaperOptions && wallpaperOptions.livePhoto !== false);
         const exportSettings = livePhoto ? wallpaperExportSettings(original) : original;
         const issues = [...validate(exportSettings, info), ...validateLayers(original.layers || [], original)];
@@ -195,7 +195,7 @@ export class VideoEngine {
                 throw new DOMException('Cancelled', 'AbortError');
         };
         const ratio = preview ? Math.min(1, 360 / original.width, 640 / original.height) : 1;
-        const s = preview ? { ...original, width: even(original.width * ratio), height: even(original.height * ratio), quality: 'small', format: 'mp4', audio: original.format === 'gif' ? 'strip' : original.audio, repeats: 1, targetMB: 0, interpolate: original.interpolate } : { ...exportSettings };
+        const s = preview ? { ...original, width: even(original.width * ratio), height: even(original.height * ratio), quality: previewQuality, format: 'mp4', audio: original.format === 'gif' ? 'strip' : original.audio, repeats: 1, targetMB: 0, interpolate: original.interpolate } : { ...exportSettings };
         const plan = framePlan(s);
         try {
             if (original.layers?.some(layer => layer.visible))
