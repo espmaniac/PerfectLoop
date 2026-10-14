@@ -1,3 +1,4 @@
+import { moveLayerInStack } from './layer-order.js';
 import { filterSimilarRanges } from './ranking.js';
 import { alignVideoToFrame } from './framing.js';
 import { autoRepair } from './auto-repair.js';
@@ -873,8 +874,13 @@ function addLayer(layer) {
 function layerAction(action, id, value) {
   if (busy()) return;
   if (action === 'font') { void selectLayerFont(id, value); return; }
-  const layers = state.s.layers, index = layers.findIndex(layer => layer.id === id), layer = layers[index];
+  const layers = state.s.layers, layer = layers.find(layer => layer.id === id);
   if (action === 'select-video') { state.activeLayerId = 'video'; preview.setMode('composition'); refresh(); return; }
+  if (action === 'up' || action === 'down') {
+    const next = moveLayerInStack(layers, id, action);
+    if (next !== layers) { update({ layers: next }); preview.setMode('composition'); }
+    return;
+  }
   if (!layer) return;
   if (action === 'select') { state.activeLayerId = id; preview.setMode('composition'); return; }
   if (action === 'toggle') { editLayer(id, { visible: !layer.visible }); return; }
@@ -883,17 +889,10 @@ function layerAction(action, id, value) {
     return;
   }
   if (action === 'duplicate') { addLayer(duplicateLayer(layer)); return; }
-  const next = [...layers];
-  if (action === 'delete') next.splice(index, 1);
-  else {
-    const group=layers.map((l,i)=>({l,i})).filter(({l})=>(l.placement||'above')===(layer.placement||'above'));
-    const position=group.findIndex(({i})=>i===index);
-    const target=group[position+(action==='up'?1:action==='down'?-1:0)]?.i ?? index;
-    if (target === index || target < 0 || target >= next.length) return;
-    [next[index], next[target]] = [next[target], next[index]];
+  if (action === 'delete') {
+    update({ layers: layers.filter(item => item.id !== id) });
+    preview.setMode('composition');
   }
-  update({ layers: next });
-  preview.setMode('composition');
 }
 async function addPatch(videoPatch = false) {
   if (!state.file || state.s.layers.length >= MAX_LAYERS || busy()) return;
