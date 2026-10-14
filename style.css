@@ -428,6 +428,7 @@ input[type=range]::-moz-range-progress { background: #8d8d8d; border-radius: 4px
 #range-duration { color: var(--dim); font-size: 11px; }
 .history-controls { display: flex; gap: 0; border-right: 1px solid var(--line); padding-right: 8px; }
 .timeline-actions .text-btn { font-size: 11px; }
+.timeline-actions .text-btn > span:last-child { display: inline-flex; align-items: center; gap: 6px; }
 .timeline-caption { margin: 0 0 15px; color: var(--muted); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 .timeline-result-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-top: 15px; color: var(--muted); font-size: 11px; }
 .timeline-result-summary > span { display: inline-flex; align-items: center; gap: 9px; }
