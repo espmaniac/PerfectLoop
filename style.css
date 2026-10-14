@@ -810,3 +810,11 @@ input[type=range]::-moz-range-thumb { box-shadow: var(--raised-shadow); }
 @media (prefers-reduced-motion: reduce) {
   .btn, .fill-stop-add, .alignment-controls .text-btn, .switch, .switch:after { transition: none; }
 }
+
+.method-card > span:nth-child(2) { min-width: 0; }
+.method-score { margin-left: auto; flex-shrink: 0; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.method-fit-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px 8px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.method-fit-row b { font-weight: 500; }
+.method-fit-row > span { font-variant-numeric: tabular-nums; }
+.method-fit-row small { grid-column: 1/-1; color: var(--dim); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.method-compare-button { margin-top: 12px; padding-inline: 7px; font-size: 12px; white-space: normal; }
