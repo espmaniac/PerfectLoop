@@ -127,7 +127,7 @@ The displayed **Finished loop** duration includes the loop method, speed, overla
 | iPhone wallpaper | A suggested two-second cycle, phone-size previews, key-photo selection, and Live Photo or ordinary wallpaper downloads. |
 | Custom | Your own output dimensions, format, timing, and frame rate. |
 
-The **Toggle aspect-ratio guide** button shows the selected output ratio (for example, 9:16 or 1:1). On Original it is a centered proportion reference; Result shows the actual framing. In Result and live layer editing, the outline follows the full output frame, including editor zoom. Guides are an overlay and are not exported.
+The **Toggle aspect-ratio guide** button shows the selected output ratio (for example, 9:16 or 1:1). Original and Result use the same video framing, so moving, scaling, or rotating the video keeps its position when comparing. During Find the guide is a centered proportion reference over the source. In Original, Result, and live layer editing, the outline follows the full output frame, including editor zoom. Guides are an overlay and are not exported.
 
 Select **Custom** under **Aspect ratio** to enter Width and Height directly. Use even dimensions from **16 to 3840 pixels**.
 

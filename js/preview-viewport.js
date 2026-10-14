@@ -11,6 +11,7 @@ export class PreviewViewport {
     this.shapes = [];
     this.savedStyles = null;
     this.camera = null;
+    this.remembered = null;
     this.appliedSelectionKey = null;
     this.appliedLayoutKey = null;
   }
@@ -57,6 +58,12 @@ export class PreviewViewport {
         this.canvas.style.getPropertyValue(property), this.canvas.style.getPropertyPriority(property)]);
       this.enabled = true;
       this.stage.classList.add('preview-camera-active');
+      if (this.remembered?.selectionKey === selectionKey && this.remembered.layoutKey === this.layoutKey()) {
+        this.camera = { ...this.remembered.camera };
+        this.appliedSelectionKey = selectionKey;
+        this.appliedLayoutKey = this.layoutKey();
+        this.apply();
+      }
     }
     // Fitting while a pointer is held would move its target and cancel the edit.
     // Playback also keeps its view stable when an animated selection changes.
@@ -114,6 +121,9 @@ export class PreviewViewport {
   }
 
   reset() {
+    if (this.enabled && this.camera) this.remembered = {
+      camera: { ...this.camera }, selectionKey: this.appliedSelectionKey, layoutKey: this.appliedLayoutKey,
+    };
     for (const [property, value, priority] of this.savedStyles || []) {
       if (value) this.canvas.style.setProperty(property, value, priority);
       else this.canvas.style.removeProperty(property);
@@ -126,5 +136,5 @@ export class PreviewViewport {
     this.appliedLayoutKey = null;
   }
 
-  destroy() { this.reset(); }
+  destroy() { this.reset(); this.remembered = null; }
 }

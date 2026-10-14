@@ -111,3 +111,28 @@ test('A hidden stage waits for usable dimensions before fitting', () => {
   f.viewport.refresh({ enabled: true, selectionKey: 'image', shapes: oversized });
   assert.equal(f.viewport.view().scale, 0.56);
 });
+
+test('Returning from Result restores the same framing camera after the object moves', () => {
+  const f = fixture();
+  f.viewport.refresh({ enabled: true, selectionKey: 'source-a:video', shapes: oversized });
+  f.viewport.zoomBy(1.25);
+  const camera = { ...f.viewport.camera }, position = f.position({ x: 0, y: 0 });
+  f.viewport.refresh({ enabled: false });
+  f.viewport.refresh({ enabled: false });
+  const moved = oversized.map(shape => ({ corners: shape.corners.map(p => ({ x: p.x + 180, y: p.y - 60 })) }));
+  f.viewport.refresh({ enabled: true, selectionKey: 'source-a:video', shapes: moved });
+  assert.deepEqual(f.viewport.camera, camera);
+  assert.deepEqual(f.position({ x: 0, y: 0 }), position);
+  f.viewport.refresh({ enabled: false });
+  f.viewport.refresh({ enabled: true, selectionKey: 'source-b:video', shapes: moved });
+  assert.notDeepEqual(f.viewport.camera, camera, 'a new source gets its own fitted view');
+});
+
+test('A resized stage refits instead of restoring an incompatible framing camera', () => {
+  const f = fixture();
+  f.viewport.refresh({ enabled: true, selectionKey: 'video', shapes: oversized });
+  const scale = f.viewport.camera.scale;
+  f.viewport.refresh({ enabled: false });f.stage.clientWidth = 500;
+  f.viewport.refresh({ enabled: true, selectionKey: 'video', shapes: oversized });
+  assert.notEqual(f.viewport.camera.scale, scale);
+});
