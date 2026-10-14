@@ -8,15 +8,21 @@ export function scoreBoundary(frames, width, height, reference) {
     const tiles = [], size = 12;
     let detail = 0, motion = 0, samples = 0;
     for (let y = 0; y < height; y += size) for (let x = 0; x < width; x += size) {
-        let jump = 0, ordinary = 0, acceleration = 0, count = 0;
+        let jump = 0, ordinary = 0, acceleration = 0, temporal = 0, count = 0;
         for (let j = y; j < Math.min(height,y+size); j++) for (let i = x; i < Math.min(width,x+size); i++) {
             const p = j*width+i, seam = first[p]-last[p];
             const before = last[p]-previous[p], after = next[p]-first[p];
             jump += Math.abs(seam); ordinary += (Math.abs(before)+Math.abs(after))/2;
-            acceleration += Math.abs(seam-(before+after)/2); count++;
+            // Check each side separately: opposite changes must not cancel out.
+            acceleration += (Math.abs(seam-before)+Math.abs(after-seam))/2;
+            const beforeEarlier = previous[p]-frames[5][p];
+            const afterLater = frames[2][p]-next[p];
+            const normalAcceleration = (Math.abs(before-beforeEarlier)+Math.abs(afterLater-after))/2;
+            temporal += Math.max(0,(Math.abs(seam-before)+Math.abs(after-seam))/2-normalAcceleration);
+            count++;
         }
         tiles.push({ x, y, width: Math.min(size,width-x), height: Math.min(size,height-y), jump: jump/count,
-            excess: Math.max(0,(jump-ordinary*1.5)/count), motion: acceleration/count });
+            excess: Math.max(0,(jump-ordinary*1.5)/count), motion: acceleration/count, temporal: temporal/count });
     }
     const focus=(reference?.tiles || tiles).filter(t=>t.excess>Math.max(2.5,(reference?.excess||topMean(tiles.map(t=>t.excess)))*.6));
     const selected=focus.length?focus:tiles;
@@ -28,7 +34,8 @@ export function scoreBoundary(frames, width, height, reference) {
     for(let k=1;k<frames.length;k++) if(k!==4) motion += mean(indices.map(p=>Math.abs(frames[k][p]-frames[k-1][p])));
     const excess = topMean(tiles.map(t=>t.excess));
     const jump = topMean(tiles.map(t=>t.jump)), velocity = topMean(tiles.map(t=>t.motion));
-    return { score: excess + velocity*.35, excess, jump, velocity, detail: detail/Math.max(1,samples), motion: motion/6, tiles, width, height };
+    const temporal = topMean(tiles.map(t=>t.temporal));
+    return { score: excess + velocity*.35 + temporal, temporal, excess, jump, velocity, detail: detail/Math.max(1,samples), motion: motion/6, tiles, width, height };
 }
 
 export function defectRegion(report) {

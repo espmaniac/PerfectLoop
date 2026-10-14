@@ -67,5 +67,5 @@ export function recommendMethod(rows) {
     const best=[...valid].sort((a,b)=>b.score-a.score)[0];
     const natural=valid.find(row=>row.id==='natural');
     // Avoid changing an already good cycle for an insignificant estimated gain.
-    return natural && best.score-natural.score<=4 ? natural : best;
+    return natural && natural.seamFit >= 90 && best.score-natural.score<=4 ? natural : best;
 }

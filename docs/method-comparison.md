@@ -12,7 +12,7 @@ Fit balances local image and frame-change discontinuities against blend mismatch
 
 All methods, including reverse and fade effects, may be selected. Unavailable methods show the current output constraint or processing failure. Validation uses full output dimensions and duration, so a reduced-resolution test cannot bypass Spotify Canvas, layer validation, or video-patch memory restrictions. Layer edits keep the cached visual comparison unless they change method eligibility.
 
-When the highest fit differs from Natural cut by at most four points, Natural cut is preferred to avoid changing original motion for a small uncertain gain. The comparison explains this choice. With a larger gain, the highest available fit wins.
+When Natural cut has a seam fit of at least 90 and the highest fit differs from it by at most four points, Natural cut is preferred to avoid changing original motion for a small uncertain gain. The comparison explains this choice. With a larger gain, the highest available fit wins.
 
 ## Interaction and limits
 
@@ -23,3 +23,7 @@ When the highest fit differs from Natural cut by at most four points, Natural cu
 - Comparison renders run serially in the existing engine, with progress and cancellation. The sampled-frame cache is bounded to 96 frames per reader; readers and temporary URLs are released.
 
 This analysis adds processing time when selecting a new candidate. Small details can escape reduced-resolution checks, and frame activity is pixel change rather than object tracking. Inspect the finished preview before export. Batch export continues to use its explicitly labeled natural-loop workflow.
+
+Boundary scoring compares the temporal change on each side independently, preventing opposite changes from cancelling. Excess acceleration is measured relative to adjacent source acceleration to discount normal frame cadence. Recommendations below 85 fit explicitly warn that visible motion changes may remain. Scores remain heuristics, not a guarantee of perceptual smoothness.
+
+Candidate checkboxes are labeled Batch and only select exports. Use this loop applies the displayed source range to the editor and compares methods. A dissolve can shorten the output by its overlap; method comparison reports the resulting duration.
