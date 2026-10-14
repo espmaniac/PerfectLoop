@@ -339,3 +339,21 @@ test('Find playback waits for metadata and keeps invalid bounds out of the media
     assert.equal(f.source.currentTime, 55);
     assert.equal(f.source.paused, true);
 });
+
+test('Framed Original preserves transforms and excludes layers and loop effects', t => {
+    const f = fixture(t), transforms = [];
+    f.state.mode = 'composition';f.state.previewChoice = 'original';
+    Object.assign(f.state.s,{width:180,height:180,fit:'contain',zoom:50,cropX:0,cropY:100,rotate:90,mirror:true,method:'pingpong',
+        layers:[{type:'text',visible:true,placement:'below',text:'Excluded from Original'},{type:'text',visible:true,text:'Also excluded'}]});
+    f.canvas.context.translate = (...values)=>transforms.push(['translate',...values]);
+    f.canvas.context.scale = (...values)=>transforms.push(['scale',...values]);
+    f.canvas.context.rotate = angle=>transforms.push(['rotate',angle]);
+    f.preview.refresh();f.tick();
+    assert.deepEqual(transforms,[['translate',135,720],['scale',-.75,.75],['rotate',Math.PI/2]]);
+    assert.equal(f.canvas.pixel,'#2468ac');
+    assert.match(f.transport.textContent,/\/ 00:03\.000$/,'Original uses the source range duration rather than doubled Ping-pong time');
+    const dimensions=[f.canvas.width,f.canvas.height];
+    f.state.render={width:180,height:180,duration:6,fps:30};f.state.mode='loop';f.state.previewChoice='result';
+    f.preview.refresh();f.tick();assert.deepEqual([f.canvas.width,f.canvas.height],dimensions);
+    assert.equal(f.canvas.pixel,'#64ac24');
+});

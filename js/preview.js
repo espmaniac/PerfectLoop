@@ -52,6 +52,10 @@ export class Preview {
       end: clamp(Number.isFinite(end) ? end : 0, 0, duration),
     };
   }
+  compositionDuration() {
+    const st = this.getState();
+    return st.previewChoice === 'original' ? (st.s.end-st.s.start)/st.s.speed : framePlan(st.s).duration;
+  }
   pause() { this.source.pause(); this.output.pause(); this.syncPlayButton(); }
   setSource(url) {
     if (this.active() === this.source) clearFrame(this.canvas);
@@ -146,7 +150,7 @@ export class Preview {
   frame(now) {
     const st = this.getState(), video = this.active();
     if (st.mode === 'composition') {
-      const period = framePlan(st.s).duration;
+      const period = this.compositionDuration();
       if (!video.paused && this.compositionTick !== null)
         this.compositionTime = (this.compositionTime + Math.max(0, now - this.compositionTick) / 1000) % period;
       this.compositionTick = now;
@@ -155,17 +159,17 @@ export class Preview {
       const range = this.sourceRange();
       if (range.end > range.start && (video.currentTime >= range.end - 0.005 || video.currentTime < range.start - 0.05)) video.currentTime = range.start;
     }
-    const key = `${st.mode}-${video.currentTime}-${video.readyState}-${st.mode === 'composition' ? this.compositionTime : ''}`;
+    const key = `${st.previewChoice}-${st.mode}-${video.currentTime}-${video.readyState}-${st.mode === 'composition' ? this.compositionTime : ''}`;
     if (this.dirtyFrame || key !== this.lastFrame) {
       // Composition uses live framing; encoded output already includes its layers.
-      if (drawFrame(this.canvas, video, st.s, st.mode !== 'composition', st.mode === 'composition' ? this.compositionTime : null)) {
-        if (st.mode === 'composition') drawLayers(this.canvas.getContext('2d'), (st.s.layers || []).filter(layer => layer.placement !== 'below'), st.s,
+      if (drawFrame(this.canvas, video, st.s, st.mode !== 'composition', st.mode === 'composition' && st.previewChoice !== 'original' ? this.compositionTime : null)) {
+        if (st.mode === 'composition' && st.previewChoice !== 'original') drawLayers(this.canvas.getContext('2d'), (st.s.layers || []).filter(layer => layer.placement !== 'below'), st.s,
           this.compositionTime, framePlan(st.s).duration);
         this.lastFrame = key; this.dirtyFrame = false;
       }
     }
     if (now - this.lastTick > 100) {
-      const duration = st.mode === 'loop' ? st.render?.duration || video.duration || 0 : st.mode === 'composition' ? framePlan(st.s).duration : st.info.duration;
+      const duration = st.mode === 'loop' ? st.render?.duration || video.duration || 0 : st.mode === 'composition' ? this.compositionDuration() : st.info.duration;
       $('#transport-time').textContent = `${timecode(st.mode === 'composition' ? this.compositionTime % duration : video.currentTime)} / ${timecode(duration)}`;
       this.lastTick = now; this.syncPlayButton();
     }

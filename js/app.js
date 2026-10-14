@@ -63,7 +63,7 @@ function canAutoPreview() {
 }
 function selectPreview(choice) {
   state.previewChoice = choice;
-  if (choice === 'original') { autoPreview.stop(); preview.setMode('source'); }
+  if (choice === 'original') { autoPreview.stop(); preview.setMode(state.tab === 'find' ? 'source' : 'composition'); }
   else {
     autoPreview.retry();
     preview.setMode(state.tab === 'layers' || dirty() ? 'composition' : 'loop');
@@ -153,7 +153,8 @@ function redo() {
 }
 function beginPreviewEdit() {
   if (busy() || !state.info.duration || staticWallpaperLayout() || !['edit', 'layers'].includes(state.tab)) return false;
-  state.previewChoice = 'result';
+  state.previewChoice = state.tab === 'layers' ? 'result' : 'original';
+  autoPreview.stop();
   if (state.mode !== 'composition') preview.setMode('composition');
   else preview.pause();
   return true;
@@ -169,7 +170,7 @@ function refreshPreviewEditor() {
   if (!previewEditor) return;
   let shapes = previewEditor.selection();
   const view = previewViewport?.refresh({ enabled: previewEditor.allowed() && state.mode === 'composition',
-    selectionKey: `${state.tab}:${state.activeLayerId}`, shapes, locked: Boolean(previewEditor.dragging) || !preview.active().paused });
+    selectionKey: `${state.sourceURL}:${state.tab}:${state.activeLayerId}`, shapes, locked: Boolean(previewEditor.dragging) || !preview.active().paused });
   previewEditor.refresh();
   shapes = previewEditor.selection();
   const overlay = $('#preview-selection'), host = $('#preview-transform'), frame = $('#preview-output-frame');
@@ -185,8 +186,8 @@ function refreshPreviewEditor() {
   const ratio = state.s.width / state.s.height;
   guides.hidden = !preview.guides || !state.info.duration || !(state.s.width > 0 && state.s.height > 0 && Number.isFinite(ratio));
   if (!guides.hidden) {
-    // Original is a centered ratio reference. Drafts and Result already have
-    // the output proportions, so their guide follows the whole output canvas.
+    // Framed Original, drafts and Result share the same output coordinates.
+    // Find retains a centered ratio reference over the unframed source.
     const width = state.mode === 'source' ? Math.min(box.width, box.height * ratio) : box.width;
     const height = state.mode === 'source' ? width / ratio : box.height;
     const parent = guides.offsetParent || $('#preview-stage'), origin = parent.getBoundingClientRect();
@@ -198,7 +199,7 @@ function refreshPreviewEditor() {
     const label = `${Math.round(state.s.width)/divisor}:${Math.round(state.s.height)/divisor}`;
     guides.querySelector('span').textContent = `${state.mode === 'source' ? 'Ratio guide' : 'Output'} ${label}`;
     const button = $('[data-action="guides"]');
-    button.title = state.mode === 'source' ? `${label} centered ratio reference. Result shows the actual framing.` : `${label} output frame · ${state.s.width} × ${state.s.height}`;
+    button.title = state.mode === 'source' ? `${label} centered ratio reference for the search source.` : `${label} output frame · ${state.s.width} × ${state.s.height}`;
   }
   host.hidden = !shapes.length;
   if (!shapes.length) { selectionSignature = ''; return; }
@@ -520,7 +521,7 @@ function refresh() {
     : resultPending ? resultInvalid ? 'RESULT UNAVAILABLE' : state.job?.kind === 'preview' || autoPreview.attempted !== resultKey() ? 'UPDATING RESULT' : 'RESULT NOT READY'
     : 'RESULT';
   $('#preview-foot-message').textContent = state.tab === 'find' ? 'Search the highlighted source range. Choose a match to view its result.'
-    : originalComparison || state.previewChoice === 'original' ? 'Original video before loop processing.'
+    : originalComparison || state.previewChoice === 'original' ? 'Original motion with current framing. Loop effects and layers are excluded.'
     : state.tab === 'layers' ? 'Live layer editing. The processed result updates when you leave Layers.'
     : resultPending ? resultInvalid ? 'Check Video settings to generate the result.' : state.job?.kind === 'preview' || autoPreview.attempted !== resultKey() ? 'Updating the full selected cycle. The image shown is a draft.' : 'Result is not ready. Retry to generate the full selected cycle.'
     : `Full result: ${plan.duration.toFixed(3)}s · source range: ${(s.end-s.start).toFixed(3)}s${['crossfade','offset'].includes(s.method) ? ' · shortened by transition overlap' : ''}`;
@@ -1210,7 +1211,7 @@ function changeField(event) {
     if (['from', 'to'].includes(input.dataset.search)) timeline.previewEdge(input.dataset.search === 'from' ? 'start' : 'end');
   }
   else if (['start', 'end'].includes(input.dataset.setting)) {
-    if (state.mode === 'loop') preview.setMode('source');
+    if (state.mode === 'loop') preview.setMode(state.previewChoice === 'original' ? 'composition' : 'source');
     updateActiveRange({ [input.dataset.setting]: value });
     timeline.previewEdge(input.dataset.setting);
   }
@@ -1276,7 +1277,8 @@ document.addEventListener('click', event => {
   else if (button.dataset.tab) {
     state.tab = button.dataset.tab;
     if (state.tab === 'layers') { state.previewChoice = 'result'; state.wallpaperScreen = 'editor'; preview.setMode('composition'); }
-    else if (state.tab === 'find' || state.previewChoice === 'original') preview.setMode('source');
+    else if (state.tab === 'find') preview.setMode('source');
+    else if (state.previewChoice === 'original') preview.setMode('composition');
     else preview.setMode(dirty() ? 'composition' : 'loop');
     if (matchMedia('(max-width: 739px)').matches) $('.controls-panel').scrollIntoView({ block: 'start' });
   }

@@ -24,7 +24,8 @@ export class PreviewEditor {
 
     allowed(state = this.getState()) {
         return !state.job && Boolean(state.file) && state.info?.width > 0 && state.info?.height > 0 && state.info?.duration > 0
-            && state.wallpaperScreen === 'editor' && ['edit', 'layers'].includes(state.tab);
+            && state.wallpaperScreen === 'editor' && ['edit', 'layers'].includes(state.tab)
+            && (state.tab !== 'layers' || state.previewChoice !== 'original');
     }
 
     valid() {
