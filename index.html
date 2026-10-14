@@ -207,7 +207,7 @@
             <canvas id="preview-canvas" tabindex="0" aria-label="Video frame preview"></canvas>
             <div id="preview-output-frame" class="preview-output-frame" aria-hidden="true" hidden><span>Output frame</span></div>
             <div id="preview-transform" class="preview-transform" role="group" aria-label="Preview transform controls" hidden><svg id="preview-selection" class="preview-selection" aria-hidden="true"></svg></div>
-            <div class="safe-guides" id="safe-guides" hidden><span>COMPOSITION SAFE AREA</span></div>
+            <div class="aspect-guides" id="aspect-guides" aria-hidden="true" hidden><span>Output aspect ratio</span></div>
             <video id="source-video" class="decoder" playsinline muted preload="auto"></video>
             <video id="loop-video" class="decoder" playsinline muted loop preload="auto"></video>
           </div>
@@ -233,7 +233,7 @@
               <button class="icon-btn" data-action="fullscreen" aria-label="Fullscreen preview"><span data-icon="Expand" data-size="19"></span></button>
             </div>
           </div>
-          <div class="preview-foot"><span><span data-icon="Repeat2" data-size="13"></span><span id="preview-foot-message">Render to check the finished seam</span></span><div><button class="icon-btn" data-action="guides" aria-label="Toggle safe-area guides" aria-pressed="false"><span data-icon="Crop" data-size="16"></span></button><button class="icon-btn" data-action="frame-png" aria-label="Save preview frame"><span data-icon="ImageDown" data-size="16"></span></button></div></div>
+          <div class="preview-foot"><span><span data-icon="Repeat2" data-size="13"></span><span id="preview-foot-message">Render to check the finished seam</span></span><div><button class="icon-btn" data-action="guides" aria-label="Toggle aspect-ratio guide" title="Show the selected output aspect ratio" aria-pressed="false"><span data-icon="Crop" data-size="16"></span></button><button class="icon-btn" data-action="frame-png" aria-label="Save preview frame"><span data-icon="ImageDown" data-size="16"></span></button></div></div>
         </section>
         <fieldset class="timeline-fieldset" id="timeline-fieldset" hidden>
           <section class="timeline-panel panel" id="timeline-panel" aria-label="Source video timeline">

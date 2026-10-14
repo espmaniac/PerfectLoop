@@ -138,7 +138,7 @@ export class Preview {
     button.innerHTML = icon(this.muted ? 'VolumeX' : 'Volume2', 17);
   }
   toggleGuides() {
-    this.guides = !this.guides; $('#safe-guides').hidden = !this.guides;
+    this.guides = !this.guides; $('#aspect-guides').hidden = !this.guides;
     $('[data-action="guides"]').setAttribute('aria-pressed', String(this.guides));
   }
   fullscreen() { return $('#preview-stage').requestFullscreen?.().catch(() => {}); }
