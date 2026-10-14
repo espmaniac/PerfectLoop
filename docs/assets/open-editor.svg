@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="174" height="32" viewBox="0 0 174 32" role="img" aria-labelledby="title">
+  <title id="title">Open PerfectLoop</title>
+  <rect width="174" height="32" rx="5" fill="#5b8dbc"/>
+  <g fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 18v5H11V12h5M18 9h7v7M25 9l-9 9"/>
+  </g>
+  <text x="37" y="20.5" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="600">Open PerfectLoop</text>
+</svg>
