@@ -1,3 +1,4 @@
+import { layerStack, VIDEO_LAYER } from './layer-order.js';
 import { ALIGNMENTS } from './alignment.js';
 import { $, escapeHTML, icon } from './ui.js';
 import { MAX_LAYERS, MAX_ANIMATION_CYCLES, animationCycles } from './layers.js';
@@ -127,25 +128,27 @@ export class LayerPanel {
     const listKey = JSON.stringify(layers.map(layer => [layer.id, layer.type, layerLabel(layer), layer.visible, layer.placement]).concat([[state.activeLayerId, state.info.duration]]));
     if (this.listKey !== listKey) {
       this.listKey = listKey;
-      this.list.innerHTML = [...layers].sort((a,b)=>Number(b.placement==='below')-Number(a.placement==='below')).reverse().map(layer => {
+      const stack = layerStack(layers).reverse();
+      this.list.innerHTML = stack.map((layer, position) => {
+        const order = { up: position > 0, down: position < stack.length-1 };
+        if (layer === VIDEO_LAYER) return this.videoRow(state, order);
         const id = escapeHTML(layer.id);
         const label = escapeHTML(layerLabel(layer));
         const visible = layer.visible !== false;
         const active = layer.id === state.activeLayerId;
-        const firstBelow=layer.placement==='below' && layers.filter(l=>l.placement==='below').at(-1)?.id===layer.id;
-        return `${firstBelow ? this.videoRow(state) : ''}<div class="layer-item${active ? ' selected' : ''}${visible ? '' : ' muted'}" role="listitem">
+        return `<div class="layer-item${active ? ' selected' : ''}${visible ? '' : ' muted'}" role="listitem">
           <div class="layer-item-head">
-            <button class="layer-select" data-layer-action="select" data-layer-id="${id}" aria-pressed="${active}" title="${label}"><span class="layer-type">${layer.type === 'text' ? 'T' : icon('Layers', 17)}</span><span><b>${label}</b><small>${layer.placement === 'below' ? 'Below video · ' : 'Above video · '}${layer.videoPatch ? 'Video patch' : layer.patch ? 'Patch' : layer.type === 'text' ? 'Text' : 'Image'}</small></span></button>
+            <button class="layer-select" data-layer-action="select" data-layer-id="${id}" aria-pressed="${active}" title="${label}"><span class="layer-type">${layer.type === 'text' ? 'T' : icon('Layers', 17)}</span><span><b>${label}</b><small>${layer.videoPatch ? 'Video patch' : layer.patch ? 'Patch' : layer.type === 'text' ? 'Text' : 'Image'}</small></span></button>
             <button class="text-btn layer-visibility" data-layer-action="toggle" data-layer-id="${id}" aria-label="${visible ? 'Hide' : 'Show'} ${label}" aria-pressed="${visible}">${icon(visible ? 'EyeOff' : 'Eye', 14)}<span>${visible ? 'Hide' : 'Show'}</span></button>
           </div>
           <div class="layer-item-actions">
-            <button class="icon-btn" data-layer-action="up" data-layer-id="${id}" aria-label="Move ${label} up" ${layers.filter(l=>(l.placement||'above')===(layer.placement||'above')).at(-1)?.id===layer.id ? 'data-order-disabled' : ''}>↑</button>
-            <button class="icon-btn" data-layer-action="down" data-layer-id="${id}" aria-label="Move ${label} down" ${layers.find(l=>(l.placement||'above')===(layer.placement||'above'))?.id===layer.id ? 'data-order-disabled' : ''}>↓</button>
+            <button class="icon-btn" data-layer-action="up" data-layer-id="${id}" aria-label="Move ${label} up" ${!order.up ? 'data-order-disabled' : ''}>↑</button>
+            <button class="icon-btn" data-layer-action="down" data-layer-id="${id}" aria-label="Move ${label} down" ${!order.down ? 'data-order-disabled' : ''}>↓</button>
             <button class="text-btn" data-layer-action="duplicate" data-layer-id="${id}">${icon('Copy', 14)}<span>Duplicate</span></button>
             <button class="text-btn" data-layer-action="delete" data-layer-id="${id}" aria-label="Delete ${label}">${icon('Trash2', 14)}<span>Delete</span></button>
           </div>
         </div>`;
-      }).join('') + (layers.some(l=>l.placement==='below') ? '' : this.videoRow(state));
+      }).join('');
     }
     $('#layer-empty').hidden = layers.length > 0 || selectedVideo && Boolean(state.info.duration);
     this.controls.hidden = !selected && !selectedVideo;
@@ -173,8 +176,9 @@ export class LayerPanel {
     this.refreshBindings();
   }
 
-  videoRow(state) {
-    return `<div class="layer-video-marker${state.activeLayerId === 'video' ? ' selected' : ''}" role="listitem"><button class="layer-select" data-layer-action="select-video" aria-pressed="${state.activeLayerId === 'video'}" aria-label="Select video settings"><span class="layer-type">${icon('Layers', 17)}</span><span><b>Video</b><small>Video framing · select to edit</small></span></button></div>`;
+  videoRow(state, order) {
+    return `<div class="layer-item layer-video-marker${state.activeLayerId === 'video' ? ' selected' : ''}" role="listitem"><button class="layer-select" data-layer-action="select-video" aria-pressed="${state.activeLayerId === 'video'}" aria-label="Select video settings"><span class="layer-type">${icon('Film', 17)}</span><span><b>Video</b><small>Source video · select to edit</small></span></button>
+      <div class="layer-item-actions"><button class="icon-btn" data-layer-action="up" data-layer-id="video" aria-label="Move video up" ${!order.up ? 'data-order-disabled' : ''}>↑</button><button class="icon-btn" data-layer-action="down" data-layer-id="video" aria-label="Move video down" ${!order.down ? 'data-order-disabled' : ''}>↓</button></div></div>`;
   }
 
   videoFields() {
@@ -212,8 +216,6 @@ export class LayerPanel {
       ${numberField('endTime', 'Show until', 0, 86400, 's', 0.001)}<p class="micro" data-layer-time-note></p></div></details>`
       + (videoPatch ? '<p class="micro" data-video-patch-summary></p>' + numberField('seamBlend', 'Seam blend', 0, 40, '%')
         + `<div class="fields two">${numberField('fadeIn', 'Fade in', 0, 60, 's', 0.05)}${numberField('fadeOut', 'Fade out', 0, 60, 's', 0.05)}</div><p class="micro">Fades are limited to half the active interval. Leave both at zero for a continuous patch across the loop boundary.</p>` : '')
-      + selectField('placement', 'Stack position', [['above','Above video'],['below','Below video']])
-      + '<p class="micro">Below-video layers appear where the video leaves space. Use Fit or reduce the video scale to reveal them.</p>'
       + `<div class="field"><span>Align to frame · starting position</span><div class="alignment-controls" role="group" aria-label="Align layer to frame">${ALIGNMENTS.map(([key,label])=>`<button class="text-btn" data-layer-action="align-${key}" title="${label}">${icon(ALIGNMENT_ICONS[key], 15)}<span>${label}</span></button>`).join('')}</div></div>`
       + `<div class="fields two">${numberField('x', 'Horizontal', 0, 100, '%', 0.1)}${numberField('y', 'Vertical', 0, 100, '%', 0.1)}</div>`
       + `<div class="fields two">${numberField('rotation', 'Rotation', -360, 360, '°')}${numberField('opacity', 'Opacity', 0, 100, '%')}</div>`
