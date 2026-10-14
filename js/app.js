@@ -641,9 +641,9 @@ function renderCandidates() {
   $('#candidate-count').textContent = `${visible.length} of ${state.candidates.length} matches`;
   $('#select-top').innerHTML = icon(state.selected.size ? 'X' : 'ListChecks', 16) + `<span>${state.selected.size ? 'Clear selection' : 'Select top 5'}</span>`;
   $('#candidates').innerHTML = visible.map((candidate, index) => `<div class="candidate">
-    <label class="candidate-check"><input type="checkbox" data-candidate-check="${candidate.id}" aria-label="Select candidate ${index + 1} for batch export" ${state.selected.has(candidate.id) ? 'checked' : ''}></label>
+    <label class="candidate-check" title="Include in batch export"><span>Batch</span><input type="checkbox" data-candidate-check="${candidate.id}" aria-label="Select candidate ${index + 1} for batch export" ${state.selected.has(candidate.id) ? 'checked' : ''}></label>
     <img src="${candidate.thumbnail}" alt="Start frame of candidate ${index + 1}">
-    <button class="candidate-main" data-candidate="${candidate.id}"><b>${timecode(candidate.start)} <span>→</span> ${timecode(candidate.end)}</b><small>${(candidate.end - candidate.start).toFixed(3)}s · ${candidate.verified ? 'Seam checked' : candidate.refined ? 'Frame refined' : 'Coarse match'}${candidate.cuts ? ` · ${candidate.cuts} cuts` : ''}</small></button>
+    <button class="candidate-main" data-candidate="${candidate.id}"><b>${timecode(candidate.start)} <span>→</span> ${timecode(candidate.end)}</b><small>${(candidate.end - candidate.start).toFixed(3)}s · ${candidate.verified ? 'Seam checked' : candidate.refined ? 'Frame refined' : 'Coarse match'}${candidate.cuts ? ` · ${candidate.cuts} cuts` : ''}</small><span class="candidate-use">${icon('Check', 14)} Use this loop</span></button>
     <span class="score ${candidate.score >= 90 ? 'strong' : ''}" title="Source seam estimate before framing and method processing. Select this candidate to compare loop methods.">${candidate.score.toFixed(0)}<small>source fit</small></span></div>`).join('');
   $('#batch-button').hidden = !state.selected.size;
   $('#batch-button').innerHTML = icon('Download', 15) + `Export ${state.selected.size} natural loops as ZIP`;
@@ -661,7 +661,7 @@ function refreshMethodComparison() {
   if (comparison) {
     const row = comparison.rows.find(row => row.id === comparison.recommended);
     const closeNatural = row?.id === 'natural' && comparison.rows.some(other => !other.unavailable && other.score > row.score);
-    recommendation = row ? `Recommended: ${row.name}. ${closeNatural ? 'Scores are close; original motion is preserved.' : 'You can choose another method.'}`
+    recommendation = row ? `Recommended: ${row.name}. ${closeNatural ? 'Scores are close; original motion is preserved.' : 'You can choose another method.'}${row.score < 85 ? ' Visible motion changes may remain. Review the seam before exporting.' : ''}`
       : 'No method passed the current output requirements. Review Video settings.';
   }
   $('#method-recommendation').textContent = recommendation;
@@ -693,7 +693,7 @@ async function compareCurrentMethods(saveHistory = true) {
   const recommended = comparison.rows.find(row => row.id === comparison.recommended);
   if (recommended) {
     update({ method: recommended.id, shift: recommended.settings.shift }, saveHistory);
-    notice(`${recommended.name} selected · estimated fit ${Math.round(recommended.score)} · ${recommended.duration.toFixed(3)}s. Review the rendered preview or choose another method.`);
+    notice(`${recommended.name} selected · source ${timecode(state.s.start)}–${timecode(state.s.end)} · output ${recommended.duration.toFixed(3)}s · estimated fit ${Math.round(recommended.score)}. Render a new preview to review this loop.`);
   }
   refresh();
 }
@@ -1152,7 +1152,7 @@ $('#layer-font-input').addEventListener('change', event => {
 function changeField(event) {
   const input = event.target;
   if (busy()) return;
-  if (input.dataset.candidateCheck) { input.checked ? state.selected.add(input.dataset.candidateCheck) : state.selected.delete(input.dataset.candidateCheck); renderCandidates(); return; }
+  if (input.dataset.candidateCheck) { input.checked ? state.selected.add(input.dataset.candidateCheck) : state.selected.delete(input.dataset.candidateCheck); renderCandidates(); if (input.checked) notice('Selected for batch export. Click Use this loop to apply its range to the editor.'); return; }
   if (input.dataset.audio) { update({ audio: input.dataset.audio === 'strip' ? input.checked ? 'strip' : 'keep' : input.checked ? 'smooth' : 'keep' }); return; }
   if (input.dataset.wallpaper === 'kind') { state.wallpaperDownload = input.value; refresh(); return; }
   if (!input.dataset.setting && !input.dataset.search) return;

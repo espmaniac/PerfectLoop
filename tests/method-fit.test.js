@@ -33,10 +33,10 @@ test('Any available method may be recommended, including reverse and fade effect
     assert.equal(recommendMethod([{id:'natural',unavailable:'Invalid source'}]),null);
 });
 
-test('A small estimated gain preserves natural motion even when every estimate is modest',()=>{
-    assert.equal(recommendMethod([{id:'natural',score:80},{id:'crossfade',score:83}]).id,'natural');
-    assert.equal(recommendMethod([{id:'natural',score:80},{id:'crossfade',score:90}]).id,'crossfade');
-    assert.equal(recommendMethod([{id:'natural',score:67},{id:'smooth-pingpong',score:70}]).id,'natural');
+test('A near tie preserves natural motion only when its seam is already good',()=>{
+    assert.equal(recommendMethod([{id:'natural',score:80,seamFit:95},{id:'crossfade',score:83}]).id,'natural');
+    assert.equal(recommendMethod([{id:'natural',score:80,seamFit:95},{id:'crossfade',score:90}]).id,'crossfade');
+    assert.equal(recommendMethod([{id:'natural',score:67,seamFit:67},{id:'smooth-pingpong',score:70}]).id,'smooth-pingpong');
 });
 
 test('Method trials respect output constraints and report their actual duration without changing source settings',()=>{

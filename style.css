@@ -818,3 +818,7 @@ input[type=range]::-moz-range-thumb { box-shadow: var(--raised-shadow); }
 .method-fit-row > span { font-variant-numeric: tabular-nums; }
 .method-fit-row small { grid-column: 1/-1; color: var(--dim); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .method-compare-button { margin-top: 12px; padding-inline: 7px; font-size: 12px; white-space: normal; }
+
+/* Distinguish applying a loop from selecting it for batch export. */
+.candidate-check > span { font-size: 9px; color: var(--dim); }
+.candidate-use { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--control, #717171); font-size: 11px; }

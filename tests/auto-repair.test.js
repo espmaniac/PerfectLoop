@@ -53,3 +53,20 @@ test('A small strong defect takes priority over a larger mild mismatch',()=>{
     const region=defectRegion({width:120,height:120,excess:10,tiles});
     assert.deepEqual(region,{x:0,y:0,width:.15,height:.15});
 });
+
+test('Matching endpoint pixels cannot hide an abrupt reversal of motion',()=>{
+    const frames=values=>values.map(value=>new Float32Array(24*24).fill(value));
+    // Chronological order is the last four values followed by the first four.
+    const steady=scoreBoundary(frames([80,90,100,110,40,50,60,70]),24,24);
+    const reversal=scoreBoundary(frames([80,70,60,50,50,60,70,80]),24,24);
+    assert.equal(steady.temporal,0);
+    assert.equal(steady.score,0);
+    assert.ok(reversal.temporal>=10);
+    assert.ok(reversal.score>steady.score+10);
+});
+
+test('Ordinary frame cadence is discounted when measuring excess temporal discontinuity',()=>{
+    const frames=[80,80,100,100,40,40,60,60].map(v=>new Float32Array(24*24).fill(v));
+    const report=scoreBoundary(frames,24,24);
+    assert.equal(report.temporal,0);
+});
