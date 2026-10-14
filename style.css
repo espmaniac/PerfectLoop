@@ -98,6 +98,9 @@ summary::-webkit-details-marker { display: none; }
 .icon-btn:hover:enabled { background: var(--hover); color: var(--text); }
 .icon-btn[aria-pressed=true] { background: var(--active-blue); border-color: #6098d0; color: #ffffff; box-shadow: var(--pressed-shadow); }
 .icon-btn:active:enabled { background: var(--selected); color: var(--selected-text); box-shadow: var(--pressed-shadow); }
+.github-link { width: 40px; height: 40px; flex-shrink: 0; text-decoration: none; }
+.github-link:hover { background: var(--hover); }
+.github-link:active { background: var(--selected); color: var(--selected-text); box-shadow: var(--pressed-shadow); }
 .text-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 0; color: var(--muted); background: transparent; font-size: 12px; }
 .text-btn:hover:enabled { color: #ffffff; }
 main { padding-top: 0; }
@@ -619,10 +622,12 @@ input[type=range]::-moz-range-thumb { box-shadow: var(--raised-shadow); }
   .brand { font-size: 21px; gap: 9px; }
   .brand-icon img { width: 32px; height: 32px; }
   .header-hint { grid-column: 1; grid-row: 3; }
-  .header-actions { display: grid; grid-column: 1; grid-row: 2; justify-self: stretch; grid-template-columns: minmax(0,1fr) minmax(0,1.35fr); gap: 7px; }
+  .header-actions { display: grid; grid-column: 1; grid-row: 2; justify-self: stretch; grid-template-columns: minmax(0,1fr) 40px; gap: 7px; }
+  .header-actions:has(.render-btn:not([hidden])) { grid-template-columns: minmax(0,1fr) 40px minmax(0,1.35fr); }
   .header-actions .btn { min-height: 40px; padding: 8px; font-size: 12px; gap: 6px; }
   .header-actions [data-action=open] { grid-column: 1; grid-row: 1; }
-  .header-actions .render-btn { grid-column: 2; grid-row: 1; white-space: normal; text-align: center; }
+  .header-actions .github-link { grid-column: 2; grid-row: 1; }
+  .header-actions .render-btn { grid-column: 3; grid-row: 1; white-space: normal; text-align: center; }
   .workbench { grid-template-columns: minmax(0,1fr); gap: 8px; }
   .panel { border-radius: 4px; }
   .preview-panel { grid-column: 1; grid-row: 1; padding: 10px 10px 8px; }
