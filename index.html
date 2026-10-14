@@ -113,6 +113,11 @@
           <div class="tool-body" role="tabpanel" id="panel-edit" aria-labelledby="tab-edit">
             <fieldset data-disable>
               <div class="method-grid" id="methods"></div>
+              <div id="method-comparison" hidden>
+                <p class="micro" id="method-recommendation" role="status"></p>
+                <details class="disclosure"><summary>Method comparison</summary><p class="micro">Fit estimates compare the framed video before layers and repairs. Checks include the seam, internal joins, detail, and transition mismatch. Reverse and fade effects also change the original motion or brightness. Detail and frame activity near the seam are relative to Natural cut. Scores are estimates, not quality percentages.</p><div id="method-scores"></div></details>
+                <button class="btn secondary full method-compare-button" data-action="compare-methods"><span data-icon="ScanLine" data-size="16"></span>Compare &amp; choose method</button>
+              </div>
               <p class="method-summary" id="method-summary" hidden></p>
               <div class="fields method-fields" id="method-fields"></div>
               <details class="disclosure method-about"><summary>Loop settings &amp; tips</summary><div class="disclosure-content" id="loop-settings"><p class="method-detail" id="method-detail"></p><p class="micro" id="overlap-note"></p></div></details>
@@ -124,7 +129,7 @@
               <div class="fields two" id="search-range-fields"></div>
               <div id="search-options"></div>
               <button class="btn primary full" data-action="search"><span data-icon="Search" data-size="16"></span>Find loop candidates</button>
-              <details class="disclosure"><summary>How search works</summary><p class="micro">Search from / Search to limit where clips can be found. Min / Max loop length set each clip's source duration. Matches are ranked across the whole search range; selecting one sets the render range and preserves the search range. Long videos use adaptive sampling, up to 1,601 frames. The best coarse matches are refined around individual frames. Each result is checked for local image and motion changes at the seam. The complete range is also checked when it fits your length limits. Scores are estimates; watch several repeats before exporting.</p></details>
+              <details class="disclosure"><summary>How search works</summary><p class="micro">Search from / Search to limit where clips can be found. Min / Max loop length set each clip's source duration. Matches are ranked across the whole search range; selecting one sets the render range and preserves the search range. Long videos use adaptive sampling, up to 1,601 frames. The best coarse matches are refined around individual frames. Each result is checked for local image and motion changes at the seam. The complete range is also checked when it fits your length limits. Source fit is preliminary. Selecting a candidate compares the loop methods and chooses a recommendation. Watch several repeats before exporting.</p></details>
               <div class="candidate-section" id="candidate-section" hidden><div class="candidate-head"><b id="candidate-count"></b><button class="text-btn" data-action="select-top" id="select-top"><span data-icon="ListChecks" data-size="16"></span><span>Select top 5</span></button></div><label class="toggle-row"><span>Hide similar ranges<small>Keep the best match when clips share at least 75% of the shorter range.</small></span><input type="checkbox" data-search="hideSimilar" checked><span class="switch" aria-hidden="true"></span></label><div class="candidates" id="candidates"></div><button class="btn secondary full" data-action="batch" id="batch-button" hidden></button></div>
             </fieldset>
           </div>

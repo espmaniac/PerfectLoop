@@ -1,3 +1,5 @@
+import { compareLoopMethods } from './method-comparison.js';
+import { methodContext } from './method-fit.js';
 import { moveLayerInStack } from './layer-order.js';
 import { filterSimilarRanges } from './ranking.js';
 import { alignVideoToFrame } from './framing.js';
@@ -36,10 +38,11 @@ const state = {
   renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
   wallpaperScreen: 'editor', wallpaperDownload: supportsPackageSave() ? 'pvt' : 'live-photo', wallpaperPosterURL: '', wallpaperPosterSignature: '',
   opts: { from: 0, to: 18, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true, hideSimilar: true },
-  candidates: [], selected: new Set(), seam: null, repairAnalysis: null,
+  candidates: [], selected: new Set(), seam: null, repairAnalysis: null, methodComparison: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
+const methodCache = new Map();
 let preview, previewEditor, previewViewport, timeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
 let selectionSignature = '';
 const videoSignature = settings => JSON.stringify({ ...settings, wallpaperPoster: undefined, wallpaperDevice: undefined });
@@ -423,6 +426,7 @@ function refresh() {
   if (state.activeLayerId !== 'video' && !s.layers.some(layer => layer.id === state.activeLayerId)) state.activeLayerId = state.tab === 'layers' ? 'video' : s.layers.at(-1)?.id || '';
   layerPanel?.render();
   refreshRepair();
+  refreshMethodComparison();
   $$('[data-method]').forEach(button => { const active = button.dataset.method === s.method; button.classList.toggle('selected', active); button.setAttribute('aria-pressed', String(active)); });
   $('#method-detail').textContent = METHODS.find(method => method.id === s.method).detail;
   const blending = ['crossfade', 'offset'].includes(s.method);
@@ -522,6 +526,7 @@ async function loadFile(file, sample = false) {
   try { file = await prepareVideoFile(file, controller.signal); }
   catch (error) { if (!controller.signal.aborted) { notice(''); report(error); } return; }
   if (controller.signal.aborted || state.fileController !== controller || busy()) return;
+  methodCache.clear(); state.methodComparison = null;
   clearWallpaperPoster(); state.wallpaperScreen = 'editor';
   if (state.sourceURL) URL.revokeObjectURL(state.sourceURL);
   if (state.renderURL) URL.revokeObjectURL(state.renderURL);
@@ -625,7 +630,7 @@ async function runSearch() {
     if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     const result = await searchVideo(state.sourceURL, { ...state.opts, videoDuration: state.info.videoDuration }, rate, state.controller.signal, progress('search'));
     state.candidates = result.candidates; state.selected = new Set(); renderCandidates();
-    notice(result.candidates.length ? `${result.candidates.length} candidate loops found. Visual scores are estimates; inspect motion before exporting. Sampling spacing: ${result.step.toFixed(2)}s.` : 'No close natural loop found. Widen the search range, allow scene cuts, or use Crossfade / Ping-pong.');
+    notice(result.candidates.length ? `${result.candidates.length} candidate loops found. Source fit is preliminary; select a candidate to compare loop methods. Sampling spacing: ${result.step.toFixed(2)}s.` : 'No close natural loop found. Widen the search range, allow scene cuts, or use Crossfade / Ping-pong.');
   } catch (error) { report(error); }
   finally { finishJob(); }
 }
@@ -639,17 +644,69 @@ function renderCandidates() {
     <label class="candidate-check"><input type="checkbox" data-candidate-check="${candidate.id}" aria-label="Select candidate ${index + 1} for batch export" ${state.selected.has(candidate.id) ? 'checked' : ''}></label>
     <img src="${candidate.thumbnail}" alt="Start frame of candidate ${index + 1}">
     <button class="candidate-main" data-candidate="${candidate.id}"><b>${timecode(candidate.start)} <span>→</span> ${timecode(candidate.end)}</b><small>${(candidate.end - candidate.start).toFixed(3)}s · ${candidate.verified ? 'Seam checked' : candidate.refined ? 'Frame refined' : 'Coarse match'}${candidate.cuts ? ` · ${candidate.cuts} cuts` : ''}</small></button>
-    <span class="score ${candidate.score >= 90 ? 'strong' : ''}" title="Estimated seam fit from image and motion checks. Watch several repeats before exporting.">${candidate.score.toFixed(0)}<small>fit</small></span></div>`).join('');
+    <span class="score ${candidate.score >= 90 ? 'strong' : ''}" title="Source seam estimate before framing and method processing. Select this candidate to compare loop methods.">${candidate.score.toFixed(0)}<small>source fit</small></span></div>`).join('');
   $('#batch-button').hidden = !state.selected.size;
   $('#batch-button').innerHTML = icon('Download', 15) + `Export ${state.selected.size} natural loops as ZIP`;
 }
-function chooseCandidate(id) {
-  const candidate = state.candidates.find(item => item.id === id); if (!candidate || busy()) return;
-  update({ start: candidate.start, end: candidate.end, method: 'natural', shift: 0, repeats: 1 });
-  state.tab = 'edit'; preview.seek(candidate.start);
-  notice(`Candidate selected: ${timecode(candidate.start)}–${timecode(candidate.end)}. Render to check the seam.`); refresh();
-  if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
+function currentMethodComparison() {
+  const comparison = state.methodComparison;
+  const row = comparison?.rows.find(row => row.id === state.s.method);
+  return comparison && comparison.context === methodContext(state.s)
+    && (row?.unavailable || row?.settings.shift === state.s.shift) ? comparison : null;
 }
+function refreshMethodComparison() {
+  const comparison = currentMethodComparison();
+  $('#method-comparison').hidden = !state.methodComparison;
+  let recommendation = 'Settings changed. Compare methods again to refresh the estimates.';
+  if (comparison) {
+    const row = comparison.rows.find(row => row.id === comparison.recommended);
+    const closeNatural = row?.id === 'natural' && comparison.rows.some(other => !other.unavailable && other.score > row.score);
+    recommendation = row ? `Recommended: ${row.name}. ${closeNatural ? 'Scores are close; original motion is preserved.' : 'You can choose another method.'}`
+      : 'No method passed the current output requirements. Review Video settings.';
+  }
+  $('#method-recommendation').textContent = recommendation;
+  $$('[data-method-score]').forEach(label => {
+    const row = comparison?.rows.find(row => row.id === label.dataset.methodScore);
+    label.hidden = !row;
+    label.textContent = row ? row.unavailable ? '—' : `${Math.round(row.score)} fit` : '';
+    label.title = row ? row.unavailable || `${row.duration.toFixed(3)}s · ${row.effect} · Seam ${Math.round(row.seamFit)}/100` : '';
+  });
+  $('#method-scores').innerHTML = comparison ? comparison.rows.map(row => `<div class="method-fit-row"><b>${escapeHTML(row.name)}</b><span>${row.unavailable ? 'Unavailable' : `${Math.round(row.score)} fit`}</span><small>${row.unavailable ? escapeHTML(row.unavailable) : `${row.duration.toFixed(3)}s · ${escapeHTML(row.effect)}<br>Seam ${Math.round(row.seamFit)}/100 · Detail ${Math.round(row.detail)}% · Frame activity ${Math.round(row.motion)}%${['crossfade','offset'].includes(row.id) ? ` · Blend mismatch ${Math.round(row.ghostRisk)}/100` : ''}`}</small></div>`).join('') : '';
+}
+async function compareCurrentMethods(saveHistory = true) {
+  if (!state.file || busy()) return;
+  const settings = { ...state.s }, context = methodContext(settings), source = state.sourceURL;
+  let comparison = methodCache.get(context);
+  if (!comparison) {
+    if (!startJob('methods', 'Comparing loop methods…')) return;
+    preview.pause(); const signal = state.controller.signal;
+    try {
+      comparison = await compareLoopMethods({ file: state.file, settings, info: state.info, engine, signal, onProgress: progress('methods') });
+      signal.throwIfAborted();
+      if (source !== state.sourceURL || context !== methodContext(state.s)) return;
+      if (methodCache.size >= 6) methodCache.delete(methodCache.keys().next().value);
+      methodCache.set(context, comparison);
+    } catch (error) { report(error); return; }
+    finally { finishJob(); }
+  }
+  state.methodComparison = comparison;
+  const recommended = comparison.rows.find(row => row.id === comparison.recommended);
+  if (recommended) {
+    update({ method: recommended.id, shift: recommended.settings.shift }, saveHistory);
+    notice(`${recommended.name} selected · estimated fit ${Math.round(recommended.score)} · ${recommended.duration.toFixed(3)}s. Review the rendered preview or choose another method.`);
+  }
+  refresh();
+}
+async function chooseCandidate(id) {
+  const candidate = state.candidates.find(item => item.id === id); if (!candidate || busy()) return;
+  state.methodComparison = null;
+  remember();
+  update({ start: candidate.start, end: candidate.end, method: 'natural', shift: 0, repeats: 1, repair: null }, false);
+  state.tab = 'edit'; preview.seek(candidate.start); refresh();
+  if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
+  await compareCurrentMethods(false);
+}
+
 async function runAutoRepair() {
   if (!state.file || busy()) return;
   const settings = { ...state.s }, source = state.sourceURL, signature = videoSignature(settings);
@@ -1012,7 +1069,7 @@ async function addFonts(files) {
 
 initializeFields();
 for (const id of ['repair-blend', 'repair-overlap', 'repair-strength']) $(`#${id}`).addEventListener('input', refreshRepair);
-$('#methods').innerHTML = METHODS.map((method, index) => `<button class="method-card" data-method="${method.id}" aria-pressed="false" title="${escapeHTML(method.short)}"><span class="method-icon">${icon(['Scissors', 'Blend', 'Layers', 'Play', 'SmoothWave', 'FadeCircle'][index], 25)}</span><span><b>${method.name}</b><small>${method.short}</small></span></button>`).join('');
+$('#methods').innerHTML = METHODS.map((method, index) => `<button class="method-card" data-method="${method.id}" aria-pressed="false" title="${escapeHTML(method.short)}"><span class="method-icon">${icon(['Scissors', 'Blend', 'Layers', 'Play', 'SmoothWave', 'FadeCircle'][index], 25)}</span><span><b>${method.name}</b><small>${method.short}</small></span><span class="method-score" data-method-score="${method.id}" hidden></span></button>`).join('');
 preview = new Preview(() => state, mode => { state.mode = mode; if (mode === 'source') state.wallpaperScreen = 'editor'; clearSeam(); refresh(); }, (time, mode) => {
   if (mode === 'loop') state.renderPlayhead = time;
   else state.playhead = time;
@@ -1155,6 +1212,7 @@ const actions = {
   'layer-upload-fonts': () => $('#layer-font-input').click(),
   'layer-device-fonts': useDeviceFonts,
   open: () => $('#file-input').click(), 'open-photo': () => $('#wallpaper-photo-input').click(), 'show-preview': () => $('.preview-panel').scrollIntoView({ block: 'start' }), help: () => $('#help-dialog').showModal(), 'close-help': () => $('#help-dialog').close(),
+  'compare-methods': () => { void compareCurrentMethods(); },
   undo, redo, reset: () => update({ ...DEFAULTS, end: Math.min(state.info.duration || 6, 6) }),
   proxy: makeProxy, search: runSearch, render: () => runRender(true), export: () => runRender(false), inspect, batch: batchExport, cancel,
   'dismiss-error': () => { state.error = ''; refreshStatus(); }, 'dismiss-notice': () => notice(''),

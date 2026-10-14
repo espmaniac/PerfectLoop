@@ -13,3 +13,5 @@ Before ranking results, each shortlisted candidate is checked using its actual f
 Turning the switch off reveals the cached alternatives immediately. It does not decode the video again. Changing the filter clears batch selection; Select top 5 operates on visible results. Undo and Redo restore the filter without discarding the search results.
 
 Search uses a bounded coarse shortlist of up to 48 alternatives plus the complete range. Near-identical timestamp variations are consolidated, and the visible result limit is 16 with filtering enabled or 48 with filtering disabled. This is a candidate search, not an exhaustive list of every possible frame pair. Boundary-frame caching is capped at 256 decoded descriptors.
+
+Selecting an individual result runs [automatic method comparison](method-comparison.md). The source-fit estimate in the search list describes the unframed source; method-fit estimates include framing and processed transition checks.
