@@ -26,6 +26,20 @@ Static patches freeze a fragment. Neither patch type tracks objects or performs 
 
 Video patches capture up to 30 frames per second and retain only the selected region locally. Captured donor frames share a 64 MiB budget, including assets retained for Undo; export sequences have a 256 MiB uncompressed frame budget. Oversized operations stop with an explanation rather than silently reducing quality. Recreate a patch to change its donor range, mask, feathering, or source framing. Donor audio is excluded. MP4, WebM, and GIF use the same frame sampling and fades as the live layer preview. This tool suits fixed regions such as water, smoke, or a stationary reflection; it does not automatically follow a moving subject.
 
+## Remove a seam pause
+
+Open **Repair loop → Manual repair → Seam pause** to shorten a held or slow section near the beginning or end.
+
+1. Choose **Detect pause** for a suggestion, or set **Trim start / Trim end** yourself. Use the sliders, frame-count fields, or ±1 buttons. Detection fills the controls and leaves the actual trim unchanged until you apply or preview it.
+2. Check the highlighted source sections in **Original**. The summary shows the frame step and proposed duration.
+3. Enable **Keep duration** to slow the remaining motion and preserve the finished cycle length. Leave it off to shorten the cycle instead.
+4. Choose **Apply trim**, or **Preview seam** to apply the values and repeatedly play the last second → first second. Press it again to stop; choose **Result** and ordinary playback to review the full cycle.
+5. **Reset pause trim** restores the range and speed used before that trim. Undo/Redo also work.
+
+The method, framing, and layers are retained. A method's intentional slowdown, such as a Smooth ping-pong turn, is separate from a pause in the source. Detection may decline a suggestion when footage is static, the slow section is too long, or trimming creates a worse join. Adjust manually and inspect the result in motion.
+
+**Analyze & repair** also tests pause trimming for unshifted Natural cut loops. It checks the rendered motion before offering Apply; when a slowdown dominates the seam defect, a verified trim is preferred over adding a dissolve. See [detection details](./seam-pause.md).
+
 ## Loop methods
 
 | Method | How it works |

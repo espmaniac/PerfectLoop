@@ -1,3 +1,5 @@
+import { analyzeSeamPause } from './seam-pause-analysis.js';
+import { pauseTrim, assessPauseRepair } from './seam-pause.js';
 import { openVideo, seekVideo, releaseVideo } from './media.js';
 import { framePlan, validate } from './logic.js';
 import { analyzeLoopRepair } from './repair-analysis.js';
@@ -25,8 +27,22 @@ async function inspectResult(result, signal, reference) {
     } finally {if(video)releaseVideo(video);URL.revokeObjectURL(url);}
 }
 
-export function autoRepairCandidates(settings, analysis, mode) {
+async function inspectPause(result,settings,signal,sourceRate) {
+    const url=URL.createObjectURL(result.blob);
+    try {
+        return await analyzeSeamPause(url,{...settings,start:0,end:result.duration,width:result.width,height:result.height,
+            fit:'contain',zoom:100,cropX:50,cropY:50,rotate:0,mirror:false,speed:1,fps:result.fps},
+            {fps:Math.min(result.fps,sourceRate||result.fps),videoDuration:result.duration},signal);
+    } finally {URL.revokeObjectURL(url);}
+}
+
+export function autoRepairCandidates(settings, analysis, mode, info={duration:settings.end}) {
     const candidates=[], plan=framePlan(settings);
+    if(settings.method==='natural' && !settings.shift && (analysis.pause?.head || analysis.pause?.tail)) {
+        try { candidates.push({label:mode==='keep'?'Remove seam pause (length preserved)':'Remove seam pause',pause:true,
+            settings:pauseTrim({...settings,seamPause:null},analysis.pause.head,analysis.pause.tail,analysis.pause.rate,mode==='keep',info)}); }
+        catch(error) {candidates.push({label:'Remove seam pause',unavailable:error.message,settings});}
+    }
     const repair={version:1,brightness:analysis.brightness,shiftX:analysis.shiftX,shiftY:analysis.shiftY,strength:.75,
         flicker:analysis.flickerUseful,alignment:analysis.alignmentUseful};
     if(repair.flicker||repair.alignment) candidates.push({label:repair.flicker && repair.alignment ? 'Brightness and alignment correction' : repair.flicker ? 'Brightness correction' : 'Alignment correction',settings:{...settings,repair}});
@@ -50,13 +66,24 @@ export async function autoRepair({file,url,settings,info,mode,engine,signal,onPr
     const assets=[];
     try {
         signal.throwIfAborted();
-        const before=await engine.render(file,settings,info,(p,t)=>onProgress(p*.2,`Original: ${t}`),true);
+        let sourceInfo=info;
+        if(settings.method==='natural' && !settings.shift) {
+            const metadata=info.videoDuration && info.fps ? info : await engine.inspect(file,(p,t)=>onProgress(p*.02,t));
+            signal.throwIfAborted();sourceInfo={...info,...metadata};
+            settings={...settings,end:Math.min(settings.end,sourceInfo.videoDuration||settings.end)};
+        }
+        const before=await engine.render(file,settings,info,(p,t)=>onProgress(p*.2,`Original: ${t}`),true,null,'high');
         signal.throwIfAborted();
         const baseline=await inspectResult(before,signal);
         const region=defectRegion(baseline);
-        if(baseline.excess<1 && baseline.score<2) return {before,best:null,baseline,region,trials:[],message:'No strong boundary defect was detected. Your settings have not changed.'};
+        let pause=null;const trials=[];
+        if(settings.method==='natural' && !settings.shift) {
+            try {pause=await analyzeSeamPause(url,settings,sourceInfo,signal,(p,t)=>onProgress(.2+p*.05,t));}
+            catch(error) {signal.throwIfAborted();trials.push({label:'Seam pause detection',reasons:[error.message]});}
+        }
+        if(baseline.excess<1 && baseline.score<2 && !pause?.head && !pause?.tail) return {before,best:null,baseline,region,trials,message:'No strong boundary defect was detected. Your settings have not changed.'};
         const analysis=await analyzeLoopRepair(url,settings,signal,(p,t)=>onProgress(.2+p*.1,t));
-        const candidates=autoRepairCandidates(settings,analysis,mode),trials=[];
+        const candidates=autoRepairCandidates(settings,{...analysis,pause},mode,info);
         if(region && settings.method==='natural' && !settings.shift && !settings.repair && settings.layers.length<MAX_LAYERS) {
             try {
                 const background=await captureBackgroundPatch(url,settings,region,signal,(p,t)=>onProgress(.3+p*.05,t));
@@ -86,21 +113,28 @@ export async function autoRepair({file,url,settings,info,mode,engine,signal,onPr
                 trials.push({label:'Local video patch',reasons:[error.message]});
             }
         }
-        let best=null;
+        let best=null, renderedPauseBefore=null;
+        const preferPause=baseline.excess<=baseline.temporal+baseline.velocity*.35;
         for(const [index,candidate] of candidates.entries()) {
             signal.throwIfAborted();
+            if(candidate.unavailable) {trials.push({label:candidate.label,reasons:[candidate.unavailable]});continue;}
             const issues=validate(candidate.settings,info);
             if(videoPatchExportBytes(candidate.settings.layers,candidate.settings)>256*1024**2) issues.push('This candidate exceeds the full-resolution patch memory budget.');
             if(issues.length) {trials.push({label:candidate.label,reasons:issues});continue;}
             try {
-                const result=await engine.render(file,candidate.settings,info,(p,t)=>onProgress(.4+.6*(index+p)/candidates.length,`${candidate.label}: ${t}`),true);
+                const result=await engine.render(file,candidate.settings,info,(p,t)=>onProgress(.4+.6*(index+p)/candidates.length,`${candidate.label}: ${t}`),true,null,'high');
                 signal.throwIfAborted();
                 const score=await inspectResult(result,signal,baseline);
-                const decision=assessRepair(baseline,score,mode,framePlan(settings).outputFrames,framePlan(candidate.settings).outputFrames);
+                let pauseAfter;
+                if(candidate.pause) {
+                    renderedPauseBefore ||= await inspectPause(before,settings,signal,sourceInfo.fps);
+                    pauseAfter=await inspectPause(result,candidate.settings,signal,sourceInfo.fps);
+                }
+                const decision=(candidate.pause ? assessPauseRepair : assessRepair)(baseline,score,mode,framePlan(settings).outputFrames,framePlan(candidate.settings).outputFrames,renderedPauseBefore,pauseAfter);
                 trials.push({label:candidate.label,...decision});
                 // Prefer a localized edit when its measured improvement is effectively tied.
-                const localTie=best && candidate.patch && !best.patch && decision.improvement>=best.improvement-.03;
-                if(decision.accepted && (!best||score.score<best.score.score||localTie)) best={...candidate,result,score,improvement:decision.improvement};
+                const localTie=best && !best.pause && candidate.patch && !best.patch && decision.improvement>=best.improvement-.03;
+                if(decision.accepted && !(best?.pause && preferPause && !candidate.pause) && (!best||score.score<best.score.score||localTie||(candidate.pause&&preferPause))) best={...candidate,result,score,improvement:decision.improvement};
             } catch(error) {
                 signal.throwIfAborted();
                 if(error.name==='AbortError') throw error;

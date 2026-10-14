@@ -17,7 +17,7 @@ export function reviewAutoRepair(report) {
         else dialog.querySelector('[data-after]').hidden=true;
         dialog.querySelector('[data-review-message]').textContent=report.message;
         dialog.querySelector('[data-review-summary]').textContent=report.best
-            ? `${report.best.label} · sampled seam error reduced by ${Math.round(report.best.improvement*100)}%. Cycle: ${report.before.duration.toFixed(3)}s → ${report.best.result.duration.toFixed(3)}s. Changes remain editable; Undo restores the previous settings.`
+            ? `${report.best.label} · ${report.best.pause?'boundary frame activity improved in the sampled checks':'sampled seam error reduced by '+Math.round(report.best.improvement*100)+'%'}${report.best.pause?' · trim '+report.best.settings.seamPause.head+' start / '+report.best.settings.seamPause.tail+' end frames':''}. Cycle: ${report.before.duration.toFixed(3)}s → ${report.best.result.duration.toFixed(3)}s. Changes remain editable; Undo restores the previous settings.`
             : report.region ? 'No changes applied. Use the highlighted region as a guide for a manual patch.' : 'No changes applied. Try another range or inspect the seam manually.';
         const region=report.region,box=dialog.querySelector('.auto-repair-region');
         if(region){box.hidden=false;Object.assign(box.style,{left:`${region.x*100}%`,top:`${region.y*100}%`,width:`${region.width*100}%`,height:`${region.height*100}%`});}

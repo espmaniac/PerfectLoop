@@ -160,13 +160,27 @@
             </fieldset>
           </div>
           <div class="tool-body" role="tabpanel" id="panel-repair" aria-labelledby="tab-repair" hidden>
-            <p class="panel-copy">Improve an almost-looping clip while keeping motion moving forward. Analyze the selected timeline range first.</p>
+            <p class="panel-copy">Improve an almost-looping clip. Trim a seam pause or analyze the range for other corrections.</p>
             <fieldset class="auto-repair-controls" data-disable>
               <label class="field"><span>Auto repair</span><select id="auto-repair-mode" aria-label="Auto repair duration"><option value="keep">Keep duration</option><option value="trim">Allow trimming (up to 20%)</option></select></label>
               <button class="btn primary full" data-action="auto-repair"><span data-icon="Sparkles" data-size="16"></span><span>Analyze &amp; repair</span></button>
-              <p class="micro">Tests corrections and compares rendered motion before proposing a change. Review Before / After, then Apply. Keep duration may adjust playback speed slightly for seam blending.</p>
+              <p class="micro">Tests corrections and compares rendered motion before proposing a change. Review Before / After, then Apply. Keep duration may slow the remaining motion or adjust speed for a blend.</p>
             </fieldset>
             <h3 class="repair-heading">Manual repair</h3>
+            <fieldset class="seam-pause-controls" id="seam-pause-controls" data-disable>
+              <h3 class="repair-heading">Seam pause</h3>
+              <p class="micro">Remove a held or slow section at the end or beginning. Detection proposes a trim; you can adjust every frame.</p>
+              <button class="btn secondary full" data-action="pause-detect"><span data-icon="ScanLine" data-size="16"></span><span>Detect pause</span></button>
+              <div class="pause-frame-field"><label class="field"><span>Trim start (frames)</span><input id="pause-head" type="number" min="0" step="1" value="0" aria-label="Trim start frames"></label><div class="pause-step-buttons"><button class="icon-btn" data-action="pause-head-minus" aria-label="Trim one fewer start frame"><span data-icon="Minus" data-size="14"></span></button><button class="icon-btn" data-action="pause-head-plus" aria-label="Trim one more start frame"><span data-icon="Plus" data-size="14"></span></button></div><input id="pause-head-range" type="range" min="0" step="1" value="0" aria-label="Trim start frames slider"></div>
+              <div class="pause-frame-field"><label class="field"><span>Trim end (frames)</span><input id="pause-tail" type="number" min="0" step="1" value="0" aria-label="Trim end frames"></label><div class="pause-step-buttons"><button class="icon-btn" data-action="pause-tail-minus" aria-label="Trim one fewer end frame"><span data-icon="Minus" data-size="14"></span></button><button class="icon-btn" data-action="pause-tail-plus" aria-label="Trim one more end frame"><span data-icon="Plus" data-size="14"></span></button></div><input id="pause-tail-range" type="range" min="0" step="1" value="0" aria-label="Trim end frames slider"></div>
+              <label class="toggle-row"><span>Keep duration<small>Slow the remaining motion to retain the current cycle length.</small></span><input type="checkbox" id="pause-keep"><span class="switch" aria-hidden="true"></span></label>
+              <p class="micro" id="pause-summary" role="status"></p>
+              <p class="micro" id="pause-report" role="status">Detect pause to get a suggestion, or choose frame counts manually.</p>
+              <button class="btn secondary full" data-action="pause-apply"><span data-icon="Check" data-size="16"></span><span>Apply trim</span></button>
+              <button class="btn secondary full" data-action="pause-preview" aria-pressed="false"><span data-icon="Play" data-size="16"></span><span>Preview seam</span></button>
+              <button class="text-btn" data-action="pause-reset"><span data-icon="RotateCcw" data-size="16"></span><span>Reset pause trim</span></button>
+              <p class="micro">Preview seam applies the trim and repeats the last second → first second. Trim areas are highlighted in Original.</p>
+            </fieldset>
             <button class="btn secondary full" data-action="repair-analyze" data-disable><span data-icon="ScanLine" data-size="16"></span><span>Analyze loop</span></button>
             <button class="text-btn repair-full" data-action="repair-full" data-disable><span data-icon="Expand" data-size="16"></span><span>Use the full video</span></button>
             <p class="micro" id="repair-range"></p>
@@ -247,6 +261,7 @@
             <div class="ruler-labels" id="ruler-labels"></div>
             <div class="filmstrip" id="filmstrip">
               <div class="filmstrip-images" id="filmstrip-images" aria-hidden="true"></div>
+              <div class="pause-trim-region" id="pause-trim-head" aria-hidden="true" hidden></div><div class="pause-trim-region" id="pause-trim-tail" aria-hidden="true" hidden></div>
               <div class="selection-shade left" id="shade-left"></div><div class="selection-shade right" id="shade-right"></div>
               <div class="selection-outline" id="selection-outline"></div>
               <button class="trim-handle start" data-edge="start" aria-label="Drag start trim handle"><span></span></button><button class="trim-handle end" data-edge="end" aria-label="Drag end trim handle"><span></span></button>

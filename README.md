@@ -14,7 +14,7 @@ Your videos, images, and fonts stay on your device. No installation or account r
 
 - **🔍 Find loops** anywhere in a video, or within a range you choose. Compare matches and get a suggested loop method.
 - **🔁 Shape the loop** with a natural cut, dissolve, forward-and-backward playback, or fade.
-- **🩹 Repair small defects** with brightness correction, seam alignment, or static and moving patches.
+- **🩹 Repair small defects** with pause trimming, brightness correction, seam alignment, or static and moving patches.
 - **🎨 Add layers** with text, images, gradients, custom fonts, movement, and rotation.
 - **✂️ Frame your video** in portrait, landscape, square, or custom dimensions. Move, resize, and rotate it in the preview.
 - **📱 Prepare iPhone wallpapers** and Spotify Canvas visuals, or export a regular video or GIF.

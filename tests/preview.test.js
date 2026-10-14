@@ -357,3 +357,19 @@ test('Framed Original preserves transforms and excludes layers and loop effects'
     f.preview.refresh();f.tick();assert.deepEqual([f.canvas.width,f.canvas.height],dimensions);
     assert.equal(f.canvas.pixel,'#64ac24');
 });
+
+test('Seam playback repeats tail and head while skipping the middle and stops on manual seeking', async t => {
+    const f=fixture(t);await f.preview.playSeam();
+    assert.equal(f.output.currentTime,2);assert.equal(f.preview.seamPreview,true);
+    f.output.currentTime=.5;f.tick();assert.equal(f.output.currentTime,.5);
+    f.output.currentTime=1.2;f.tick();assert.equal(f.output.currentTime,2);
+    f.output.currentTime=2.5;f.tick();assert.equal(f.output.currentTime,2.5);
+    f.preview.pause();assert.equal(f.preview.seamPreview,false);assert.equal(f.output.paused,true);
+    await f.preview.playSeam();f.preview.seek(1,'loop');assert.equal(f.preview.seamPreview,false);
+});
+
+test('Short-cycle seam playback uses nonoverlapping head and tail windows', async t => {
+    const f=fixture(t);f.state.render.duration=.6;f.output.duration=.6;
+    await f.preview.playSeam();assert(Math.abs(f.output.currentTime-.4)<1e-9);
+    f.output.currentTime=.25;f.tick();assert(Math.abs(f.output.currentTime-.4)<1e-9);
+});
