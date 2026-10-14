@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="226" height="32" viewBox="0 0 226 32" role="img" aria-labelledby="title">
+  <title id="title">Media stays on your device</title>
+  <rect width="226" height="32" rx="5" fill="#686868"/>
+  <g fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="11" y="15" width="12" height="9" rx="1.5"/>
+    <path d="M14 15v-4a3 3 0 0 1 6 0v4"/>
+  </g>
+  <text x="34" y="20.5" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="13">Media stays on your device</text>
+</svg>
