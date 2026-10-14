@@ -1,3 +1,4 @@
+import { filterSimilarRanges } from './ranking.js';
 import { alignVideoToFrame } from './framing.js';
 import { autoRepair } from './auto-repair.js';
 import { reviewAutoRepair } from './auto-repair-dialog.js';
@@ -33,7 +34,7 @@ const state = {
   mode: 'source', tab: 'edit', playhead: 0, filmstrip: [], activeLayerId: '',
   renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
   wallpaperScreen: 'editor', wallpaperDownload: supportsPackageSave() ? 'pvt' : 'live-photo', wallpaperPosterURL: '', wallpaperPosterSignature: '',
-  opts: { from: 0, to: 18, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true },
+  opts: { from: 0, to: 18, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true, hideSimilar: true },
   candidates: [], selected: new Set(), seam: null, repairAnalysis: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
@@ -105,9 +106,10 @@ function update(partial, saveHistory = true) {
   refresh();
 }
 function restore(value) {
-  const searchChanged = JSON.stringify(state.opts) !== JSON.stringify(value.opts);
+  const searchChanged = Object.keys(state.opts).some(key => key !== 'hideSimilar' && state.opts[key] !== value.opts[key]);
   state.s = value.s; state.opts = value.opts;
   if (searchChanged) clearCandidates();
+  else { state.selected = new Set(); renderCandidates(); }
   clearSeam();
   if (state.s.preset !== 'iphone') state.wallpaperScreen = 'editor';
   if (searchChanged && state.tab === 'find') preview.setMode('source');
@@ -230,7 +232,9 @@ function updateSearch(partial, saveHistory = true) {
   if ('to' in partial) partial = { ...partial, to: clamp(partial.to, state.opts.from + gap, state.info.duration) };
   if (Object.entries(partial).every(([key, value]) => state.opts[key] === value)) return;
   if (saveHistory) remember();
-  state.opts = { ...state.opts, ...partial }; clearCandidates();
+  state.opts = { ...state.opts, ...partial };
+  if (Object.keys(partial).every(key => key === 'hideSimilar')) { state.selected = new Set(); renderCandidates(); }
+  else clearCandidates();
   if ('from' in partial || 'to' in partial) preview.setMode('source');
   else refresh();
 }
@@ -608,23 +612,33 @@ async function runSearch() {
   preview.setMode('source');
   try {
     let rate = state.info.fps;
-    if (!rate) { const metadata = await engine.inspect(state.file, progress('search')); Object.assign(state.info, metadata); rate = metadata.fps; }
+    if (!rate || !state.info.videoDuration) {
+      const metadata = await engine.inspect(state.file, progress('search'));
+      Object.assign(state.info, metadata); rate = metadata.fps;
+      if (metadata.videoDuration) {
+        state.info.duration = metadata.videoDuration;
+        state.opts.to = Math.min(state.opts.to, metadata.videoDuration);
+        state.s.end = Math.min(state.s.end, metadata.videoDuration);
+      }
+    }
     if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-    const result = await searchVideo(state.sourceURL, { ...state.opts }, rate, state.controller.signal, progress('search'));
+    const result = await searchVideo(state.sourceURL, { ...state.opts, videoDuration: state.info.videoDuration }, rate, state.controller.signal, progress('search'));
     state.candidates = result.candidates; state.selected = new Set(); renderCandidates();
     notice(result.candidates.length ? `${result.candidates.length} candidate loops found. Visual scores are estimates; inspect motion before exporting. Sampling spacing: ${result.step.toFixed(2)}s.` : 'No close natural loop found. Widen the search range, allow scene cuts, or use Crossfade / Ping-pong.');
   } catch (error) { report(error); }
   finally { finishJob(); }
 }
+function visibleCandidates() { return filterSimilarRanges(state.candidates, state.opts.hideSimilar); }
 function renderCandidates() {
+  const visible = visibleCandidates();
   $('#candidate-section').hidden = !state.candidates.length;
-  $('#candidate-count').textContent = `${state.candidates.length} matches`;
+  $('#candidate-count').textContent = `${visible.length} of ${state.candidates.length} matches`;
   $('#select-top').innerHTML = icon(state.selected.size ? 'X' : 'ListChecks', 16) + `<span>${state.selected.size ? 'Clear selection' : 'Select top 5'}</span>`;
-  $('#candidates').innerHTML = state.candidates.map((candidate, index) => `<div class="candidate">
+  $('#candidates').innerHTML = visible.map((candidate, index) => `<div class="candidate">
     <label class="candidate-check"><input type="checkbox" data-candidate-check="${candidate.id}" aria-label="Select candidate ${index + 1} for batch export" ${state.selected.has(candidate.id) ? 'checked' : ''}></label>
     <img src="${candidate.thumbnail}" alt="Start frame of candidate ${index + 1}">
-    <button class="candidate-main" data-candidate="${candidate.id}"><b>${timecode(candidate.start)} <span>→</span> ${timecode(candidate.end)}</b><small>${(candidate.end - candidate.start).toFixed(3)}s · ${candidate.refined ? 'Frame refined' : 'Coarse match'}${candidate.cuts ? ` · ${candidate.cuts} cuts` : ''}</small></button>
-    <span class="score ${candidate.score >= 90 ? 'strong' : ''}" title="Image ${candidate.visual.toFixed(0)} / Motion ${candidate.motion.toFixed(0)}">${candidate.score.toFixed(0)}<small>fit</small></span></div>`).join('');
+    <button class="candidate-main" data-candidate="${candidate.id}"><b>${timecode(candidate.start)} <span>→</span> ${timecode(candidate.end)}</b><small>${(candidate.end - candidate.start).toFixed(3)}s · ${candidate.verified ? 'Seam checked' : candidate.refined ? 'Frame refined' : 'Coarse match'}${candidate.cuts ? ` · ${candidate.cuts} cuts` : ''}</small></button>
+    <span class="score ${candidate.score >= 90 ? 'strong' : ''}" title="Estimated seam fit from image and motion checks. Watch several repeats before exporting.">${candidate.score.toFixed(0)}<small>fit</small></span></div>`).join('');
   $('#batch-button').hidden = !state.selected.size;
   $('#batch-button').innerHTML = icon('Download', 15) + `Export ${state.selected.size} natural loops as ZIP`;
 }
@@ -1149,7 +1163,7 @@ const actions = {
   mute: () => preview.toggleMute(), guides: () => preview.toggleGuides(), fullscreen: () => preview.fullscreen(), 'frame-png': () => { if (!staticWallpaperLayout()) preview.saveFrame(); },
   zoom: () => timeline.toggleZoom(), 'mark-in': () => mark('start'), 'mark-out': () => mark('end'), 'fit-duration': fitDuration,
   'download-again': () => { if (state.lastExport) download(state.lastExport.blob, state.lastExport.name); },
-  'select-top': () => { state.selected = state.selected.size ? new Set() : new Set(state.candidates.slice(0, 5).map(candidate => candidate.id)); renderCandidates(); },
+  'select-top': () => { state.selected = state.selected.size ? new Set() : new Set(visibleCandidates().slice(0, 5).map(candidate => candidate.id)); renderCandidates(); },
 };
 document.addEventListener('click', event => {
   const button = event.target.closest('button'); if (!button || button.matches(':disabled')) return;

@@ -1,3 +1,4 @@
+import { sourceMetadata } from './source-metadata.js';
 import { videoSelectionGeometry } from './framing.js';
 import { FFmpeg, FFFSType } from '../vendor/ffmpeg/index.js';
 import { gunzipSync } from '../vendor/fflate.js';
@@ -336,7 +337,7 @@ export class VideoEngine {
         try {
             await this.load(onProgress);
             const source = await this.mount(file), probe = await this.probe(source);
-            return { fps: numberRate(probe.streams.find(st => st.codec_type === 'video')?.avg_frame_rate), hasAudio: probe.streams.some(st => st.codec_type === 'audio') };
+            return sourceMetadata(probe);
         }
         catch (e) {
             if (this.cancelled)
