@@ -18,7 +18,7 @@ Media processing happens on your device; your source videos and photos are never
 - **Six loop methods** — use a natural cut, dissolve, ping-pong, or fade depending on the footage.
 - **Flexible framing** — choose Original, 16:9, 9:16, 1:1, or Custom; adjust crop position, fit, rotation, mirroring, and background color.
 - **Motion controls** — change playback speed, overlap, dissolve curve, seam position, and optional motion interpolation.
-- **Seam inspection** — compare boundary frames, inspect their difference, use composition guides, and watch a rendered loop preview.
+- **Seam inspection** — compare boundary frames, inspect their difference, use output aspect-ratio guides, and watch a rendered loop preview.
 - **Audio control** — mute playback independently, export without an audio track, or retain audio with smoothing options.
 - **Export options** — download MP4, WebM, or a GIF that loops forever or plays once. Adjust frame rate and dimensions for all formats; set quality, cycles in the file, and an approximate file-size target for video. Export selected loop candidates together as a ZIP.
 - **Included sample** — a repeating animation with audio loads automatically once when the page opens.
@@ -100,7 +100,7 @@ These tools help with small defects and do not guarantee a seamless result for e
 
 The **Source** preview keeps the original video's proportions. **Loop preview** shows the rendered output, including its framing, at a smaller resolution. In **Edit loop**, drag the video to open a live **Composition** draft and reposition it within the output frame. Drag a square corner handle to resize it from 25% to 400%, or drag just outside a corner to rotate it freely. Holding Alt while dragging a square also rotates; Shift snaps rotation to 15° increments. Smaller sizes and rotation can expose the border color. Reset restores 100% scale, centered positioning, and 0° rotation. **Video scale** and **Video rotation** in the **Layers → Video** controls accept numeric values. These settings apply to rendered previews and exports. Render again after changing settings.
 
-The editor outline follows the full object, including parts outside the cropped output. **Fit view** fits its real corners and the output frame on screen; the view zoom buttons only change the editor camera. The marked **Output frame** contains the exported pixels. Rotating with the handles keeps that output frame fixed, including when Original aspect was selected. Source and rendered Loop previews retain their normal view.
+The editor outline follows the full object, including parts outside the cropped output. **Fit view** fits its real corners and the output frame on screen; the view zoom buttons only change the editor camera. The marked **Output frame** contains the exported pixels. Rotating with the handles keeps that output frame fixed, including when Original aspect was selected. Original and Result retain their normal view.
 
 The **Layers** tab opens a live **Composition** draft with output framing. **Movement speed** chooses 1–10 complete passes per processed loop cycle. The four screen directions follow the frame axes. Rotating a text or image layer adds **Along rotation** and **Against rotation** to **Movement**; these follow the element's angle in either direction. An angled path exits the frame before returning at the opposite end, so it repeats without a visible jump. Resetting Rotation to 0° (or a full turn) converts these choices to Left to right or Right to left. **Render preview** and exports include the same layers and motion; video repeats repeat the entire composed cycle, and GIF **Loop forever** repeats that cycle automatically.
 
@@ -126,6 +126,8 @@ The displayed **Finished loop** duration includes the loop method, speed, overla
 | Vertical music visual | Short portrait visuals, with a suggested duration of up to 15 seconds. |
 | iPhone wallpaper | A suggested two-second cycle, phone-size previews, key-photo selection, and Live Photo or ordinary wallpaper downloads. |
 | Custom | Your own output dimensions, format, timing, and frame rate. |
+
+The **Toggle aspect-ratio guide** button shows the selected output ratio (for example, 9:16 or 1:1). On Original it is a centered proportion reference; Result shows the actual framing. In Result and live layer editing, the outline follows the full output frame, including editor zoom. Guides are an overlay and are not exported.
 
 Select **Custom** under **Aspect ratio** to enter Width and Height directly. Use even dimensions from **16 to 3840 pixels**.
 

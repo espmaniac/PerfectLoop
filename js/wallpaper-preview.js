@@ -44,7 +44,7 @@ export class WallpaperPreview {
     this.canvas.before(this.device);
     this.device.append(this.display);
     this.display.append(this.canvas);
-    const guides = stage.querySelector('#safe-guides');
+    const guides = stage.querySelector('#aspect-guides');
     if (guides) this.display.append(guides);
     this.poster = document.createElement('img');
     this.poster.className = 'wallpaper-poster';
@@ -131,7 +131,7 @@ export class WallpaperPreview {
     this.stage.removeAttribute('data-wallpaper-screen');
     this.canvas.classList.remove('wallpaper-live-hidden');
     this.device.before(this.canvas);
-    const guides = this.display.querySelector('#safe-guides');
+    const guides = this.display.querySelector('#aspect-guides');
     if (guides) this.canvas.after(guides);
     this.device.remove();
     this.controlsHost.replaceChildren();

@@ -175,20 +175,30 @@ function refreshPreviewEditor() {
   const overlay = $('#preview-selection'), host = $('#preview-transform'), frame = $('#preview-output-frame');
   $('#preview-view-controls').hidden = !view?.enabled;
   $('#preview-view-scale').textContent = `${Math.round(view?.zoomPercent || 100)}%`;
-  frame.hidden = !view?.enabled;
+  frame.hidden = !view?.enabled || preview.guides;
   const canvas = preview.canvas, box = canvas.getBoundingClientRect(), stage = $('#preview-stage').getBoundingClientRect();
   if (view?.enabled) {
     frame.style.left = `${box.left - stage.left}px`; frame.style.top = `${box.top - stage.top}px`;
     frame.style.width = `${box.width}px`; frame.style.height = `${box.height}px`;
   }
-  const guides = $('#safe-guides');
-  if (view?.enabled) {
-    guides.style.left = `${box.left - stage.left + box.width * 0.14}px`;
-    guides.style.top = `${box.top - stage.top + box.height * 0.1}px`;
-    guides.style.width = `${box.width * 0.72}px`; guides.style.height = `${box.height * 0.8}px`;
-    guides.style.right = guides.style.bottom = 'auto';
-  } else {
-    for (const key of ['left', 'top', 'width', 'height', 'right', 'bottom']) guides.style.removeProperty(key);
+  const guides = $('#aspect-guides');
+  const ratio = state.s.width / state.s.height;
+  guides.hidden = !preview.guides || !state.info.duration || !(state.s.width > 0 && state.s.height > 0 && Number.isFinite(ratio));
+  if (!guides.hidden) {
+    // Original is a centered ratio reference. Drafts and Result already have
+    // the output proportions, so their guide follows the whole output canvas.
+    const width = state.mode === 'source' ? Math.min(box.width, box.height * ratio) : box.width;
+    const height = state.mode === 'source' ? width / ratio : box.height;
+    const parent = guides.offsetParent || $('#preview-stage'), origin = parent.getBoundingClientRect();
+    guides.style.left = `${box.left - origin.left - parent.clientLeft + (box.width-width)/2}px`;
+    guides.style.top = `${box.top - origin.top - parent.clientTop + (box.height-height)/2}px`;
+    guides.style.width = `${width}px`; guides.style.height = `${height}px`;
+    const gcd = (a,b) => b ? gcd(b,a%b) : a;
+    const divisor = gcd(Math.round(state.s.width),Math.round(state.s.height)) || 1;
+    const label = `${Math.round(state.s.width)/divisor}:${Math.round(state.s.height)/divisor}`;
+    guides.querySelector('span').textContent = `${state.mode === 'source' ? 'Ratio guide' : 'Output'} ${label}`;
+    const button = $('[data-action="guides"]');
+    button.title = state.mode === 'source' ? `${label} centered ratio reference. Result shows the actual framing.` : `${label} output frame · ${state.s.width} × ${state.s.height}`;
   }
   host.hidden = !shapes.length;
   if (!shapes.length) { selectionSignature = ''; return; }
@@ -1253,7 +1263,7 @@ const actions = {
   proxy: makeProxy, search: runSearch, render: () => { state.previewChoice = 'result'; return runRender(true); }, export: () => runRender(false), inspect, batch: batchExport, cancel,
   'dismiss-error': () => { state.error = ''; refreshStatus(); }, 'dismiss-notice': () => notice(''),
   play: () => staticWallpaperLayout() ? undefined : playPreview(), 'previous-frame': () => { if (!staticWallpaperLayout()) stepPreview(-1); }, 'next-frame': () => { if (!staticWallpaperLayout()) stepPreview(1); },
-  mute: () => preview.toggleMute(), guides: () => preview.toggleGuides(), fullscreen: () => preview.fullscreen(), 'frame-png': () => { if (!staticWallpaperLayout()) preview.saveFrame(); },
+  mute: () => preview.toggleMute(), guides: () => { preview.toggleGuides(); refreshPreviewEditor(); }, fullscreen: () => preview.fullscreen(), 'frame-png': () => { if (!staticWallpaperLayout()) preview.saveFrame(); },
   zoom: () => timeline.toggleZoom(), 'mark-in': () => mark('start'), 'mark-out': () => mark('end'), 'fit-duration': fitDuration,
   'download-again': () => { if (state.lastExport) download(state.lastExport.blob, state.lastExport.name); },
   'select-top': () => { state.selected = state.selected.size ? new Set() : new Set(visibleCandidates().slice(0, 5).map(candidate => candidate.id)); renderCandidates(); },
