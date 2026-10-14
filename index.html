@@ -104,7 +104,7 @@
     <input id="wallpaper-photo-input" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" aria-label="Choose wallpaper photo">
     <main>
       <h1 class="sr-only">Video loop editor</h1>
-      <div class="alert error" id="proxy-alert" role="alert" hidden><div><b>Compatible preview needed</b><p id="proxy-message"></p></div><button class="btn secondary" data-action="proxy">Create proxy</button></div>
+      <div class="alert error" id="proxy-alert" role="alert" hidden><div><b>Compatible preview needed</b><p id="proxy-message"></p></div><button class="btn secondary" data-action="proxy"><span data-icon="Film" data-size="16"></span><span>Create proxy</span></button></div>
       <div class="alert error" id="error-alert" role="alert" hidden><span id="error-message"></span><button class="icon-btn" data-action="dismiss-error" aria-label="Dismiss error"><span data-icon="X" data-size="16"></span></button></div>
       <div class="notice" id="notice" role="status" hidden><span data-icon="CheckCircle2" data-size="15"></span><span id="notice-message"></span><button class="icon-btn" data-action="dismiss-notice" aria-label="Dismiss notice"><span data-icon="X" data-size="14"></span></button></div>
       <div class="workbench">
@@ -125,7 +125,7 @@
               <div id="search-options"></div>
               <button class="btn primary full" data-action="search"><span data-icon="Search" data-size="16"></span>Find loop candidates</button>
               <details class="disclosure"><summary>How search works</summary><p class="micro">Search from / Search to limit where clips can be found. Min / Max loop length set each clip's source duration. Matches are ranked across the whole search range; selecting one sets the render range and preserves the search range. Long videos use adaptive sampling, up to 1,601 frames. The best five matches are refined around individual frames. Scores estimate visual fit; watch the motion at the seam.</p></details>
-              <div class="candidate-section" id="candidate-section" hidden><div class="candidate-head"><b id="candidate-count"></b><button class="text-btn" data-action="select-top" id="select-top">Select top 5</button></div><div class="candidates" id="candidates"></div><button class="btn secondary full" data-action="batch" id="batch-button" hidden></button></div>
+              <div class="candidate-section" id="candidate-section" hidden><div class="candidate-head"><b id="candidate-count"></b><button class="text-btn" data-action="select-top" id="select-top"><span data-icon="ListChecks" data-size="16"></span><span>Select top 5</span></button></div><div class="candidates" id="candidates"></div><button class="btn secondary full" data-action="batch" id="batch-button" hidden></button></div>
             </fieldset>
           </div>
           <div class="tool-body" role="tabpanel" id="panel-inspect" aria-labelledby="tab-inspect" hidden>
@@ -139,14 +139,14 @@
           <div class="tool-body" role="tabpanel" id="panel-layers" aria-labelledby="tab-layers" hidden>
             <fieldset data-disable>
               <div class="layer-add-actions">
-                <button class="btn secondary" data-action="layer-add-text">Add text</button>
-                <button class="btn secondary" data-action="layer-add-image">Add image</button>
+                <button class="btn secondary" data-action="layer-add-text"><span data-icon="Type" data-size="16"></span><span>Add text</span></button>
+                <button class="btn secondary" data-action="layer-add-image"><span data-icon="ImagePlus" data-size="16"></span><span>Add image</span></button>
               </div>
               <input id="layer-image-input" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" aria-label="Choose layer image">
               <input id="layer-font-input" class="sr-only" type="file" accept=".ttf,.otf,.woff,.woff2" multiple aria-label="Choose font files">
               <p class="micro layer-image-hint">PNG, JPEG, WebP, or GIF. Animated images use the first frame. Up to 8 layers.</p>
-              <div class="layer-patch-actions"><button class="btn secondary full" data-action="layer-add-patch" data-disable>Create patch from frame</button>
-              <button class="btn secondary full" data-action="layer-add-video-patch" data-disable>Create video patch</button></div><p class="micro">Video patches preserve motion inside a selected area. For a still patch, pause on a clean source frame, then select a fragment to cover a stationary defect.</p>
+              <div class="layer-patch-actions"><button class="btn secondary full" data-action="layer-add-patch" data-disable><span data-icon="Crop" data-size="16"></span><span>Create patch from frame</span></button>
+              <button class="btn secondary full" data-action="layer-add-video-patch" data-disable><span data-icon="Film" data-size="16"></span><span>Create video patch</span></button></div><p class="micro">Video patches preserve motion inside a selected area. For a still patch, pause on a clean source frame, then select a fragment to cover a stationary defect.</p>
               <p class="micro" id="layer-empty">Add text, an image, or a patch to your loop.</p>
               <div class="layer-list" id="layer-list" role="list" aria-label="Layers, top to bottom"></div>
               <div class="layer-controls" id="layer-controls" hidden></div>
@@ -157,15 +157,15 @@
             <p class="panel-copy">Improve an almost-looping clip while keeping motion moving forward. Analyze the selected timeline range first.</p>
             <fieldset class="auto-repair-controls" data-disable>
               <label class="field"><span>Auto repair</span><select id="auto-repair-mode" aria-label="Auto repair duration"><option value="keep">Keep duration</option><option value="trim">Allow trimming (up to 20%)</option></select></label>
-              <button class="btn primary full" data-action="auto-repair">Analyze &amp; repair</button>
+              <button class="btn primary full" data-action="auto-repair"><span data-icon="Sparkles" data-size="16"></span><span>Analyze &amp; repair</span></button>
               <p class="micro">Tests corrections and compares rendered motion before proposing a change. Review Before / After, then Apply. Keep duration may adjust playback speed slightly for seam blending.</p>
             </fieldset>
             <h3 class="repair-heading">Manual repair</h3>
-            <button class="btn secondary full" data-action="repair-analyze" data-disable>Analyze loop</button>
-            <button class="text-btn repair-full" data-action="repair-full" data-disable>Use the full video</button>
+            <button class="btn secondary full" data-action="repair-analyze" data-disable><span data-icon="ScanLine" data-size="16"></span><span>Analyze loop</span></button>
+            <button class="text-btn repair-full" data-action="repair-full" data-disable><span data-icon="Expand" data-size="16"></span><span>Use the full video</span></button>
             <p class="micro" id="repair-range"></p>
             <div id="repair-report" role="status"><p class="micro">Analysis checks the framed source before layers and loop effects. It does not change the video.</p></div>
-            <button class="btn secondary full" id="repair-cut" data-action="repair-cut" hidden>Use suggested cut</button>
+            <button class="btn secondary full" id="repair-cut" data-action="repair-cut" hidden><span data-icon="Scissors" data-size="16"></span><span>Use suggested cut</span></button>
             <fieldset id="repair-controls" disabled>
               <h3 class="repair-heading">Flicker</h3>
               <label class="toggle-row"><span>Reduce brightness flicker<small>Smooth sampled brightness changes across the cycle. Review scenes with intentional flashes.</small></span><input type="checkbox" id="repair-flicker"><span class="switch" aria-hidden="true"></span></label>
@@ -176,14 +176,14 @@
               <label class="field"><span>Overlap (seconds)</span><input id="repair-overlap" type="number" min="0.05" max="2" step="0.05" value="0.25"></label>
               <label class="range-field"><span>Correction strength <output id="repair-strength-value">100%</output></span><input id="repair-strength" aria-label="Correction strength" type="range" min="0" max="100" step="5" value="100"></label>
               <p class="micro" id="repair-duration"></p>
-              <button class="btn secondary full" data-action="repair-apply">Apply repairs</button>
+              <button class="btn secondary full" data-action="repair-apply"><span data-icon="Check" data-size="16"></span><span>Apply repairs</span></button>
             </fieldset>
             <div class="repair-preview-actions">
-              <button class="btn secondary" data-action="repair-before" data-disable>Preview original</button>
-              <button class="btn primary" data-action="repair-preview">Preview result</button>
+              <button class="btn secondary" data-action="repair-before" data-disable><span data-icon="Play" data-size="16"></span><span>Preview original</span></button>
+              <button class="btn primary" data-action="repair-preview"><span data-icon="Play" data-size="16"></span><span>Preview result</span></button>
             </div>
             <p class="micro" id="repair-preview-note">Preview buttons render the selected range. Compare the boundary over several repeats. Composition is a draft and does not show repairs.</p>
-            <button class="text-btn" data-action="repair-clear" data-disable>Remove repairs</button>
+            <button class="text-btn" data-action="repair-clear" data-disable><span data-icon="RotateCcw" data-size="16"></span><span>Remove repairs</span></button>
           </div>
         </section>
         <section class="preview-panel panel" aria-label="Video preview">
@@ -211,7 +211,7 @@
               <button class="icon-btn" data-action="view-out" aria-label="Zoom out editor view" title="Zoom out editor view"><span data-icon="ZoomOut" data-size="16"></span></button>
               <output id="preview-view-scale" aria-label="Editor view zoom">100%</output>
               <button class="icon-btn" data-action="view-in" aria-label="Zoom in editor view" title="Zoom in editor view"><span data-icon="ZoomIn" data-size="16"></span></button>
-              <button class="text-btn" data-action="view-fit" title="Fit the full object and output frame in the editor">Fit view</button>
+              <button class="text-btn" data-action="view-fit" title="Fit the full object and output frame in the editor"><span data-icon="Expand" data-size="16"></span><span>Fit view</span></button>
             </div>
             <p class="micro" id="preview-edit-hint">Drag the video to reposition it. Open Layers to move text and images.</p>
           </div>
@@ -235,7 +235,7 @@
             <div class="timeline-head"><div class="source-meta" id="source-meta"><span>Loading the sample…</span></div><div class="timeline-actions">
               <span id="range-duration"></span>
               <div class="history-controls"><button class="icon-btn" data-action="undo" aria-label="Undo settings"><span data-icon="Undo2" data-size="16"></span></button><button class="icon-btn" data-action="redo" aria-label="Redo settings"><span data-icon="Redo2" data-size="16"></span></button><button class="icon-btn" data-action="reset" aria-label="Reset settings"><span data-icon="RotateCcw" data-size="16"></span></button></div>
-              <button class="text-btn" data-action="mark-in">Set in<kbd>I</kbd></button><button class="text-btn" data-action="mark-out">Set out<kbd>O</kbd></button><button class="icon-btn" data-action="zoom" aria-label="Zoom to selection"><span data-icon="ZoomIn" data-size="18"></span></button>
+              <button class="text-btn" data-action="mark-in"><span data-icon="SkipBack" data-size="16"></span><span>Set in<kbd>I</kbd></span></button><button class="text-btn" data-action="mark-out"><span data-icon="SkipForward" data-size="16"></span><span>Set out<kbd>O</kbd></span></button><button class="icon-btn" data-action="zoom" aria-label="Zoom to selection"><span data-icon="ZoomIn" data-size="18"></span></button>
             </div></div>
             <p class="timeline-caption" id="timeline-caption" hidden></p>
             <div class="ruler-labels" id="ruler-labels"></div>
@@ -263,7 +263,7 @@
               <div class="wallpaper-photo-actions"><button class="btn secondary" data-action="open-photo"><span data-icon="ImagePlus" data-size="16"></span>Open photo</button><p class="micro">Turn a JPEG, PNG, or WebP photo into a gentle motion loop. You can add text and images in Layers.</p></div>
               <label class="range-field"><span>Key photo <b id="wallpaper-key-time">1.000s</b></span><input type="range" min="0" max="100" step="1" data-setting="wallpaperPoster" data-number aria-label="Key photo position"></label>
               <div id="wallpaper-download-field"></div>
-              <div class="wallpaper-duration-note"><p class="micro" id="wallpaper-range-note"></p><button class="text-btn" data-action="fit-duration">Fit to a 2-second cycle</button></div>
+              <div class="wallpaper-duration-note"><p class="micro" id="wallpaper-range-note"></p><button class="text-btn" data-action="fit-duration"><span data-icon="Timer" data-size="16"></span><span>Fit to a 2-second cycle</span></button></div>
               <details class="disclosure wallpaper-install-guide"><summary>Save the Live Photo to Apple Photos</summary><div class="disclosure-content micro"><p>PerfectLoop creates the Live Photo entirely in your browser. Export it on any device; importing the finished result into Apple Photos is a separate system step.</p><p><b>Direct PVT save:</b> where available, choose <b>Live Photo · PVT package</b> and select a destination folder. The site saves the real package directly, without an archive. A PVT is a package folder; Safari cannot save one directly and uses ZIP instead.</p><p><b>Try on iPhone or iPad:</b> save the ZIP to Files, touch and hold it, choose <b>Uncompress</b>, then open <b>live-photo.pvt</b>. Use <b>Save to Photos</b> if the system offers it. Verify one Live Photo and its motion. This import action depends on iOS and may not be available; it has not been verified on a physical iPhone by PerfectLoop. Windows/Linux users can transfer the ZIP to their iPhone for the same steps.</p><p><b>On a Mac:</b> import the saved PVT package into Photos, or unzip the download and import <b>live-photo.pvt</b>. If the package is not recognized, import both files inside it, <b>photo.jpg</b> and <b>photo.mov</b>, together. Verify one Live Photo, then sync with iCloud Photos or share that asset from Photos via AirDrop.</p><p>Browser exports cannot directly add a paired asset to Photos. The import is experimental, and modern iOS can show <b>Motion Not Available</b> when selecting an otherwise working Live Photo as wallpaper. Check on the target iPhone.</p><p>iOS creates a short Lock Screen wake effect from motion near the key photo. It can use only a small part of the video and change its speed and smoothness. Video playback on this site does not simulate that effect.</p><p>Lock Screen layout and Home Screen layout show the selected still photo. Home Screen wallpaper stays still. The phone frame, clock, and icons are preview overlays and are excluded from downloads.</p></div></details>
             </div>
             <div class="output-aspect">
@@ -290,12 +290,12 @@
               <div class="export-valid" id="export-valid" hidden></div>
               <p class="micro" id="long-loop-warning" hidden>Long loops take more time and memory to encode in a browser.</p>
               <button class="btn primary full export-btn" data-action="export"><span data-icon="Upload" data-size="19"></span><span id="export-label">Export MP4</span></button>
-              <div class="download-result" id="download-result" hidden><span data-icon="CheckCircle2" data-size="16"></span><div><b>Your loop is ready</b><span id="download-meta"></span><button class="text-btn" data-action="download-again">Download again</button></div></div>
+              <div class="download-result" id="download-result" hidden><span data-icon="CheckCircle2" data-size="16"></span><div><b>Your loop is ready</b><span id="download-meta"></span><button class="text-btn" data-action="download-again"><span data-icon="Download" data-size="16"></span><span>Download again</span></button></div></div>
             </div>
           </div>
         </aside>
       </div>
-      <div class="job-panel" id="job-panel" role="status" aria-live="polite" hidden><span data-icon="LoaderCircle" data-size="20" class="spin"></span><div><div class="job-label"><b id="job-message"></b><span id="job-percent"></span></div><progress id="job-progress" max="1" value="0" aria-label="Processing progress"></progress></div><button class="btn secondary" data-action="cancel">Cancel</button></div>
+      <div class="job-panel" id="job-panel" role="status" aria-live="polite" hidden><span data-icon="LoaderCircle" data-size="20" class="spin"></span><div><div class="job-label"><b id="job-message"></b><span id="job-percent"></span></div><progress id="job-progress" max="1" value="0" aria-label="Processing progress"></progress></div><button class="btn secondary" data-action="cancel"><span data-icon="X" data-size="16"></span><span>Cancel</span></button></div>
     </main>
     <footer><span><span data-icon="LockKeyhole" data-size="13"></span>Your files stay on your device.</span><div><a href="https://support.spotify.com/us/artists/article/canvas-guidelines/" target="_blank" rel="noreferrer">Canvas guidelines</a><button class="text-btn" data-action="help" aria-label="Help and keyboard shortcuts"><span data-icon="HelpCircle" data-size="15"></span>Help &amp; shortcuts</button></div></footer>
     <div class="drop-overlay" id="drop-overlay" hidden><span data-icon="Upload" data-size="38"></span><b>Drop media or fonts</b><span>Videos open as a source. Images become layers. Files stay on your device.</span></div>
@@ -305,7 +305,7 @@
       <ul><li><b>Auto find</b> compares color, local image structure, and movement. The best five matches receive frame refinement. Sampling can miss very brief moments.</li><li><b>Crossfade</b> overlaps the tail and head; the output is shorter than the selection. Offset dissolve places that transition inside the clip.</li><li><b>Ping-pong</b> plays forward, then backward, nearly doubling the cycle duration without repeating turning-point frames. Smooth ping-pong slows down into the turns. GIF stores both directions in one cycle; Loop forever repeats that cycle.</li><li><b>Remove audio track</b> strips the audio stream. Muting the player only changes the preview.</li><li><b>Spotify Canvas</b> uses 3–8 seconds, exact 9:16, and 720–1080px height. The default 576×1024 is inside these limits.</li><li><b>Long videos</b> are sampled from the local file. Unsupported browser codecs can be converted to a playable proxy.</li></ul>
       <div class="shortcut-grid"><span>Play / pause<kbd>Space</kbd></span><span>Set in / out<kbd>I / O</kbd></span><span>Step frames<kbd>← / →</kbd></span><span>Undo / redo<kbd>Ctrl+Z / Shift+Z</kbd></span></div>
       <p class="micro">No algorithm can guarantee an invisible join for every scene. Natural cuts need repeating motion; dissolves can ghost; ping-pong changes direction. This studio gives you controls and diagnostics to choose the best result.</p>
-      <button class="btn primary full" data-action="close-help">Back to the studio</button>
+      <button class="btn primary full" data-action="close-help"><span data-icon="ArrowUp" data-size="16"></span><span>Back to the studio</span></button>
     </dialog>
   </div>
 </body>

@@ -1,3 +1,4 @@
+import { icon } from './ui.js';
 import { effectiveFill, validateFill, textPaint } from './text-fill.js';
 import { normalizeHex, hexToRgb, rgbToHex, rgbToHsv, hsvToHex, rgbaCss } from './color.js';
 
@@ -30,7 +31,7 @@ export class TextFillEditor {
       <div data-fill-gradient hidden>
         <div class="fill-stop-track" aria-label="Gradient color positions"></div>
         <div class="fill-stop-list" role="group" aria-label="Gradient colors"></div>
-        <button type="button" class="btn secondary fill-stop-add" data-fill-action="add">Add color</button>
+        <button type="button" class="btn secondary fill-stop-add" data-fill-action="add">${icon('Plus', 16)}<span>Add color</span></button>
         <p class="micro">Drag a color marker or enter its position. Add as many colors as you need.</p>
         <div class="fields two fill-geometry">${geometryField('angle', 'Gradient angle', 0, 360, '°')}${geometryField('centerX', 'Center X', 0, 100, '%')}${geometryField('centerY', 'Center Y', 0, 100, '%')}${geometryField('radius', 'Gradient radius', 1, 200, '%')}</div>
       </div>

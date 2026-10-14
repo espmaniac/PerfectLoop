@@ -462,7 +462,7 @@ function refresh() {
   $('#timeline-output-duration').textContent = plan.totalDuration.toFixed(3);
   $('#validation').hidden = !info.duration || !issues.length;
   $('#validation').innerHTML = issues.map(issue => `<p>${escapeHTML(issue)}</p>`).join('')
-    + (issues.some(issue => issue.includes('3–8')) ? `<button class="text-btn" data-action="fit-duration" ${busy() ? 'disabled' : ''}>Fit range to 6-second output</button>` : '');
+    + (issues.some(issue => issue.includes('3–8')) ? `<button class="text-btn" data-action="fit-duration" ${busy() ? 'disabled' : ''}>${icon('Timer', 16)}<span>Fit range to 6-second output</span></button>` : '');
   $('#export-valid').hidden = !info.duration || Boolean(issues.length);
   $('#export-valid').innerHTML = icon('Check', 14) + (s.preset === 'spotify' ? 'Canvas format checks passed' : 'Ready to export')
     + (isGif ? s.gifLoop ? ' · loops forever · silent' : ' · plays once · silent' : s.audio === 'strip' ? ' · silent' : '');
@@ -619,7 +619,7 @@ async function runSearch() {
 function renderCandidates() {
   $('#candidate-section').hidden = !state.candidates.length;
   $('#candidate-count').textContent = `${state.candidates.length} matches`;
-  $('#select-top').textContent = state.selected.size ? 'Clear selection' : 'Select top 5';
+  $('#select-top').innerHTML = icon(state.selected.size ? 'X' : 'ListChecks', 16) + `<span>${state.selected.size ? 'Clear selection' : 'Select top 5'}</span>`;
   $('#candidates').innerHTML = state.candidates.map((candidate, index) => `<div class="candidate">
     <label class="candidate-check"><input type="checkbox" data-candidate-check="${candidate.id}" aria-label="Select candidate ${index + 1} for batch export" ${state.selected.has(candidate.id) ? 'checked' : ''}></label>
     <img src="${candidate.thumbnail}" alt="Start frame of candidate ${index + 1}">
@@ -719,7 +719,7 @@ function refreshRepair() {
   $('[data-action="repair-preview"]').disabled = busy() || !a;
   $('#repair-cut').hidden = !a?.cut;
   $('#repair-cut').disabled = busy();
-  if (a?.cut) $('#repair-cut').textContent = `Use suggested cut · ${((a.cut.end - a.cut.start) / state.s.speed).toFixed(3)}s`;
+  if (a?.cut) $('#repair-cut').innerHTML = icon('Scissors', 16) + `<span>Use suggested cut · ${((a.cut.end - a.cut.start) / state.s.speed).toFixed(3)}s</span>`;
   $('#repair-alignment').disabled = !a?.alignmentUseful || busy();
   if (signature !== repairReportSignature || !a) {
     repairReportSignature = signature;

@@ -19,6 +19,8 @@ Keep the editor neutral medium gray. Content provides the color; the application
 
 The shared action rules near the beginning of `style.css` own fill, edge, typography, depth, and interaction states. The existing `primary` and `secondary` classes do not introduce different materials or font weights. Emphasis comes from placement and width. Header and export actions retain their larger hit areas.
 
+Give action buttons a leading 16 px decorative icon from `js/icons.js` and keep a visible text label. Use 14–15 px icons for compact layer and alignment actions. The SVG stays `aria-hidden` so it does not duplicate the accessible name. When a label changes, update its text span or render the icon with the new label. Selection choices such as aspect ratios do not need action icons.
+
 Component rules may adapt padding or wrapping to available space. Avoid per-panel color, border, or weight overrides. Compact alignment controls use the same material at a smaller size. Keep icon button styling intact when changing text actions.
 
 Hover uses a modest surface change; pressed actions use an inset edge. Disabled actions retain their silhouette with muted labels and no raised shadow. Do not dim entire fieldsets and then dim descendants again. Keyboard focus remains explicitly visible. Reduced-motion preferences disable control transitions.

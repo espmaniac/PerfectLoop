@@ -6,6 +6,8 @@ import { framePlan } from './logic.js';
 import { fontOptions, deviceFontsSupported } from './fonts.js';
 import { TextFillEditor } from './text-fill-editor.js';
 
+const ALIGNMENT_ICONS = { left: 'AlignLeft', 'center-x': 'AlignCenterHorizontal', right: 'AlignRight', top: 'AlignTop', 'center-y': 'AlignCenterVertical', bottom: 'AlignBottom' };
+
 const MOTIONS = [
   ['none', 'Static'],
   ['right', 'Left to right'],
@@ -134,13 +136,13 @@ export class LayerPanel {
         return `${firstBelow ? this.videoRow(state) : ''}<div class="layer-item${active ? ' selected' : ''}${visible ? '' : ' muted'}" role="listitem">
           <div class="layer-item-head">
             <button class="layer-select" data-layer-action="select" data-layer-id="${id}" aria-pressed="${active}" title="${label}"><span class="layer-type">${layer.type === 'text' ? 'T' : icon('Layers', 17)}</span><span><b>${label}</b><small>${layer.placement === 'below' ? 'Below video · ' : 'Above video · '}${layer.videoPatch ? 'Video patch' : layer.patch ? 'Patch' : layer.type === 'text' ? 'Text' : 'Image'}</small></span></button>
-            <button class="text-btn layer-visibility" data-layer-action="toggle" data-layer-id="${id}" aria-label="${visible ? 'Hide' : 'Show'} ${label}" aria-pressed="${visible}">${visible ? 'Hide' : 'Show'}</button>
+            <button class="text-btn layer-visibility" data-layer-action="toggle" data-layer-id="${id}" aria-label="${visible ? 'Hide' : 'Show'} ${label}" aria-pressed="${visible}">${icon(visible ? 'EyeOff' : 'Eye', 14)}<span>${visible ? 'Hide' : 'Show'}</span></button>
           </div>
           <div class="layer-item-actions">
             <button class="icon-btn" data-layer-action="up" data-layer-id="${id}" aria-label="Move ${label} up" ${layers.filter(l=>(l.placement||'above')===(layer.placement||'above')).at(-1)?.id===layer.id ? 'data-order-disabled' : ''}>↑</button>
             <button class="icon-btn" data-layer-action="down" data-layer-id="${id}" aria-label="Move ${label} down" ${layers.find(l=>(l.placement||'above')===(layer.placement||'above'))?.id===layer.id ? 'data-order-disabled' : ''}>↓</button>
-            <button class="text-btn" data-layer-action="duplicate" data-layer-id="${id}">Duplicate</button>
-            <button class="text-btn" data-layer-action="delete" data-layer-id="${id}" aria-label="Delete ${label}">Delete</button>
+            <button class="text-btn" data-layer-action="duplicate" data-layer-id="${id}">${icon('Copy', 14)}<span>Duplicate</span></button>
+            <button class="text-btn" data-layer-action="delete" data-layer-id="${id}" aria-label="Delete ${label}">${icon('Trash2', 14)}<span>Delete</span></button>
           </div>
         </div>`;
       }).join('') + (layers.some(l=>l.placement==='below') ? '' : this.videoRow(state));
@@ -187,15 +189,15 @@ export class LayerPanel {
         ${numberField('cropY','Vertical position',0,100,'%',0.1).replace('data-layer-setting','data-video-setting')}
       </div>
       <div class="fields two"><label class="field"><span>Border color</span><input type="color" data-video-setting="background" aria-label="Border color"></label><label class="toggle-row"><span>Mirror horizontally</span><input type="checkbox" data-video-setting="mirror"><span class="switch" aria-hidden="true"></span></label></div>
-      <div class="field"><span>Align video to frame</span><div class="alignment-controls" role="group" aria-label="Align video to frame">${ALIGNMENTS.map(([key,label])=>`<button class="text-btn" data-video-align="${key}" title="${label}">${label}</button>`).join('')}</div></div>
-      <button class="btn secondary" type="button" data-action="reset-framing" aria-label="Reset video scale, position, and rotation">Reset video framing</button>`;
+      <div class="field"><span>Align video to frame</span><div class="alignment-controls" role="group" aria-label="Align video to frame">${ALIGNMENTS.map(([key,label])=>`<button class="text-btn" data-video-align="${key}" title="${label}">${icon(ALIGNMENT_ICONS[key], 15)}<span>${label}</span></button>`).join('')}</div></div>
+      <button class="btn secondary" type="button" data-action="reset-framing" aria-label="Reset video scale, position, and rotation">${icon('RotateCcw', 16)}<span>Reset video framing</span></button>`;
   }
 
   fields(type, patch = false, videoPatch = false) {
     const content = type === 'text'
       ? `<label class="field layer-text-field"><span>Text</span><textarea data-layer-setting="text" aria-label="Text" maxlength="500" rows="3" spellcheck="false"></textarea></label>`
         + `<label class="field"><span>Font</span><select aria-label="Font" aria-describedby="layer-font-help" data-layer-setting="fontFamily"></select></label>`
-        + `<div class="layer-font-actions"><button class="btn secondary" type="button" data-action="layer-device-fonts" aria-describedby="layer-font-help">Use device fonts</button><button class="btn secondary" type="button" data-action="layer-upload-fonts">Upload fonts</button></div>`
+        + `<div class="layer-font-actions"><button class="btn secondary" type="button" data-action="layer-device-fonts" aria-describedby="layer-font-help">${icon('Monitor', 16)}<span>Use device fonts</span></button><button class="btn secondary" type="button" data-action="layer-upload-fonts">${icon('Upload', 16)}<span>Upload fonts</span></button></div>`
         + `<p class="micro" id="layer-font-help">${deviceFontsSupported()
           ? 'Device fonts require browser permission. Upload TTF, OTF, WOFF, or WOFF2 files to add other fonts.'
           : 'This browser cannot list installed fonts. Upload TTF, OTF, WOFF, or WOFF2 files instead.'}</p>`
@@ -212,7 +214,7 @@ export class LayerPanel {
         + `<div class="fields two">${numberField('fadeIn', 'Fade in', 0, 60, 's', 0.05)}${numberField('fadeOut', 'Fade out', 0, 60, 's', 0.05)}</div><p class="micro">Fades are limited to half the active interval. Leave both at zero for a continuous patch across the loop boundary.</p>` : '')
       + selectField('placement', 'Stack position', [['above','Above video'],['below','Below video']])
       + '<p class="micro">Below-video layers appear where the video leaves space. Use Fit or reduce the video scale to reveal them.</p>'
-      + `<div class="field"><span>Align to frame · starting position</span><div class="alignment-controls" role="group" aria-label="Align layer to frame">${ALIGNMENTS.map(([key,label])=>`<button class="text-btn" data-layer-action="align-${key}" title="${label}">${label}</button>`).join('')}</div></div>`
+      + `<div class="field"><span>Align to frame · starting position</span><div class="alignment-controls" role="group" aria-label="Align layer to frame">${ALIGNMENTS.map(([key,label])=>`<button class="text-btn" data-layer-action="align-${key}" title="${label}">${icon(ALIGNMENT_ICONS[key], 15)}<span>${label}</span></button>`).join('')}</div></div>`
       + `<div class="fields two">${numberField('x', 'Horizontal', 0, 100, '%', 0.1)}${numberField('y', 'Vertical', 0, 100, '%', 0.1)}</div>`
       + `<div class="fields two">${numberField('rotation', 'Rotation', -360, 360, '°')}${numberField('opacity', 'Opacity', 0, 100, '%')}</div>`
       + (patch ? '<details class="disclosure"><summary>Optional animation</summary><div class="disclosure-content">' : '')
