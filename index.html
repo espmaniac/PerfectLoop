@@ -98,7 +98,6 @@
       <div class="header-actions">
         <button class="btn secondary" data-action="open" aria-label="Open video or photo"><span data-icon="FolderOpen" data-size="19"></span><span class="open-label">Open media</span></button>
         <a class="icon-btn github-link" href="https://github.com/espmaniac/PerfectLoop" target="_blank" rel="noopener noreferrer" aria-label="Open PerfectLoop on GitHub (new tab)" title="PerfectLoop on GitHub"><span data-icon="Github" data-size="20"></span></a>
-        <button class="btn secondary render-btn" data-action="render" title="Retry generating the full result" disabled><span data-icon="Play" data-size="17"></span><span id="render-label">Retry result</span></button>
       </div>
     </header>
     <input id="file-input" class="sr-only" type="file" accept="video/*,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp,.mkv,.mov,.avi,.m4v,.webm,.mp4" aria-label="Choose source video or photo">
@@ -322,7 +321,7 @@
     <div class="drop-overlay" id="drop-overlay" hidden><span data-icon="Upload" data-size="38"></span><b>Drop media or fonts</b><span>Videos open as a source. Images become layers. Files stay on your device.</span></div>
     <dialog class="help-dialog" id="help-dialog">
       <div class="help-head"><h2>Make a better loop</h2><button class="icon-btn" data-action="close-help" aria-label="Close help"><span data-icon="X" data-size="20"></span></button></div>
-      <p>Open a video, select a range, and choose a method. Result updates automatically. Switch to Original to compare, and watch the full result repeat before exporting.</p>
+      <p>Open a video, select a range, and choose a method. Press Play in Result to update and play the full cycle. Editing pauses playback without rendering. Switch to Original to compare, and watch a few repeats before exporting.</p>
       <ul><li><b>Auto find</b> compares color, local image structure, and movement. The best five matches receive frame refinement. Sampling can miss very brief moments.</li><li><b>Crossfade</b> overlaps the tail and head; the output is shorter than the selection. Offset dissolve places that transition inside the clip.</li><li><b>Ping-pong</b> plays forward, then backward, nearly doubling the cycle duration without repeating turning-point frames. Smooth ping-pong slows down into the turns. GIF stores both directions in one cycle; Loop forever repeats that cycle.</li><li><b>Remove audio track</b> strips the audio stream. Muting the player only changes the preview.</li><li><b>Spotify Canvas</b> uses 3–8 seconds, exact 9:16, and 720–1080px height. The default 576×1024 is inside these limits.</li><li><b>Long videos</b> are sampled from the local file. Unsupported browser codecs can be converted to a playable proxy.</li></ul>
       <div class="shortcut-grid"><span>Play / pause<kbd>Space</kbd></span><span>Set in / out<kbd>I / O</kbd></span><span>Step frames<kbd>← / →</kbd></span><span>Undo / redo<kbd>Ctrl+Z / Shift+Z</kbd></span></div>
       <p class="micro">No algorithm can guarantee an invisible join for every scene. Natural cuts need repeating motion; dissolves can ghost; ping-pong changes direction. This studio gives you controls and diagnostics to choose the best result.</p>

@@ -6,6 +6,7 @@ import { DEFAULTS } from '../js/constants.js';
 class FakeElement {
     constructor() {
         this.listeners = new Map();
+        this.attributes = new Map();
         this.style = { setProperty() {} };
     }
     addEventListener(name, listener) {
@@ -14,7 +15,8 @@ class FakeElement {
         this.listeners.set(name, listeners);
     }
     dispatch(name) { for (const listener of this.listeners.get(name) || []) listener(); }
-    setAttribute() {}
+    setAttribute(name, value) { this.attributes.set(name, String(value)); }
+    getAttribute(name) { return this.attributes.get(name) ?? null; }
     removeAttribute(name) { delete this[name]; }
 }
 
@@ -74,7 +76,7 @@ function fixture(t) {
         s: { ...DEFAULTS, start: 0, end: 3 },
     };
     const times = [];
-    const preview = new Preview(() => state, mode => { state.mode = mode; }, (time, mode) => times.push({ time, mode }));
+    const preview = new Preview(() => state, mode => { state.mode = mode; }, (time, mode) => times.push({ time, mode }), {needsRender:()=>Boolean(state.needsRender)});
     t.after(() => {
         preview.destroy();
         for (const [key, descriptor] of previous) {
@@ -84,7 +86,7 @@ function fixture(t) {
     });
     preview.refresh();
     return {
-        preview, state, source, output, canvas, times, transport: elements.get('#transport-time'),
+        preview, state, source, output, canvas, times, transport: elements.get('#transport-time'), playButton: elements.get('[data-action="play"]'),
         tick(time = now) {
             const [id, callback] = frames.entries().next().value;
             frames.delete(id);
@@ -93,6 +95,21 @@ function fixture(t) {
         },
     };
 }
+
+test('Play describes updating the result and encoding progress even while playback stays paused', t => {
+    const f=fixture(t);Object.assign(f.state,{previewChoice:'result',tab:'edit',needsRender:true});
+    f.preview.refresh();assert.equal(f.playButton.getAttribute('aria-label'),'Update and play result');
+    assert.equal(f.playButton.getAttribute('aria-busy'),'false');
+    f.state.job={kind:'preview'};f.preview.syncPlayButton();
+    assert.equal(f.playButton.getAttribute('aria-label'),'Updating result');
+    assert.equal(f.playButton.getAttribute('aria-busy'),'true');
+    f.state.job=null;f.preview.refresh();
+    assert.equal(f.playButton.getAttribute('aria-label'),'Update and play result');
+    f.state.previewChoice='original';f.preview.refresh();
+    assert.equal(f.playButton.getAttribute('aria-label'),'Play preview');
+    f.state.previewChoice='result';f.state.needsRender=false;f.preview.refresh();
+    assert.equal(f.playButton.getAttribute('aria-label'),'Play preview');
+});
 
 test('Composition positions and scales the rotated video while Source and Loop retain their encoded frames', t => {
     const f = fixture(t), transforms = [];

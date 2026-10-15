@@ -22,8 +22,9 @@ function clearFrame(canvas) {
 }
 
 export class Preview {
-  constructor(getState, onMode, onTime) {
+  constructor(getState, onMode, onTime, {needsRender = () => false} = {}) {
     this.getState = getState; this.onMode = onMode; this.onTime = onTime;
+    this.needsRender = needsRender;
     this.source = $('#source-video'); this.output = $('#loop-video'); this.canvas = $('#preview-canvas');
     this.muted = true; this.guides = false; this.seamPreview = false; this.dirtyFrame = true; this.lastFrame = ''; this.lastTick = 0; this.playing = null;
     this.compositionTime = 0; this.compositionTick = null;
@@ -107,13 +108,18 @@ export class Preview {
     this.syncPlayButton();
   }
   syncPlayButton() {
+    const st = this.getState(), rendering = st.job?.kind === 'preview';
     const playing = !this.active().paused;
-    if (this.playing !== playing) {
-      this.playing = playing;
+    const pending = st.previewChoice === 'result' && st.tab !== 'find' && this.needsRender();
+    const label = rendering ? 'Updating result' : playing ? 'Pause preview' : pending ? 'Update and play result' : 'Play preview';
+    if (this.playButtonLabel !== label) {
+      this.playButtonLabel = label;
       const button = $('[data-action="play"]');
-      button.setAttribute('aria-label', playing ? 'Pause preview' : 'Play preview');
-      button.innerHTML = icon(playing ? 'Pause' : 'Play', 18);
+      button.setAttribute('aria-label', label); button.title = label;
+      button.setAttribute('aria-busy', String(rendering));
+      button.innerHTML = rendering ? `<span class="spin">${icon('LoaderCircle',18)}</span>` : icon(playing ? 'Pause' : 'Play', 18);
     }
+    this.playing = playing;
   }
   async play() {
     const st = this.getState(), video = this.active();

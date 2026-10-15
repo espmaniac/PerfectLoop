@@ -2,7 +2,7 @@
 
 [Open PerfectLoop](https://espmaniac.github.io/PerfectLoop/) · [Quick start](../README.md)
 
-Use this guide for advanced repairs, layers, animation, and wallpaper preparation. Original and Result share the current video framing; Result shows the processed loop. Video transforms stay in Original until you choose Result.
+Use this guide for advanced repairs, layers, animation, and wallpaper preparation. Original and Result share the current video framing; Result shows the processed loop. Edits pause playback and update the draft frame without rendering. Press **Play** in **Result** to update the full cycle and start playback; an unchanged result plays immediately. Original plays the source without rendering. Video transforms stay in Original until you choose Result.
 
 ## Cover a stationary defect with a patch
 
