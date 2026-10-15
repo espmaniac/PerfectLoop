@@ -1,6 +1,6 @@
 import { pauseBasis, pauseTrim } from './seam-pause.js';
 import { analyzeSeamPause } from './seam-pause-analysis.js';
-import { AutoPreview } from './auto-preview.js';
+import { PreviewPlayback } from './preview-playback.js';
 import { compareLoopMethods } from './method-comparison.js';
 import { methodContext } from './method-fit.js';
 import { moveLayerInStack } from './layer-order.js';
@@ -46,30 +46,18 @@ const state = {
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
 const methodCache = new Map();
-let preview, previewEditor, previewViewport, timeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
+let preview, previewPlayback, previewEditor, previewViewport, timeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
 let selectionSignature = '';
 const videoSignature = settings => JSON.stringify({ ...settings, wallpaperPoster: undefined, wallpaperDevice: undefined });
 const pairedWallpaperKind = kind => ['pvt', 'live-photo', 'kit'].includes(kind);
 const downloadSettings = settings => settings.preset === 'iphone' && pairedWallpaperKind(state.wallpaperDownload)
   ? wallpaperExportSettings(settings) : settings;
 const dirty = () => videoSignature(state.s) !== state.renderSignature;
-const resultKey = () => `${state.sourceURL}:${videoSignature(state.s)}`;
-const autoPreview = new AutoPreview(async key => {
-  if (key !== resultKey() || !canAutoPreview()) { autoPreview.retry(); return; }
-  await runRender(true);
-});
-function canAutoPreview() {
-  return Boolean(state.file && state.info.duration && state.previewChoice === 'result'
-    && !['find', 'layers'].includes(state.tab) && !busy() && !previewEditor?.dragging
-    && dirty() && !validate(state.s, state.info).length && !validateLayers(state.s.layers, state.s).length);
-}
 function selectPreview(choice) {
+  previewPlayback?.stop();
   state.previewChoice = choice;
-  if (choice === 'original') { autoPreview.stop(); preview.setMode(state.tab === 'find' ? 'source' : 'composition'); }
-  else {
-    autoPreview.retry();
-    preview.setMode(state.tab === 'layers' || dirty() ? 'composition' : 'loop');
-  }
+  if (choice === 'original') preview.setMode(state.tab === 'find' ? 'source' : 'composition');
+  else preview.setMode(state.tab === 'layers' || dirty() ? 'composition' : 'loop');
 }
 
 const originalRepairSettings = () => ({ ...state.s, repair: null, preset: 'custom', method: 'natural', shift: 0, repeats: 1, repairOriginal: true });
@@ -125,6 +113,7 @@ function update(partial, saveHistory = true) {
   if (busy() || Object.entries(partial).every(([key, value]) => state.s[key] === value)) return;
   if (REPAIR_KEYS.some(key => key in partial && partial[key] !== state.s[key])) partial = { ...partial, repair: null };
   if (saveHistory) remember();
+  previewPlayback?.stop();
   const leavingWallpaper = state.s.preset === 'iphone' && partial.preset && partial.preset !== 'iphone';
   state.s = { ...state.s, ...partial }; state.seam = null; $('#seam-result').replaceChildren();
   if (leavingWallpaper) {
@@ -133,6 +122,7 @@ function update(partial, saveHistory = true) {
   refresh();
 }
 function restore(value) {
+  previewPlayback?.stop();
   const searchChanged = Object.keys(state.opts).some(key => key !== 'hideSimilar' && state.opts[key] !== value.opts[key]);
   const duration=state.info.videoDuration||state.info.duration;
   const end=Math.min(value.s.end,duration),start=end<value.s.end ? Math.min(value.s.start,Math.max(0,end-3*value.s.speed/value.s.fps)) : value.s.start;
@@ -161,12 +151,12 @@ function redo() {
 function beginPreviewEdit() {
   if (busy() || !state.info.duration || staticWallpaperLayout() || !['edit', 'layers'].includes(state.tab)) return false;
   state.previewChoice = state.tab === 'layers' ? 'result' : 'original';
-  autoPreview.stop();
+  previewPlayback?.stop();
   if (state.mode !== 'composition') preview.setMode('composition');
   else preview.pause();
   return true;
 }
-function playPreview() { previewEditor?.finish(); return preview.play(); }
+function playPreview() { previewEditor?.finish(); return previewPlayback.play(); }
 function stepPreview(direction) { previewEditor?.finish(); preview.step(direction); }
 function updateFraming(partial, saveHistory = true) {
   if (busy() || state.tab === 'layers' && state.activeLayerId !== 'video') return;
@@ -303,18 +293,14 @@ function finishJob() { state.job = null; refresh(); }
 function progress(kind) {
   return (fraction, message) => { state.job = { kind, progress: clamp(fraction, 0, 1), message }; refreshStatus(); };
 }
-function cancel() { state.controller?.abort(); engine.cancel(); }
+function cancel() { previewPlayback?.stop(); state.controller?.abort(); engine.cancel(); }
 
 function refreshStatus() {
   $('#proxy-alert').hidden = !state.nativeError; $('#proxy-message').textContent = state.nativeError;
   $('#error-alert').hidden = !state.error; $('#error-message').textContent = state.error;
   $('#notice').hidden = !state.notice; $('#notice-message').textContent = state.notice;
   $('#job-panel').hidden = !state.job;
-  const rendering = state.job?.kind === 'preview';
-  $('.render-btn').setAttribute('aria-busy', String(rendering));
-  $('#render-label').textContent = rendering ? `Updating result… ${Math.round(state.job.progress * 100)}%`
-    : 'Retry result';
-  $('.render-btn').hidden = !(dirty() && autoPreview.attempted === resultKey()) && !rendering;
+  preview?.syncPlayButton();
   if (state.job) {
     $('#job-message').textContent = state.job.message; $('#job-percent').textContent = `${Math.round(state.job.progress * 100)}%`;
     $('#job-progress').value = state.job.progress;
@@ -338,9 +324,10 @@ function syncDisabled() {
   const layerIssues = validateLayers(state.s.layers, state.s);
   const previewIssues = validate(state.s, state.info), exportIssues = validate(downloadSettings(state.s), state.info);
   const unavailable = busy() || !state.info.duration || layerIssues.length > 0;
-  $('.render-btn').disabled = unavailable || previewIssues.length > 0;
   $('.export-btn').disabled = unavailable || exportIssues.length > 0;
-  $('.render-btn').title = previewIssues[0] || layerIssues[0] || '';
+  const resultPlayback = state.previewChoice === 'result' && state.tab !== 'find';
+  $('[data-action="play"]').disabled = disabled || staticWallpaperLayout() || Boolean(resultPlayback && (previewIssues.length || layerIssues.length));
+  $('[data-action="play"]').title = resultPlayback && (previewIssues[0] || layerIssues[0]) || $('[data-action="play"]').getAttribute('aria-label');
   $$('[data-preview-choice]').forEach(button => { button.disabled = busy() || !state.info.duration || state.tab === 'find'; });
   $('[data-audio="strip"]').disabled = state.s.format === 'gif';
   $('[data-action="open-photo"]').disabled = busy();
@@ -413,7 +400,7 @@ function refreshHeaderHint(issues, plan) {
   } else if (state.tab === 'inspect') {
     message = 'Compare the last and first frames, then watch a few repeats to check the join in motion.';
   } else if (state.render && dirty()) {
-    message = 'The full result updates automatically after you finish editing.';
+    message = 'Press Play in Result to update the full cycle and start playback.';
   } else if (s.format === 'gif') {
     message = s.gifLoop
       ? s.method.includes('pingpong')
@@ -427,7 +414,7 @@ function refreshHeaderHint(issues, plan) {
   } else if (s.method === 'crossfade' || s.method === 'offset') {
     message = 'A dissolve overlaps the end with the start, so the finished cycle is shorter than the selected range.';
   } else {
-    message = 'Choose a range and loop method. Result updates automatically; Original shows the source for comparison.';
+    message = 'Choose a range and loop method, then press Play in Result. Original shows the source for comparison.';
   }
   const hint = $('#header-hint');
   if (hint.textContent !== message) hint.textContent = message;
@@ -521,17 +508,18 @@ function refresh() {
   if (state.lastExport) $('#download-meta').textContent = `${humanSize(state.lastExport.blob.size)} · ${state.lastExport.hasAudio ? 'With audio' : 'No audio track'}`;
   $$('[data-preview-choice]').forEach(button => { const active = button.dataset.previewChoice === (state.tab === 'find' ? 'original' : state.previewChoice); button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   const originalComparison = state.mode === 'loop' && state.renderSettings?.repairOriginal;
-  const resultPending = state.previewChoice === 'result' && dirty() && state.tab !== 'find' && state.tab !== 'layers';
+  const liveLayers = state.tab === 'layers' && state.mode !== 'loop';
+  const resultPending = state.previewChoice === 'result' && dirty() && state.tab !== 'find';
   const resultInvalid = validate(s, info).length || validateLayers(s.layers, s).length;
   $('#preview-tag').textContent = state.tab === 'find' ? 'SEARCH RANGE'
     : originalComparison || state.previewChoice === 'original' ? 'ORIGINAL'
-    : state.tab === 'layers' ? 'LIVE LAYER EDITING'
-    : resultPending ? resultInvalid ? 'RESULT UNAVAILABLE' : state.job?.kind === 'preview' || autoPreview.attempted !== resultKey() ? 'UPDATING RESULT' : 'RESULT NOT READY'
+    : liveLayers ? 'LIVE LAYER EDITING'
+    : resultPending ? resultInvalid ? 'RESULT UNAVAILABLE' : state.job?.kind === 'preview' ? 'UPDATING RESULT' : 'DRAFT · PRESS PLAY'
     : 'RESULT';
   $('#preview-foot-message').textContent = state.tab === 'find' ? 'Search the highlighted source range. Choose a match to view its result.'
     : originalComparison || state.previewChoice === 'original' ? 'Original motion with current framing. Loop effects and layers are excluded.'
-    : state.tab === 'layers' ? 'Live layer editing. The processed result updates when you leave Layers.'
-    : resultPending ? resultInvalid ? 'Check Video settings to generate the result.' : state.job?.kind === 'preview' || autoPreview.attempted !== resultKey() ? 'Updating the full selected cycle. The image shown is a draft.' : 'Result is not ready. Retry to generate the full selected cycle.'
+    : liveLayers ? 'Live layer editing. Press Play in Result to check the processed cycle.'
+    : resultPending ? resultInvalid ? 'Check Video settings to generate the result.' : state.job?.kind === 'preview' ? 'Updating the full selected cycle. The image shown is a draft.' : 'Draft frame. Press Play to update the full result and start playback.'
     : `Full result: ${plan.duration.toFixed(3)}s · source range: ${(s.end-s.start).toFixed(3)}s${['crossfade','offset'].includes(s.method) ? ' · shortened by transition overlap' : ''}`;
   $('#inspection-mode').textContent = state.mode === 'loop' ? 'Rendered preview' : 'Selected source range';
   $('#timeline-fieldset').hidden = !info.duration;
@@ -556,21 +544,20 @@ function refresh() {
   $('#preview-tag').textContent = originalComparison ? originalRepairDirty() ? 'ORIGINAL LOOP · OUTDATED' : 'ORIGINAL LOOP' : posterReady ? 'KEY PHOTO LAYOUT' : 'DRAFT LAYOUT';
     $('#preview-foot-message').textContent = posterReady
       ? state.wallpaperScreen === 'lock' ? 'Selected key photo. Layout only; iOS creates the wake animation.' : 'Selected key photo. Home Screen wallpaper stays still.'
-      : 'Draft snapshot. Result updates to show the selected key photo.';
+      : 'Draft snapshot. Choose Video and press Play in Result to update the selected key photo.';
   }
   $('[data-action="frame-png"]').hidden = staticWallpaperLayout();
   $('#transport-time').hidden = staticWallpaperLayout();
   void prepareWallpaperPoster();
   timeline?.render(); preview?.refresh();
   refreshPreviewEditor();
-  autoPreview.sync(resultKey(), canAutoPreview());
 }
 
 async function loadFile(file, sample = false) {
   if (busy()) return;
   // A delayed demo fetch must not replace a video the user has already chosen.
   if (!sample) { sampleController?.abort(); sampleController = undefined; }
-  autoPreview.stop(); state.previewChoice = 'result';
+  previewPlayback?.stop(); state.previewChoice = 'result';
   state.fileController?.abort(); state.controller?.abort(); preview.pause();
   renderFilmstripController?.abort();
   const controller = new AbortController(); state.fileController = controller;
@@ -746,7 +733,7 @@ async function compareCurrentMethods(saveHistory = true) {
   const recommended = comparison.rows.find(row => row.id === comparison.recommended);
   if (recommended) {
     update({ method: recommended.id, shift: recommended.settings.shift }, saveHistory);
-    notice(`${recommended.name} selected · source ${timecode(state.s.start)}–${timecode(state.s.end)} · output ${recommended.duration.toFixed(3)}s · estimated fit ${Math.round(recommended.score)}. Result will update automatically.`);
+    notice(`${recommended.name} selected · source ${timecode(state.s.start)}–${timecode(state.s.end)} · output ${recommended.duration.toFixed(3)}s · estimated fit ${Math.round(recommended.score)}. Press Play in Result to check it.`);
   }
   refresh();
 }
@@ -849,7 +836,7 @@ async function detectSeamPause() {
   const issues=validate({...state.s,...pauseDraft().base,repair:null,preset:'custom',method:'natural'},state.info);
   if(issues.length) {report(new Error(issues[0]));return;}
   if(!startJob('pause','Detecting seam pause…'))return;
-  preview.pause();autoPreview.stop();state.previewChoice='original';preview.setMode('composition');
+  preview.pause();previewPlayback.stop();state.previewChoice='original';preview.setMode('composition');
   const source=state.sourceURL,controller=state.controller,signal=controller.signal;
   try {
     if(!state.info.videoDuration || !state.info.fps) {
@@ -871,7 +858,7 @@ function applyPauseTrim() {
   try {
     const p=pauseProposal();
     if(JSON.stringify(p.seamPause)===JSON.stringify(state.s.seamPause))p.seamPause=state.s.seamPause;
-    state.previewChoice='original';autoPreview.stop();
+    state.previewChoice='original';previewPlayback.stop();
     update(p);preview.seek(clamp(preview.source.currentTime,p.start,p.end-.001),'composition');
     notice('Pause trim applied. Preview seam to check the motion, or use Undo to restore the range.');return true;
   } catch(error) {report(error);return false;}
@@ -947,8 +934,9 @@ async function runRender(isPreview, override = null) {
   const requested = isPreview && override ? override : state.s;
   const directPackage = !isPreview && state.s.preset === 'iphone' && state.wallpaperDownload === 'pvt';
   if (!state.file || validate(isPreview ? requested : downloadSettings(state.s), state.info).length || validateLayers(state.s.layers, state.s).length || !startJob(isPreview ? 'preview' : 'export', directPackage ? 'Choose a destination folder…' : 'Preparing render…')) return;
-  if (isPreview && !override) { autoPreview.stop(); autoPreview.attempted = resultKey(); }
-  preview.pause(); const settings = { ...requested }, wallpaper = settings.preset === 'iphone';
+  preview.pause();
+  if (isPreview) refresh();
+  const settings = { ...requested }, wallpaper = settings.preset === 'iphone';
   const kind = state.wallpaperDownload, controller = state.controller;
   try {
     let directory;
@@ -964,8 +952,9 @@ async function runRender(isPreview, override = null) {
     if (result.sourceFps) state.info.fps = result.sourceFps;
     if (isPreview) {
       showRenderedPreview(settings, result);
-      notice(`Result ready · ${result.duration.toFixed(3)}s. Play to check the full cycle.`);
+      notice(`Result ready · ${result.duration.toFixed(3)}s.`);
       if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
+      return true;
     } else {
       if (directPackage) {
         progress('export')(0.99, 'Saving the Live Photo package…');
@@ -1217,7 +1206,8 @@ preview = new Preview(() => state, mode => { state.mode = mode; if (mode === 'so
     const key = `${videoSignature(state.s)}:${preview?.lastFrame}`;
     if (key !== wallpaperDraftFrame) { wallpaperDraftFrame = key; wallpaperPreview?.captureStill(); }
   }
-});
+}, {needsRender: dirty});
+previewPlayback = new PreviewPlayback({getState: () => state, preview, render: () => runRender(true), needsRender: dirty});
 timeline = new Timeline(() => state, updateActiveRange, time => {
   previewEditor?.finish();
   state.wallpaperScreen = 'editor';
@@ -1229,7 +1219,7 @@ previewViewport = new PreviewViewport(preview.canvas, $('#preview-stage'));
 previewEditor = new PreviewEditor(preview.canvas, () => state, {
   beginEdit: beginPreviewEdit, editVideo: partial => update('rotate' in partial && state.s.aspect === 'original' ? { ...partial, aspect: 'custom' } : partial, false),
   selectLayer: id => layerAction('select', id), editLayer: (id, partial) => editLayer(id, partial, false),
-  remember, getTime: () => preview.compositionTime, onChange: () => { refreshPreviewEditor(); autoPreview.sync(resultKey(), canAutoPreview()); },
+  remember, getTime: () => preview.compositionTime, onChange: refreshPreviewEditor,
 });
 $('#preview-transform').addEventListener('pointerdown', event => {
   if (event.target.closest('[data-move-copy]')) { previewEditor.startMove(event); return; }
@@ -1294,7 +1284,7 @@ function changeField(event) {
   if (input.dataset.audio) { update({ audio: input.dataset.audio === 'strip' ? input.checked ? 'strip' : 'keep' : input.checked ? 'smooth' : 'keep' }); return; }
   if (input.dataset.wallpaper === 'kind') { state.wallpaperDownload = input.value; refresh(); return; }
   if (!input.dataset.setting && !input.dataset.search) return;
-  if (input.type === 'number' && input.value === '') return;
+  if (input.type === 'number' && input.value === '') { previewPlayback.stop(); return; }
   const value = input.type === 'checkbox' ? input.checked : input.hasAttribute('data-number') ? Number(input.value) : input.value;
   if (typeof value === 'number' && !Number.isFinite(value)) return;
   if (input.dataset.search) {
@@ -1357,7 +1347,7 @@ const actions = {
   open: () => $('#file-input').click(), 'open-photo': () => $('#wallpaper-photo-input').click(), 'show-preview': () => $('.preview-panel').scrollIntoView({ block: 'start' }), help: () => $('#help-dialog').showModal(), 'close-help': () => $('#help-dialog').close(),
   'compare-methods': () => { void compareCurrentMethods(); },
   undo, redo, reset: () => update({ ...DEFAULTS, preset: state.info.duration < 3 || state.info.duration > 8 ? 'custom' : DEFAULTS.preset, end: state.info.duration || 6 }),
-  proxy: makeProxy, search: runSearch, render: () => { state.previewChoice = 'result'; return runRender(true); }, export: () => runRender(false), inspect, batch: batchExport, cancel,
+  proxy: makeProxy, search: runSearch, export: () => runRender(false), inspect, batch: batchExport, cancel,
   'dismiss-error': () => { state.error = ''; refreshStatus(); }, 'dismiss-notice': () => notice(''),
   play: () => staticWallpaperLayout() ? undefined : playPreview(), 'previous-frame': () => { if (!staticWallpaperLayout()) stepPreview(-1); }, 'next-frame': () => { if (!staticWallpaperLayout()) stepPreview(1); },
   mute: () => preview.toggleMute(), guides: () => { preview.toggleGuides(); refreshPreviewEditor(); }, fullscreen: () => preview.fullscreen(), 'frame-png': () => { if (!staticWallpaperLayout()) preview.saveFrame(); },

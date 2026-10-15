@@ -414,8 +414,8 @@ input[type=range]::-moz-range-progress { background: #8d8d8d; border-radius: 4px
 .export-actions #long-loop-warning { order: 3; margin: 0; }
 .validation p + p { margin-top: 6px; }
 .validation .text-btn { color: #e5e5e5; font-size: 11px; justify-content: flex-start; text-align: left; margin-top: 7px; }
-.render-btn, .export-btn { min-height: 44px; }
-.export-btn { order: 4; margin: 0; }
+.export-btn { min-height: 44px; order: 4; margin: 0; }
+.play-btn .spin { display: inline-flex; }
 .download-result { display: flex; gap: 10px; padding-top: 12px; margin-top: 4px; border-top: 1px solid var(--line); color: #d7d7d7; order: 5; }
 .download-result b { display: block; font-size: 12px; font-weight: 500; }
 .download-result #download-meta { display: block; font-size: 10px; color: var(--dim); margin: 5px 0; }
@@ -620,11 +620,9 @@ input[type=range]::-moz-range-thumb { box-shadow: var(--raised-shadow); }
   .brand-icon img { width: 32px; height: 32px; }
   .header-hint { grid-column: 1; grid-row: 3; }
   .header-actions { display: grid; grid-column: 1; grid-row: 2; justify-self: stretch; grid-template-columns: minmax(0,1fr) 40px; gap: 7px; }
-  .header-actions:has(.render-btn:not([hidden])) { grid-template-columns: minmax(0,1fr) 40px minmax(0,1.35fr); }
   .header-actions .btn { min-height: 40px; padding: 8px; font-size: 12px; gap: 6px; }
   .header-actions [data-action=open] { grid-column: 1; grid-row: 1; }
   .header-actions .github-link { grid-column: 2; grid-row: 1; }
-  .header-actions .render-btn { grid-column: 3; grid-row: 1; white-space: normal; text-align: center; }
   .workbench { grid-template-columns: minmax(0,1fr); gap: 8px; }
   .panel { border-radius: 4px; }
   .preview-panel { grid-column: 1; grid-row: 1; padding: 10px 10px 8px; }
