@@ -23,6 +23,8 @@ import { Preview, drawFrame } from './preview.js';
 import { PreviewEditor } from './preview-editor.js';
 import { PreviewViewport } from './preview-viewport.js';
 import { Timeline } from './timeline.js';
+import { LayerTimeline } from './layer-timeline.js';
+import { loopSourceTime } from './layer-timing.js';
 import { WallpaperPreview } from './wallpaper-preview.js';
 import { keyPhotoTime, phoneProfile, wallpaperCompatibilityProfile, wallpaperExportSettings, wallpaperPreset, wallpaperRange } from './wallpaper.js';
 import { saveWallpaperPackage, wallpaperDownload } from './wallpaper-export.js';
@@ -46,7 +48,7 @@ const state = {
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
 const methodCache = new Map();
-let preview, previewPlayback, previewEditor, previewViewport, timeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
+let preview, previewPlayback, previewEditor, previewViewport, timeline, layerTimeline, layerPanel, wallpaperPreview, sampleController, renderFilmstripController, wallpaperPosterController, wallpaperPosterPending = '', wallpaperDraftFrame = '';
 let selectionSignature = '';
 const videoSignature = settings => JSON.stringify({ ...settings, wallpaperPoster: undefined, wallpaperDevice: undefined });
 const pairedWallpaperKind = kind => ['pvt', 'live-photo', 'kit'].includes(kind);
@@ -54,6 +56,7 @@ const downloadSettings = settings => settings.preset === 'iphone' && pairedWallp
   ? wallpaperExportSettings(settings) : settings;
 const dirty = () => videoSignature(state.s) !== state.renderSignature;
 function selectPreview(choice) {
+  layerTimeline?.finishGesture();
   previewPlayback?.stop();
   state.previewChoice = choice;
   if (choice === 'original') preview.setMode(state.tab === 'find' ? 'source' : 'composition');
@@ -138,12 +141,14 @@ function restore(value) {
 }
 function undo() {
   if (busy()) return;
+  layerTimeline?.finishGesture();
   previewEditor?.finish();
   if (!history.past.length) return;
   history.future.push(snapshot()); restore(history.past.pop());
 }
 function redo() {
   if (busy()) return;
+  layerTimeline?.finishGesture();
   previewEditor?.finish();
   if (!history.future.length) return;
   history.past.push(snapshot()); restore(history.future.pop());
@@ -156,8 +161,27 @@ function beginPreviewEdit() {
   else preview.pause();
   return true;
 }
-function playPreview() { previewEditor?.finish(); return previewPlayback.play(); }
-function stepPreview(direction) { previewEditor?.finish(); preview.step(direction); }
+function playPreview() { layerTimeline?.finishGesture(); previewEditor?.finish(); return previewPlayback.play(); }
+function stepPreview(direction) {
+  layerTimeline?.finishGesture();
+  previewEditor?.finish();
+  if (state.tab==='layers' && state.previewChoice==='result')
+    seekLayerTime((state.mode==='loop'?preview.output.currentTime:preview.compositionTime)+direction/state.s.fps);
+  else preview.step(direction);
+}
+function seekLayerTime(time, draft = false) {
+  if (busy() || !state.info.duration) return;
+  const duration=framePlan(state.s).duration;
+  const phase=clamp(Math.round(time*state.s.fps)/state.s.fps,0,Math.max(0,duration-1/state.s.fps));
+  previewEditor?.finish(); previewPlayback.stop();
+  state.wallpaperScreen='editor';state.previewChoice='result';
+  if (!draft && state.mode==='loop' && !dirty()) preview.seek(phase,'loop');
+  else preview.seek(loopSourceTime(state.s,phase),'composition',phase);
+}
+function selectTimelineLayer(id) {
+  const time=state.mode==='loop'?preview.output.currentTime:preview.compositionTime;
+  state.activeLayerId=id;seekLayerTime(time,true);
+}
 function updateFraming(partial, saveHistory = true) {
   if (busy() || state.tab === 'layers' && state.activeLayerId !== 'video') return;
   beginPreviewEdit();
@@ -319,7 +343,7 @@ function syncDisabled() {
   $('[data-action="redo"]').disabled = busy() || !history.future.length;
   $$('[data-action="play"], [data-action="previous-frame"], [data-action="next-frame"], [data-action="frame-png"]').forEach(el => { el.disabled = disabled || staticWallpaperLayout(); });
   $$('[data-action="mark-in"], [data-action="mark-out"], [data-action="zoom"]').forEach(button => {
-    button.hidden = rendered; button.disabled = disabled || rendered;
+    button.hidden = rendered || state.tab === 'layers'; button.disabled = disabled || rendered || state.tab === 'layers';
   });
   const layerIssues = validateLayers(state.s.layers, state.s);
   const previewIssues = validate(state.s, state.info), exportIssues = validate(downloadSettings(state.s), state.info);
@@ -430,18 +454,20 @@ function refresh() {
   const issues = info.duration ? [...validate(exportSettings, info), ...validateLayers(s.layers, s)] : ['Open a playable video to begin.'];
   const isGif = s.format === 'gif', wallpaper = s.preset === 'iphone';
   const rendered = state.mode === 'loop' && state.render;
-  const timelineInfo = rendered || info;
+  const layerTiming = state.tab === 'layers';
+  const timelineInfo = layerTiming ? {...s,duration:plan.duration} : rendered || info;
   refreshStatus(); refreshBindings(); syncDisabled(); refreshHeaderHint(issues, plan);
   $('#source-meta').innerHTML = `<span class="file-name" title="${escapeHTML(info.name)}">${rendered ? 'Result' : escapeHTML(info.name || 'Open a video to begin')}</span>`
     + (timelineInfo.duration ? `<span>${timecode(timelineInfo.duration)}</span><span>${timelineInfo.width} × ${timelineInfo.height}</span><span>${humanSize(rendered ? rendered.blob.size : info.size)}</span>` : '');
-  $('#timeline-panel').setAttribute('aria-label', rendered ? 'Rendered loop timeline' : state.tab === 'find' ? 'Loop search timeline' : 'Source video timeline');
-  $('#timeline-caption').hidden = !rendered;
+  $('#timeline-panel').setAttribute('aria-label', layerTiming ? 'Layer timing timeline' : rendered ? 'Rendered loop timeline' : state.tab === 'find' ? 'Loop search timeline' : 'Source video timeline');
+  $('#timeline-caption').hidden = !rendered || layerTiming;
   if (rendered) {
     const settings = state.renderSettings;
     $('#timeline-caption').textContent = `Source: ${info.name} · ${timecode(settings.start)}–${timecode(settings.end)}${dirty() ? ' · Settings changed. Result is updating.' : ''}`;
   }
-  $('#trim-fields').hidden = Boolean(rendered);
-  $('#rendered-timeline-summary').hidden = !rendered;
+  $('#trim-fields').hidden = Boolean(rendered) || layerTiming;
+  $('#rendered-timeline-summary').hidden = !rendered || layerTiming;
+  $('#ruler-labels').hidden = $('#filmstrip').hidden = layerTiming;
   $$('[data-tab]').forEach(button => { const active = button.dataset.tab === state.tab; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
   ['edit', 'find', 'inspect', 'repair', 'layers'].forEach(tab => { $(`#panel-${tab}`).hidden = tab !== state.tab; });
   $('#tool-title').textContent = state.tab === 'repair' ? 'Loop repair' : state.tab === 'layers' ? 'Layers' : state.tab === 'find' ? 'Find loops' : state.tab === 'inspect' ? 'Inspect seam' : 'Loop method';
@@ -550,7 +576,8 @@ function refresh() {
   $('[data-action="frame-png"]').title = `Save PNG · ${s.width} × ${s.height}`;
   $('#transport-time').hidden = staticWallpaperLayout();
   void prepareWallpaperPoster();
-  timeline?.render(); preview?.refresh();
+  timeline?.render(); layerTimeline?.render(); preview?.refresh();
+  if (layerTiming) $('#range-duration').textContent = `${plan.duration.toFixed(3)}s loop`;
   refreshPreviewEditor();
 }
 
@@ -1028,7 +1055,7 @@ function fitDuration() {
   const start = Math.max(0, Math.min(s.start, state.info.duration - duration)); update({ start, end: Math.min(state.info.duration, start + duration), repeats: 1 });
 }
 function mark(edge) {
-  if (busy() || state.mode === 'loop') return;
+  if (busy() || state.mode === 'loop' || state.tab === 'layers') return;
   const time = preview.source.currentTime, range = activeRange();
   const gap = state.tab === 'find' ? 1 / (state.info.fps || 30) : 0.1;
   updateActiveRange(edge === 'start' ? { start: Math.min(time, range.end - gap) } : { end: Math.max(time, range.start + gap) });
@@ -1202,6 +1229,7 @@ preview = new Preview(() => state, mode => { state.mode = mode; if (mode === 'so
   if (mode === 'loop') state.renderPlayhead = time;
   else state.playhead = time;
   timeline?.renderPlayhead(time);
+  layerTimeline?.renderPlayhead(mode === 'loop' ? time : preview.compositionTime);
   refreshPreviewEditor();
   if (staticWallpaperLayout() && (!state.wallpaperPosterURL || state.wallpaperPosterSignature !== posterSignature() || dirty())) {
     const key = `${videoSignature(state.s)}:${preview?.lastFrame}`;
@@ -1214,6 +1242,7 @@ timeline = new Timeline(() => state, updateActiveRange, time => {
   state.wallpaperScreen = 'editor';
   preview.seek(time, state.mode === 'loop' ? 'loop' : state.tab === 'find' ? 'source' : state.mode);
 }, remember);
+layerTimeline = new LayerTimeline($('#layer-timeline'), {getState:()=>state,select:selectTimelineLayer,edit:editLayer,seek:seekLayerTime,remember});
 layerPanel = new LayerPanel(() => state, editLayer, layerAction, updateFraming);
 wallpaperPreview = new WallpaperPreview($('#wallpaper-screen-controls'), $('#preview-stage'), setWallpaperScreen);
 previewViewport = new PreviewViewport(preview.canvas, $('#preview-stage'));
@@ -1362,8 +1391,12 @@ document.addEventListener('click', event => {
   else if (button.dataset.method) update({ method: button.dataset.method, shift: button.dataset.method === 'offset' ? 50 : 0 });
   else if (button.dataset.aspect) setAspect(button.dataset.aspect);
   else if (button.dataset.tab) {
+    const layerTime = state.mode === 'loop' ? preview.output.currentTime : preview.compositionTime;
     state.tab = button.dataset.tab;
-    if (state.tab === 'layers') { state.previewChoice = 'result'; state.wallpaperScreen = 'editor'; preview.setMode('composition'); }
+    if (state.tab === 'layers') {
+      state.previewChoice = 'result'; state.wallpaperScreen = 'editor';
+      if (state.info.duration) seekLayerTime(layerTime,true); else preview.setMode('composition');
+    }
     else if (state.tab === 'find') preview.setMode('source');
     else if (state.previewChoice === 'original') preview.setMode('composition');
     else preview.setMode(dirty() ? 'composition' : 'loop');
@@ -1380,12 +1413,13 @@ document.addEventListener('keydown', event => {
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
     tabs[next].focus(); tabs[next].click(); return;
   }
-  if (busy() || document.querySelector('dialog[open]') || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'SUMMARY'].includes(event.target.tagName)) return;
+  if (busy() || document.querySelector('dialog[open]') || ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) return;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); return; }
+  if (['BUTTON', 'SUMMARY'].includes(event.target.tagName)) return;
   if (staticWallpaperLayout() && [' ', 'ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); return; }
   if (event.key === ' ') { event.preventDefault(); void playPreview(); }
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); stepPreview(event.key === 'ArrowRight' ? 1 : -1); }
   if (event.key.toLowerCase() === 'i') mark('start'); if (event.key.toLowerCase() === 'o') mark('end');
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); }
 });
 const app = $('#app');
 app.addEventListener('dragover', event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files') && !busy()) $('#drop-overlay').hidden = false; });
@@ -1401,7 +1435,7 @@ app.addEventListener('drop', event => {
   } else void loadFile(file);
 });
 window.addEventListener('beforeunload', () => {
-  clearWallpaperPoster(); wallpaperPreview?.destroy();
+  clearWallpaperPoster(); wallpaperPreview?.destroy(); layerTimeline?.destroy();
   sampleController?.abort();
   renderFilmstripController?.abort();
   clearLayerAssets();

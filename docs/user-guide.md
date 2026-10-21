@@ -4,6 +4,14 @@
 
 Use this guide for advanced repairs, layers, animation, and wallpaper preparation. Original and Result share the current video framing; Result shows the processed loop. Edits pause playback and update the draft frame without rendering. Press **Play** in **Result** to update the full cycle and start playback; an unchanged result plays immediately. Original plays the source without rendering. Video transforms stay in Original until you choose Result.
 
+## Time layers on the timeline
+
+Layer tracks appear only in **Layers**. Other tabs keep the ordinary video timeline. Tracks use **one finished loop**, from zero to its processed duration, so a dissolve or Ping-pong can give a different scale from source timestamps.
+
+Select a track to open its layer controls. Drag the clip body to move its active interval without changing its length, or drag an edge to change **Show from / Show until**. Shorten a full-loop clip before moving it. Edits snap to output frames; Arrow keys adjust one frame, Shift + arrows ten frames, and Home/End move to a boundary. One pointer gesture is one Undo step. Pulling the end to the loop boundary restores **Until end of loop**.
+
+The Video track spans the complete loop; edit the source range in **Edit loop**. Track order follows the layer stack, including images below Video. Hidden layers keep their timing. A layer entirely outside the current cycle shows **Outside loop**; adjust Active time in its controls or lengthen the cycle. Scrubbing updates the large preview. A draft uses the primary source frame; press Play in Result to check processed blends and repairs. Timing edits pause playback and never trigger a render automatically.
+
 ## Cover a stationary defect with a patch
 
 1. Open **Layers** and pause the source on a clean frame. Use the timeline or frame-step controls to find it.

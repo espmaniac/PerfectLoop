@@ -50,6 +50,7 @@ export class Timeline {
   }
   render() {
     if (this.dragging && !this.dragValid()) this.finishDrag(false);
+    if (this.getState().tab === 'layers') return;
     const st = this.getState(), rendered = this.isRendered(), { from, span, percent } = this.window();
     const range = this.selection(), search = this.isSearch();
     $('#range-duration').textContent = rendered ? `0.000–${st.render.duration.toFixed(3)}s rendered` : `${(range.end - range.start).toFixed(3)}s ${search ? 'search range' : 'selected'}`;
