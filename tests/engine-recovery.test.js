@@ -71,3 +71,16 @@ test('Cleanup after a worker crash discards mount state before the next filesyst
     await engine.cleanup();
     assert.equal(engine.mounted, false); assert.notEqual(engine.ff, worker); assert(worker.terminated);
 });
+
+test('Engine download display uses its own percent while render progress stays weighted', async () => {
+    const { engine } = fixture(), reports = [];
+    engine.assets.load = async (_, { onProgress }) => {
+        onProgress(.5, 'Downloading the video engine: 5 of 10 MB…');
+        onProgress(1, 'Unpacking the video engine…', { progress: null });
+        return {};
+    };
+    await engine.load((fraction, message, display) => reports.push({ fraction, message, display }));
+    const download = reports.find(report => report.message.startsWith('Downloading'));
+    assert.equal(download.fraction, .015); assert.equal(download.display.progress, .5);
+    assert(reports.filter(report => !report.message.startsWith('Downloading')).every(report => report.display.progress === null));
+});

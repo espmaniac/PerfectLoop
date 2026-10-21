@@ -68,11 +68,11 @@ export async function autoRepair({file,url,settings,info,mode,engine,signal,onPr
         signal.throwIfAborted();
         let sourceInfo=info;
         if(settings.method==='natural' && !settings.shift) {
-            const metadata=info.videoDuration && info.fps ? info : await engine.inspect(file,(p,t)=>onProgress(p*.02,t));
+            const metadata=info.videoDuration && info.fps ? info : await engine.inspect(file,(p,t,display)=>onProgress(p*.02,t,display));
             signal.throwIfAborted();sourceInfo={...info,...metadata};
             settings={...settings,end:Math.min(settings.end,sourceInfo.videoDuration||settings.end)};
         }
-        const before=await engine.render(file,settings,info,(p,t)=>onProgress(p*.2,`Original: ${t}`),true,null,'high');
+        const before=await engine.render(file,settings,info,(p,t,display)=>onProgress(p*.2,`Original: ${t}`,display),true,null,'high');
         signal.throwIfAborted();
         const baseline=await inspectResult(before,signal);
         const region=defectRegion(baseline);
@@ -122,7 +122,7 @@ export async function autoRepair({file,url,settings,info,mode,engine,signal,onPr
             if(videoPatchExportBytes(candidate.settings.layers,candidate.settings)>256*1024**2) issues.push('This candidate exceeds the full-resolution patch memory budget.');
             if(issues.length) {trials.push({label:candidate.label,reasons:issues});continue;}
             try {
-                const result=await engine.render(file,candidate.settings,info,(p,t)=>onProgress(.4+.6*(index+p)/candidates.length,`${candidate.label}: ${t}`),true,null,'high');
+                const result=await engine.render(file,candidate.settings,info,(p,t,display)=>onProgress(.4+.6*(index+p)/candidates.length,`${candidate.label}: ${t}`,display),true,null,'high');
                 signal.throwIfAborted();
                 const score=await inspectResult(result,signal,baseline);
                 let pauseAfter;

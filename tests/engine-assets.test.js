@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate as flush } from 'node:timers/promises';
 import { gzipSync } from 'node:zlib';
-import { EngineAssets, downloadEngineAsset } from '../js/engine-assets.js';
+import { readFile, stat } from 'node:fs/promises';
+import { EngineAssets, downloadEngineAsset, ENGINE_ASSET_BYTES } from '../js/engine-assets.js';
+
+test('Download size metadata matches every bundled runtime asset', async () => {
+    for (const [path, bytes] of Object.entries(ENGINE_ASSET_BYTES))
+        assert.equal((await stat(new URL(path, new URL('../js/', import.meta.url)))).size, bytes, path);
+});
 
 test('A disconnected download retries with a fresh request and reports bytes received', async t => {
     const requests = [], progress = [];
@@ -99,4 +105,62 @@ test('All runtime dependencies use tab-local URLs, survive worker resets, and se
     const retried = await assets.load(false, options);
     assert.notEqual(retried.classWorkerURL, single.classWorkerURL); assert.equal(retried.wasmURL, single.wasmURL);
     assert(requests.slice(8).every(request => request.options.cache === 'reload'));
+});
+
+for (const threaded of [false, true]) test(`${threaded ? 'Multithread' : 'Single-thread'} download progress counts all bytes across files, including missing Content-Length`, async t => {
+    const progress = [], requested = [];
+    t.mock.method(globalThis, 'fetch', async url => {
+        const bytes = await readFile(url); requested.push(url);
+        let offset = 0;
+        return new Response(new ReadableStream({ pull(controller) {
+            if (offset === bytes.length) { controller.close(); return; }
+            const end = Math.min(bytes.length, offset + 1024 ** 2);
+            controller.enqueue(bytes.subarray(offset, end)); offset = end;
+        } }));
+    });
+    const assets = new EngineAssets(), options = { signal: new AbortController().signal,
+        onProgress: (fraction, message, display) => progress.push({ fraction, message, display }) };
+    await assets.load(threaded, options);
+    const total = requested.reduce((sum, url) => sum + ENGINE_ASSET_BYTES[`../vendor/${url.pathname.split('/vendor/')[1]}`], 0);
+    const downloading = progress.filter(item => item.message.startsWith('Downloading'));
+    assert.equal(downloading[0].fraction, 0); assert.equal(downloading.at(-1).fraction, 1);
+    assert(downloading.every((item, index) => !index || item.fraction >= downloading[index - 1].fraction), 'Changing files does not reset the overall download');
+    let loaded = 0;
+    for (const url of requested) {
+        loaded += ENGINE_ASSET_BYTES[`../vendor/${url.pathname.split('/vendor/')[1]}`];
+        assert(downloading.some(item => Math.abs(item.fraction - loaded / total) < 1e-9), `Missing accumulated byte progress for ${url.pathname}`);
+    }
+    assert(progress.some(item => item.fraction > .4 && item.fraction < .6), 'The large WASM download advances through intermediate percentages');
+    assert(progress.some(item => item.message.startsWith('Unpacking') && item.display?.progress === null));
+    const requestCount = requested.length;
+    progress.length = 0; await assets.load(threaded, options);
+    assert.equal(requested.length, requestCount); assert.deepEqual(progress, [], 'Cached assets do not pretend to download again');
+});
+
+test('Retry replaces the failed attempt byte count and counts only files still needed', async t => {
+    const progress = [], controller = new AbortController(), assets = new EngineAssets();
+    let wasmAttempts = 0;
+    t.mock.method(globalThis, 'fetch', async url => {
+        const bytes = await readFile(url);
+        if (!url.pathname.endsWith('.gz')) return new Response(bytes);
+        if (++wasmAttempts === 1) return new Response(new ReadableStream({ start(stream) {
+            stream.enqueue(bytes.subarray(0, Math.floor(bytes.length / 2)));
+            setTimeout(() => stream.error(new TypeError('Connection changed')), 0);
+        } }));
+        return new Response(bytes);
+    });
+    const options = { signal: controller.signal, onProgress: (fraction, message) => progress.push({ fraction, message }) };
+    await assets.load(false, options);
+    const scripts = Object.entries(ENGINE_ASSET_BYTES).filter(([path]) => path.startsWith('../vendor/ffmpeg/') && path.endsWith('.js')).reduce((sum, [, bytes]) => sum + bytes, 0);
+    const expected = scripts / (scripts + ENGINE_ASSET_BYTES['../vendor/ffmpeg/ffmpeg-core.wasm.gz']);
+    const reconnect = progress.find(item => item.message.startsWith('Reconnecting'));
+    assert(reconnect); assert.equal(reconnect.fraction, expected);
+    assert(progress.every(item => item.fraction >= 0 && item.fraction <= 1));
+    assert.equal(wasmAttempts, 2);
+    assets.invalidateScripts(); progress.length = 0;
+    await assets.load(false, options);
+    assert.equal(wasmAttempts, 2, 'The successfully cached WASM is excluded from another download');
+    const downloading = progress.filter(item => item.message.startsWith('Downloading'));
+    assert.equal(downloading[0].fraction, 0); assert.equal(downloading.at(-1).fraction, 1);
+    assert(downloading.some(item => item.fraction === ENGINE_ASSET_BYTES['../vendor/ffmpeg/const.js'] / scripts));
 });

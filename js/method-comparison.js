@@ -40,7 +40,7 @@ export async function compareLoopMethods({file,settings,info,engine,signal,onPro
     const reduced=trial=>({...trial,preset:'custom',width,height,format:'mp4',audio:'strip',quality:'high',repeats:1,targetMB:0,layers:[],repair:null});
     let original;
     try {
-        const baseline=await engine.render(file,reduced({...settings,method:'natural',shift:0}),info,(p,t)=>onProgress(p*.15,`Reference: ${t}`));
+        const baseline=await engine.render(file,reduced({...settings,method:'natural',shift:0}),info,(p,t,display)=>onProgress(p*.15,`Reference: ${t}`,display));
         signal.throwIfAborted();original=await reader(baseline,signal);
         const originalBoundary=await original.boundary(0);
         let ordinaryError=0;
@@ -52,7 +52,7 @@ export async function compareLoopMethods({file,settings,info,engine,signal,onPro
             try {
                 if(row.id==='natural')processed=original;
                 else {
-                    const result=await engine.render(file,reduced(row.settings),info,(p,t)=>onProgress(.15+(i+p)/rows.length*.8,`${row.name}: ${t}`));
+                    const result=await engine.render(file,reduced(row.settings),info,(p,t,display)=>onProgress(.15+(i+p)/rows.length*.8,`${row.name}: ${t}`,display));
                     signal.throwIfAborted();processed=await reader(result,signal);
                 }
                 const boundaryReport=await processed.boundary(0,originalBoundary);

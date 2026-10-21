@@ -315,7 +315,7 @@ function startJob(kind, message) {
 }
 function finishJob() { state.job = null; refresh(); }
 function progress(kind) {
-  return (fraction, message) => { state.job = { kind, progress: clamp(fraction, 0, 1), message }; refreshStatus(); };
+  return (fraction, message, display) => { state.job = { kind, progress: clamp(fraction, 0, 1), displayProgress: display?.progress, message }; refreshStatus(); };
 }
 function cancel() { previewPlayback?.stop(); state.controller?.abort(); engine.cancel(); }
 
@@ -326,8 +326,12 @@ function refreshStatus() {
   $('#job-panel').hidden = !state.job;
   preview?.syncPlayButton();
   if (state.job) {
-    $('#job-message').textContent = state.job.message; $('#job-percent').textContent = `${Math.round(state.job.progress * 100)}%`;
-    $('#job-progress').value = state.job.progress;
+    const value = state.job.displayProgress === undefined ? state.job.progress : state.job.displayProgress;
+    $('#job-message').textContent = state.job.message;
+    $('#job-percent').textContent = value === null ? '' : `${Math.round(value * 100)}%`;
+    if (value === null) $('#job-progress').removeAttribute('value');
+    else $('#job-progress').value = value;
+    $('#job-progress').setAttribute('aria-valuetext', value === null ? state.job.message : `${Math.round(value * 100)}%`);
   }
 }
 function syncDisabled() {
@@ -1009,7 +1013,7 @@ async function batchExport() {
     for (let i = 0; i < chosen.length; i++) {
       if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
       const candidate = chosen[i], settings = { ...state.s, repair: null, start: candidate.start, end: candidate.end, method: 'natural', shift: 0, repeats: 1 };
-      const result = await engine.render(state.file, settings, state.info, (fraction, text) => progress('batch')((i + fraction) / chosen.length, `Loop ${i + 1}/${chosen.length}: ${text}`));
+      const result = await engine.render(state.file, settings, state.info, (fraction, text, display) => progress('batch')((i + fraction) / chosen.length, `Loop ${i + 1}/${chosen.length}: ${text}`, display));
       files[`${String(i + 1).padStart(2, '0')}-${result.name}`] = new Uint8Array(await result.blob.arrayBuffer());
       files[`${String(i + 1).padStart(2, '0')}-settings.json`] = new TextEncoder().encode(JSON.stringify({ source: state.file.name, settings, visualScore: candidate.score }, null, 2));
     }

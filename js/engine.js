@@ -73,11 +73,12 @@ export class VideoEngine {
             this.loadController = controller;
             const loading = Promise.resolve().then(async () => {
                 try {
-                    onProgress(0, this.everLoaded ? 'Starting the video engine…' : 'Loading the video engine for the first time…');
+                    onProgress(0, this.everLoaded ? 'Starting the video engine…' : 'Loading the video engine for the first time…', { progress: null });
                     const threaded = globalThis.crossOriginIsolated === true && typeof SharedArrayBuffer !== 'undefined';
-                    const config = await this.assets.load(threaded, { signal: controller.signal, onProgress });
+                    const config = await this.assets.load(threaded, { signal: controller.signal,
+                        onProgress: (fraction, message, display = { progress: fraction }) => onProgress(fraction * 0.03, message, display) });
                     if (requestedWorker !== this.ff || this.cancelled) throw new DOMException('Cancelled', 'AbortError');
-                    onProgress(0.03, 'Starting the video engine…');
+                    onProgress(0.03, 'Starting the video engine…', { progress: null });
                     await this.workerCall(() => requestedWorker.load(config), 'Could not start the video engine.', 60_000);
                     this.everLoaded = true;
                 } catch (error) {
