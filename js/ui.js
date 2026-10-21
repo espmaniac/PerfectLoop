@@ -17,8 +17,10 @@ export function decorateIcons() {
   });
 }
 function binding(key, scope = 'setting') { return `data-${scope}="${key}"`; }
-export function numberField(key, label, { min = 0, max, step = 0.1, suffix = '', scope = 'setting' } = {}) {
-  return `<label class="field" id="field-${scope}-${key}"><span>${label}</span><div class="input-unit"><input type="number" aria-label="${label}" ${binding(key, scope)} data-number min="${min}" ${max === undefined ? '' : `max="${max}"`} step="${step}">${suffix ? `<span>${suffix}</span>` : ''}</div></label>`;
+export function numberField(key, label, { min = 0, max, step = 0.1, suffix = '', scope = 'setting', slider = false } = {}) {
+  const bounds = `min="${min}" ${max === undefined ? '' : `max="${max}"`} step="${step}"`;
+  const range = slider ? `<input type="range" aria-label="${label} slider" ${binding(key, scope)} data-number ${bounds}>` : '';
+  return `<label class="field${slider ? ' range-number-field' : ''}" id="field-${scope}-${key}"><span>${label}</span><div class="input-unit"><input type="number" aria-label="${label}" ${binding(key, scope)} data-number ${bounds}>${suffix ? `<span>${suffix}</span>` : ''}</div>${range}</label>`;
 }
 export function selectField(key, label, options, { numeric = false, scope = 'setting' } = {}) {
   return `<label class="field" id="field-${scope}-${key}"><span>${label}</span><select aria-label="${label}" ${binding(key, scope)} ${numeric ? 'data-number' : ''}>${options.map(([value, text]) => `<option value="${value}">${text}</option>`).join('')}</select></label>`;
@@ -26,16 +28,9 @@ export function selectField(key, label, options, { numeric = false, scope = 'set
 export function toggleField(key, label, { detail = '', scope = 'setting' } = {}) {
   return `<label class="toggle-row" id="field-${scope}-${key}"><span>${label}${detail ? `<small>${detail}</small>` : ''}</span><input type="checkbox" aria-label="${label}" ${binding(key, scope)}><span class="switch" aria-hidden="true"></span></label>`;
 }
-function rangeField(key, label) {
-  return `<label class="range-field" id="field-setting-${key}"><span>${label}<b data-value="${key}">50%</b></span><input aria-label="${label}" type="range" min="0" max="100" step="1" data-setting="${key}" data-number></label>`;
-}
-function rangeNumberField(key, label, options) {
-  const html = numberField(key, label, options);
-  return html.replace('class="field"', 'class="field range-number-field"').replace('</label>', `<input type="range" aria-label="${label} slider" data-setting="${key}" data-number min="${options.min}" max="${options.max}" step="${options.step}"></label>`);
-}
 export function initializeFields() {
-  $('#method-fields').innerHTML = rangeNumberField('speed', 'Playback speed', { min: 0.25, max: 4, step: 0.05, suffix: '×' })
-    + rangeNumberField('transition', 'Overlap', { min: 0.01, max: 30, step: 0.033333, suffix: 's' })
+  $('#method-fields').innerHTML = numberField('speed', 'Playback speed', { min: 0.25, max: 4, step: 0.05, suffix: '×', slider: true })
+    + numberField('transition', 'Overlap', { min: 0.01, max: 30, step: 0.033333, suffix: 's', slider: true })
     + selectField('curve', 'Blend curve', [['linear', 'Linear'], ['smooth', 'Smoothstep'], ['cosine', 'Cosine']])
     + numberField('shift', 'Seam position', { min: 0, max: 99, step: 1, suffix: '%' });
   $('#loop-settings').prepend($('#field-setting-shift'));

@@ -33,7 +33,7 @@ export class Preview {
     this.getState = getState; this.onMode = onMode; this.onTime = onTime;
     this.needsRender = needsRender;
     this.source = $('#source-video'); this.output = $('#loop-video'); this.canvas = $('#preview-canvas');
-    this.muted = true; this.guides = false; this.seamPreview = false; this.dirtyFrame = true; this.lastFrame = ''; this.lastTick = 0; this.playing = null;
+    this.muted = true; this.guides = false; this.seamPreview = false; this.dirtyFrame = true; this.lastFrame = ''; this.lastTick = 0;
     this.compositionTime = 0; this.compositionTick = null;
     this.source.addEventListener('pause', () => this.syncPlayButton());
     this.output.addEventListener('pause', () => this.syncPlayButton());
@@ -126,7 +126,6 @@ export class Preview {
       button.setAttribute('aria-busy', String(rendering));
       button.innerHTML = rendering ? `<span class="spin">${icon('LoaderCircle',18)}</span>` : icon(playing ? 'Pause' : 'Play', 18);
     }
-    this.playing = playing;
   }
   async play() {
     const st = this.getState(), video = this.active();
