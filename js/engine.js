@@ -1,7 +1,7 @@
 import { sourceMetadata } from './source-metadata.js';
 import { videoSelectionGeometry } from './framing.js';
 import { FFmpeg, FFFSType } from '../vendor/ffmpeg/index.js';
-import { gunzipSync } from '../vendor/fflate.js';
+import { EngineAssets } from './engine-assets.js';
 import { audioGraph, framePlan, geometry, validate, videoGraph } from './logic.js';
 import { rasterizeLayers, rasterizeVideoPatch, validateLayers } from './layers.js';
 import { layerOverlayGraph } from './layer-export.js';
@@ -17,14 +17,16 @@ export class VideoEngine {
     stageDuration = 1;
     cancelled = false;
     everLoaded = false;
-    wasmPromise;
+    assets = new EngineAssets();
+    loadController;
+    heartbeat;
     logs = [];
     renderController;
     constructor() { this.listeners(); }
     listeners() {
-        this.ff.on('log', ({ message }) => { this.logs.push(message); if (this.logs.length > 80)
+        this.ff.on('log', ({ message }) => { this.heartbeat?.(); this.logs.push(message); if (this.logs.length > 80)
             this.logs.shift(); });
-        this.ff.on('progress', ({ time }) => this.currentProgress?.(Math.min(0.99, Math.max(0, time / 1_000_000 / this.stageDuration))));
+        this.ff.on('progress', ({ time }) => { this.heartbeat?.(); this.currentProgress?.(Math.min(0.99, Math.max(0, time / 1_000_000 / this.stageDuration))); });
     }
     cancel() {
         this.cancelled = true;
@@ -32,6 +34,7 @@ export class VideoEngine {
         this.resetWorker();
     }
     resetWorker() {
+        this.loadController?.abort(new DOMException('Cancelled', 'AbortError'));
         this.ff.terminate();
         this.ff = new FFmpeg();
         this.loading = undefined;
@@ -39,41 +42,57 @@ export class VideoEngine {
         this.currentProgress = undefined;
         this.listeners();
     }
+    async workerCall(operation, message, timeout = 120_000) {
+        const worker = this.ff;
+        let timer;
+        const heartbeat = () => { clearTimeout(timer); timer = setTimeout(expired, timeout); };
+        let rejectTimeout;
+        const expired = () => {
+            // Termination also rejects a command that never sends another reply.
+            rejectTimeout(new Error(`${message} The video engine stopped responding. Try again; if it repeats, use a smaller resolution or disable motion interpolation.`));
+            if (worker === this.ff) this.resetWorker();
+        };
+        const deadline = new Promise((_, reject) => { rejectTimeout = reject; });
+        this.heartbeat = heartbeat;
+        heartbeat();
+        try { return await Promise.race([Promise.resolve().then(() => {
+            if (worker !== this.ff || this.cancelled) throw new DOMException('Cancelled', 'AbortError');
+            return operation();
+        }), deadline]); }
+        finally {
+            clearTimeout(timer);
+            if (this.heartbeat === heartbeat) this.heartbeat = undefined;
+        }
+    }
     async load(onProgress) {
+        if (this.cancelled) throw new DOMException('Cancelled', 'AbortError');
         if (this.ff.loaded)
             return;
-        const requestedWorker = this.ff;
-        if (!this.loading)
-            this.loading = (async () => {
-                onProgress(0, this.everLoaded ? 'Starting the video engine…' : 'Loading the video engine for the first time…');
-                const threaded = globalThis.crossOriginIsolated === true && typeof SharedArrayBuffer !== 'undefined';
-                const base = new URL(threaded ? '../vendor/ffmpeg-mt/' : '../vendor/ffmpeg/', import.meta.url);
-                // Store the unmodified WASM core as gzip so every hosted file fits
-                // GitHub's web uploader. The browser expands it once per page.
-                if (!this.wasmPromise) this.wasmPromise = (async () => {
-                    const response = await fetch(new URL('ffmpeg-core.wasm.gz', base));
-                    if (!response.ok) throw new Error('The video engine could not be loaded. Check that all site files were uploaded.');
-                    const compressed = new Uint8Array(await response.arrayBuffer());
-                    let bytes;
-                    if (typeof DecompressionStream !== 'undefined') {
-                        const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
-                        bytes = await new Response(stream).arrayBuffer();
-                    } else bytes = gunzipSync(compressed);
-                    return URL.createObjectURL(new Blob([bytes], { type: 'application/wasm' }));
-                })().catch(error => { this.wasmPromise = undefined; throw error; });
-                const wasmURL = await this.wasmPromise;
-                if (requestedWorker !== this.ff || this.cancelled) throw new DOMException('Cancelled', 'AbortError');
-                await requestedWorker.load({ coreURL: new URL('ffmpeg-core.js', base).href, wasmURL,
-                    ...(threaded ? { workerURL: new URL('ffmpeg-core.worker.js', base).href } : {}) });
-                this.everLoaded = true;
-            })();
-        try {
-            await this.loading;
+        if (!this.loading) {
+            const requestedWorker = this.ff, controller = new AbortController();
+            this.loadController = controller;
+            const loading = Promise.resolve().then(async () => {
+                try {
+                    onProgress(0, this.everLoaded ? 'Starting the video engine…' : 'Loading the video engine for the first time…');
+                    const threaded = globalThis.crossOriginIsolated === true && typeof SharedArrayBuffer !== 'undefined';
+                    const config = await this.assets.load(threaded, { signal: controller.signal, onProgress });
+                    if (requestedWorker !== this.ff || this.cancelled) throw new DOMException('Cancelled', 'AbortError');
+                    onProgress(0.03, 'Starting the video engine…');
+                    await this.workerCall(() => requestedWorker.load(config), 'Could not start the video engine.', 60_000);
+                    this.everLoaded = true;
+                } catch (error) {
+                    if (!controller.signal.aborted) this.assets.invalidateScripts();
+                    if (requestedWorker === this.ff) this.resetWorker();
+                    if (this.cancelled) throw new DOMException('Cancelled', 'AbortError');
+                    throw error;
+                } finally {
+                    if (this.loading === loading) this.loading = undefined;
+                    if (this.loadController === controller) this.loadController = undefined;
+                }
+            });
+            this.loading = loading;
         }
-        catch (e) {
-            this.loading = undefined;
-            throw e;
-        }
+        await this.loading;
     }
     async mount(file) {
         if (this.mounted)
@@ -97,7 +116,7 @@ export class VideoEngine {
         catch { /* no previous probe */ }
         // core 0.12.10 leaves ret=-1 after successful ffprobe. Validate its output,
         // rather than treating that stale exit field as a failed probe.
-        await this.ff.ffprobe(['-v', 'error', '-show_streams', '-show_format', '-of', 'json', path, '-o', 'probe.json']);
+        await this.workerCall(() => this.ff.ffprobe(['-v', 'error', '-show_streams', '-show_format', '-of', 'json', path, '-o', 'probe.json']), 'Could not read the video metadata.');
         try {
             const data = await this.ff.readFile('probe.json', 'utf8');
             const probe = JSON.parse(String(data));
@@ -119,12 +138,13 @@ export class VideoEngine {
         this.logs = [];
         let code;
         try {
-            code = await this.ff.exec(['-hide_banner', '-y', '-threads', '1', '-filter_complex_threads', '1', ...args]);
+            code = await this.workerCall(() => this.ff.exec(['-hide_banner', '-y', '-threads', '1', '-filter_complex_threads', '1', ...args]), message);
         }
         catch (e) {
             if (this.cancelled)
                 throw new DOMException('Cancelled', 'AbortError');
-            throw new Error(`${message} Video processing failed. ${this.logs.slice(-8).join(' ').slice(-900) || String(e)}`);
+            const detail = e instanceof Error ? e.message : String(e);
+            throw new Error(`${message} Video processing failed. ${detail.slice(0, 400)} ${this.logs.slice(-8).join(' ').slice(-650)}`.trim());
         }
         if (code !== 0)
             throw new Error(`Video processing failed. ${this.logs.filter(l => /error|invalid|memory|not found|failed/i.test(l)).slice(-3).join(' ').slice(0, 400) || 'Try a smaller resolution or a different input codec.'}`);
@@ -132,8 +152,12 @@ export class VideoEngine {
     }
     async cleanup() {
         this.currentProgress = undefined;
-        if (!this.ff.loaded)
+        if (!this.ff.loaded) {
+            // The wrapper can terminate itself after a worker error. Its old
+            // mounted flag must not carry over to a new filesystem on retry.
+            this.resetWorker();
             return;
+        }
         if (this.mounted) {
             try {
                 await this.ff.unmount('/input');
@@ -149,7 +173,7 @@ export class VideoEngine {
         catch { /* terminated workers have no filesystem */ }
         // FFmpeg allocations are not reliably reclaimed by unlinking files. Recreate
         // the worker after each job so a series of exports has a bounded WASM heap.
-        // The same-origin core assets are cached by the browser.
+        // All engine assets remain in memory, so restarting needs no connection.
         this.resetWorker();
     }
     async render(file, original, info, onProgress, preview = false, wallpaperOptions = null, previewQuality = 'small') {

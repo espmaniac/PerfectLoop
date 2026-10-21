@@ -22,6 +22,7 @@ GPL text: vendor/ffmpeg-mt/GPL-2.txt
 @ffmpeg/ffmpeg 0.12.15 — MIT
 Copyright (c) 2019 Jerome Wu
 Source: https://github.com/ffmpegwasm/ffmpeg.wasm
+Local wrapper changes: worker failure handling and pending-request cleanup.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

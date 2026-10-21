@@ -25,11 +25,24 @@ export class FFmpeg {
      */
     #registerHandlers = () => {
         if (this.#worker) {
+            const worker = this.#worker;
+            // A module/pthread failure can occur outside the worker's message
+            // handler. Settle pending requests instead of leaving the UI busy.
+            this.#worker.onerror = (event) => {
+                if (worker !== this.#worker) return;
+                event.preventDefault?.();
+                this.terminate(new Error("The video engine worker failed. Try again. Check your connection or VPN if the engine is still downloading."));
+            };
+            this.#worker.onmessageerror = () => {
+                if (worker !== this.#worker) return;
+                this.terminate(new Error("The video engine returned an unreadable response. Try again."));
+            };
             this.#worker.onmessage = ({ data: { id, type, data }, }) => {
+                if (worker !== this.#worker) return;
                 switch (type) {
                     case FFMessageType.LOAD:
-                        this.loaded = true;
-                        this.#resolves[id](data);
+                        if (this.#resolves[id]) this.loaded = true;
+                        this.#resolves[id]?.(data);
                         break;
                     case FFMessageType.MOUNT:
                     case FFMessageType.UNMOUNT:
@@ -42,7 +55,7 @@ export class FFmpeg {
                     case FFMessageType.CREATE_DIR:
                     case FFMessageType.LIST_DIR:
                     case FFMessageType.DELETE_DIR:
-                        this.#resolves[id](data);
+                        this.#resolves[id]?.(data);
                         break;
                     case FFMessageType.LOG:
                         this.#logEventCallbacks.forEach((f) => f(data));
@@ -51,7 +64,7 @@ export class FFmpeg {
                         this.#progressEventCallbacks.forEach((f) => f(data));
                         break;
                     case FFMessageType.ERROR:
-                        this.#rejects[id](data);
+                        this.#rejects[id]?.(data);
                         break;
                 }
                 delete this.#resolves[id];
@@ -67,13 +80,18 @@ export class FFmpeg {
             return Promise.reject(ERROR_NOT_LOADED);
         }
         return new Promise((resolve, reject) => {
+            if (signal?.aborted) { reject(signal.reason || new DOMException("Cancelled", "AbortError")); return; }
             const id = getMessageID();
-            this.#worker && this.#worker.postMessage({ id, type, data }, trans);
-            this.#resolves[id] = resolve;
-            this.#rejects[id] = reject;
-            signal?.addEventListener("abort", () => {
-                reject(new DOMException(`Message # ${id} was aborted`, "AbortError"));
-            }, { once: true });
+            const clean = () => {
+                signal?.removeEventListener("abort", abort);
+                delete this.#resolves[id]; delete this.#rejects[id];
+            };
+            const abort = () => { clean(); reject(signal.reason || new DOMException(`Message # ${id} was aborted`, "AbortError")); };
+            this.#resolves[id] = value => { clean(); resolve(value); };
+            this.#rejects[id] = error => { clean(); reject(error); };
+            signal?.addEventListener("abort", abort, { once: true });
+            try { this.#worker.postMessage({ id, type, data }, trans); }
+            catch (error) { clean(); reject(error); }
         });
     };
     on(event, callback) {
@@ -183,11 +201,11 @@ export class FFmpeg {
      *
      * @category FFmpeg
      */
-    terminate = () => {
+    terminate = (reason = ERROR_TERMINATED) => {
         const ids = Object.keys(this.#rejects);
         // rejects all incomplete Promises.
         for (const id of ids) {
-            this.#rejects[id](ERROR_TERMINATED);
+            this.#rejects[id](reason);
             delete this.#rejects[id];
             delete this.#resolves[id];
         }
