@@ -547,6 +547,7 @@ function refresh() {
       : 'Draft snapshot. Choose Video and press Play in Result to update the selected key photo.';
   }
   $('[data-action="frame-png"]').hidden = staticWallpaperLayout();
+  $('[data-action="frame-png"]').title = `Save PNG · ${s.width} × ${s.height}`;
   $('#transport-time').hidden = staticWallpaperLayout();
   void prepareWallpaperPoster();
   timeline?.render(); preview?.refresh();
@@ -1350,7 +1351,7 @@ const actions = {
   proxy: makeProxy, search: runSearch, export: () => runRender(false), inspect, batch: batchExport, cancel,
   'dismiss-error': () => { state.error = ''; refreshStatus(); }, 'dismiss-notice': () => notice(''),
   play: () => staticWallpaperLayout() ? undefined : playPreview(), 'previous-frame': () => { if (!staticWallpaperLayout()) stepPreview(-1); }, 'next-frame': () => { if (!staticWallpaperLayout()) stepPreview(1); },
-  mute: () => preview.toggleMute(), guides: () => { preview.toggleGuides(); refreshPreviewEditor(); }, fullscreen: () => preview.fullscreen(), 'frame-png': () => { if (!staticWallpaperLayout()) preview.saveFrame(); },
+  mute: () => preview.toggleMute(), guides: () => { preview.toggleGuides(); refreshPreviewEditor(); }, fullscreen: () => preview.fullscreen(), 'frame-png': () => { if (!staticWallpaperLayout()) return preview.saveFrame(); },
   zoom: () => timeline.toggleZoom(), 'mark-in': () => mark('start'), 'mark-out': () => mark('end'), 'fit-duration': fitDuration,
   'download-again': () => { if (state.lastExport) download(state.lastExport.blob, state.lastExport.name); },
   'select-top': () => { state.selected = state.selected.size ? new Set() : new Set(visibleCandidates().slice(0, 5).map(candidate => candidate.id)); renderCandidates(); },

@@ -17,6 +17,13 @@ export function drawFrame(canvas, video, settings, rendered, layerTime = null) {
   return true;
 }
 
+function drawPreviewFrame(canvas, video, settings, rendered, layerTime) {
+  if (!drawFrame(canvas, video, settings, rendered, layerTime)) return false;
+  if (!rendered && layerTime !== null) drawLayers(canvas.getContext('2d'), (settings.layers || []).filter(layer => layer.placement !== 'below'), settings,
+    layerTime, framePlan(settings).duration);
+  return true;
+}
+
 function clearFrame(canvas) {
   canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
 }
@@ -167,7 +174,28 @@ export class Preview {
     $('[data-action="guides"]').setAttribute('aria-pressed', String(this.guides));
   }
   fullscreen() { return $('#preview-stage').requestFullscreen?.().catch(() => {}); }
-  saveFrame() { this.canvas.toBlob(blob => { if (blob) download(blob, 'loop-preview-frame.png'); }, 'image/png'); }
+  captureFrame() {
+    const st = this.getState(), {width, height} = st.s;
+    if (![width, height].every(value => Number.isInteger(value) && value >= 16 && value <= 3840))
+      throw new Error('Choose output dimensions between 16 and 3840 pixels before saving a frame.');
+    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+    const rendered = st.mode === 'loop' && Boolean(st.renderURL);
+    const layerTime = st.mode === 'composition' && st.previewChoice !== 'original' ? this.compositionTime : null;
+    // Use decoded media, not the small display canvas or the editor's zoomed view.
+    if (!drawPreviewFrame(canvas, this.active(), st.s, rendered, layerTime)) {
+      canvas.width = canvas.height = 1;
+      throw new Error('Wait for the preview frame to finish loading, then save it again.');
+    }
+    return canvas;
+  }
+  async saveFrame() {
+    const canvas = this.captureFrame();
+    try {
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('The preview frame could not be saved. Try smaller output dimensions.');
+      download(blob, 'loop-preview-frame.png');
+    } finally { canvas.width = canvas.height = 1; }
+  }
   frame(now) {
     const st = this.getState(), video = this.active();
     if (st.mode === 'composition') {
@@ -187,9 +215,7 @@ export class Preview {
     const key = `${st.previewChoice}-${st.mode}-${video.currentTime}-${video.readyState}-${st.mode === 'composition' ? this.compositionTime : ''}`;
     if (this.dirtyFrame || key !== this.lastFrame) {
       // Composition uses live framing; encoded output already includes its layers.
-      if (drawFrame(this.canvas, video, st.s, st.mode !== 'composition', st.mode === 'composition' && st.previewChoice !== 'original' ? this.compositionTime : null)) {
-        if (st.mode === 'composition' && st.previewChoice !== 'original') drawLayers(this.canvas.getContext('2d'), (st.s.layers || []).filter(layer => layer.placement !== 'below'), st.s,
-          this.compositionTime, framePlan(st.s).duration);
+      if (drawPreviewFrame(this.canvas, video, st.s, st.mode !== 'composition', st.mode === 'composition' && st.previewChoice !== 'original' ? this.compositionTime : null)) {
         this.lastFrame = key; this.dirtyFrame = false;
       }
     }

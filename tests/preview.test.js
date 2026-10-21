@@ -66,7 +66,9 @@ function fixture(t) {
     ]);
     let nextId = 0, now = 101;
     const frames = new Map();
-    globalThis.document = { querySelector: selector => elements.get(selector) };
+    globalThis.document = { querySelector: selector => elements.get(selector), createElement: tag => {
+        assert.equal(tag,'canvas'); return new FakeCanvas();
+    } };
     globalThis.requestAnimationFrame = callback => { frames.set(++nextId, callback); return nextId; };
     globalThis.cancelAnimationFrame = id => frames.delete(id);
     const state = {
@@ -95,6 +97,44 @@ function fixture(t) {
         },
     };
 }
+
+test('Saved frames use the selected output dimensions independently of display and decoded preview sizes', t => {
+    const f=fixture(t);
+    Object.assign(f.state,{mode:'composition',previewChoice:'original'});
+    Object.assign(f.state.s,{width:1080,height:1920});f.preview.refresh();
+    assert.equal(f.canvas.width,540);assert.equal(f.canvas.height,960);
+    const sourceTime=f.source.currentTime;f.source.paused=false;
+    const original=f.preview.captureFrame();
+    assert.equal(original.width,1080);assert.equal(original.height,1920);assert.equal(original.pixel,f.source.color);
+    assert.equal(f.canvas.width,540);assert.equal(f.canvas.height,960);
+    assert.equal(f.source.currentTime,sourceTime);assert.equal(f.source.paused,false);
+    f.state.mode='loop';f.state.previewChoice='result';
+    for(const [width,height] of [[1920,1080],[2048,2048],[3840,2160],[320,180]]) {
+        Object.assign(f.state.s,{width,height});const result=f.preview.captureFrame();
+        assert.equal(result.width,width);assert.equal(result.height,height);assert.equal(result.pixel,f.output.color);
+    }
+});
+
+test('Saving a source/search frame applies output framing instead of stretching the source into another aspect ratio', t => {
+    const f=fixture(t);Object.assign(f.state,{mode:'source',previewChoice:'original',tab:'find'});
+    Object.assign(f.state.s,{width:1080,height:1920,fit:'contain',zoom:100,cropX:50,cropY:50,rotate:0});
+    const create=document.createElement,transforms=[];
+    document.createElement=tag=>{const canvas=create(tag);canvas.context.translate=(...values)=>transforms.push(['translate',...values]);canvas.context.scale=(...values)=>transforms.push(['scale',...values]);return canvas;};
+    const frame=f.preview.captureFrame();
+    assert.deepEqual(transforms,[['translate',540,960],['scale',1.6875,1.6875]]);
+    assert.equal(frame.width,1080);assert.equal(frame.height,1920);
+});
+
+test('Invalid dimensions and incomplete seeks cannot produce empty frame downloads', t => {
+    const f=fixture(t);
+    for(const width of [0,NaN,Infinity,15,3841,1080.5]) {
+        f.state.s.width=width;assert.throws(()=>f.preview.captureFrame(),/output dimensions/);
+    }
+    f.state.s.width=1080;f.output.seeking=true;
+    assert.throws(()=>f.preview.captureFrame(),/finish loading/);
+    f.output.seeking=false;f.output.readyState=1;
+    assert.throws(()=>f.preview.captureFrame(),/finish loading/);
+});
 
 test('Play describes updating the result and encoding progress even while playback stays paused', t => {
     const f=fixture(t);Object.assign(f.state,{previewChoice:'result',tab:'edit',needsRender:true});
