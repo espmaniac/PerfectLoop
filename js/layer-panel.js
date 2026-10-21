@@ -1,6 +1,6 @@
 import { layerStack, VIDEO_LAYER } from './layer-order.js';
 import { ALIGNMENTS } from './alignment.js';
-import { $, escapeHTML, icon } from './ui.js';
+import { $, escapeHTML, icon, numberField as renderNumberField, selectField as renderSelectField, toggleField } from './ui.js';
 import { MAX_LAYERS, MAX_ANIMATION_CYCLES, animationCycles } from './layers.js';
 import { patchInterval } from './video-patch.js';
 import { framePlan } from './logic.js';
@@ -26,12 +26,12 @@ const SPINS = [
   ['counterclockwise', 'Counterclockwise'],
 ];
 
-function numberField(key, label, min, max, suffix, step = 1) {
-  return `<label class="field"><span>${label}</span><div class="input-unit"><input type="number" aria-label="${label}" data-layer-setting="${key}" min="${min}" max="${max}" step="${step}"><span>${suffix}</span></div></label>`;
+function numberField(key, label, min, max, suffix, step = 1, scope = 'layer-setting') {
+  return renderNumberField(key, label, { min, max, suffix, step, scope });
 }
 
-function selectField(key, label, options) {
-  return `<label class="field"><span>${label}</span><select aria-label="${label}" data-layer-setting="${key}">${options.map(([value, text]) => `<option value="${value}">${text}</option>`).join('')}</select></label>`;
+function selectField(key, label, options, scope = 'layer-setting') {
+  return renderSelectField(key, label, options, { scope });
 }
 
 function animationSpeedField(kind, label) {
@@ -183,16 +183,16 @@ export class LayerPanel {
 
   videoFields() {
     return `<p class="micro">Set the video's position and scale here. Dragging the video stays locked in Layers.</p>
-      ${selectField('fit', 'Fit video', [['contain','Fit'],['cover','Fill & crop'],['stretch','Stretch']]).replace('data-layer-setting','data-video-setting')}
+      ${selectField('fit', 'Fit video', [['contain','Fit'],['cover','Fill & crop'],['stretch','Stretch']], 'video-setting')}
       <div class="fields two">
-        ${numberField('zoom','Video scale',25,400,'%',0.1).replace('data-layer-setting','data-video-setting')}
-        ${numberField('rotate','Video rotation',-360,360,'°',0.1).replace('data-layer-setting','data-video-setting')}
+        ${numberField('zoom','Video scale',25,400,'%',0.1,'video-setting')}
+        ${numberField('rotate','Video rotation',-360,360,'°',0.1,'video-setting')}
       </div>
       <div class="fields two">
-        ${numberField('cropX','Horizontal position',0,100,'%',0.1).replace('data-layer-setting','data-video-setting')}
-        ${numberField('cropY','Vertical position',0,100,'%',0.1).replace('data-layer-setting','data-video-setting')}
+        ${numberField('cropX','Horizontal position',0,100,'%',0.1,'video-setting')}
+        ${numberField('cropY','Vertical position',0,100,'%',0.1,'video-setting')}
       </div>
-      <div class="fields two"><label class="field"><span>Border color</span><input type="color" data-video-setting="background" aria-label="Border color"></label><label class="toggle-row"><span>Mirror horizontally</span><input type="checkbox" data-video-setting="mirror"><span class="switch" aria-hidden="true"></span></label></div>
+      <div class="fields two"><label class="field"><span>Border color</span><input type="color" data-video-setting="background" aria-label="Border color"></label>${toggleField('mirror', 'Mirror horizontally', { scope: 'video-setting' })}</div>
       <div class="field"><span>Align video to frame</span><div class="alignment-controls" role="group" aria-label="Align video to frame">${ALIGNMENTS.map(([key,label])=>`<button class="text-btn" data-video-align="${key}" title="${label}">${icon(ALIGNMENT_ICONS[key], 15)}<span>${label}</span></button>`).join('')}</div></div>
       <button class="btn secondary" type="button" data-action="reset-framing" aria-label="Reset video scale, position, and rotation">${icon('RotateCcw', 16)}<span>Reset video framing</span></button>`;
   }

@@ -2,7 +2,6 @@ import { repairFilters, repairIssues } from './repair.js';
 import { videoTransform } from './framing.js';
 
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
-export const seconds = (n) => Math.max(0, n).toFixed(3);
 export function timecode(n) {
     const ms = Math.round(Math.max(0, n) * 1000);
     const s = Math.floor(ms / 1000);
@@ -157,7 +156,7 @@ export function videoGraph(s) {
         pieces.push('[cyclic]null[outv]');
     return pieces.join(';');
 }
-export function tempo(speed) {
+function tempo(speed) {
     const f = [];
     while (speed < 0.5) {
         f.push('atempo=0.5');

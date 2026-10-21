@@ -439,24 +439,6 @@ export const icons = {
       }
     ]
   ],
-  "ChevronLeft": [
-    [
-      "path",
-      {
-        "d": "m15 18-6-6 6-6",
-        "key": "1wnfg3"
-      }
-    ]
-  ],
-  "ChevronRight": [
-    [
-      "path",
-      {
-        "d": "m9 18 6-6-6-6",
-        "key": "mthhwq"
-      }
-    ]
-  ],
   "Crop": [
     [
       "path",

@@ -84,7 +84,8 @@ test('Actual FFmpeg output has the expected count and continuous boundary order'
     try {
         for (const m of METHODS) {
             const s = { ...DEFAULTS, start: 0, end: 3, fps, transition: 0.5, method: m.id, preset: 'custom' };
-            const output = execFileSync('ffmpeg', ['-v', 'error', '-threads', '1', '-filter_complex_threads', '1', '-i', input, '-filter_complex', videoGraph(s), '-map', '[outv]', '-an', '-pix_fmt', 'gray', '-f', 'rawvideo', 'pipe:1']);
+            // Count filter frames without the native CLI duplicating timestamps.
+            const output = execFileSync('ffmpeg', ['-v', 'error', '-threads', '1', '-filter_complex_threads', '1', '-i', input, '-filter_complex', videoGraph(s), '-map', '[outv]', '-an', '-pix_fmt', 'gray', '-fps_mode', 'passthrough', '-f', 'rawvideo', 'pipe:1']);
             const count = output.length / (side * side), p = framePlan(s);
             assert.equal(count, p.outputFrames, `${m.id}: frame count`);
             const first = output[0], last = output[output.length - 1];

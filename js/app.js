@@ -43,7 +43,7 @@ const state = {
   renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
   wallpaperScreen: 'editor', wallpaperDownload: supportsPackageSave() ? 'pvt' : 'live-photo', wallpaperPosterURL: '', wallpaperPosterSignature: '',
   opts: { from: 0, to: 18, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true, hideSimilar: true },
-  pauseDraft: null, pauseAnalysis: null, pauseHighlights: null, candidates: [], selected: new Set(), seam: null, repairAnalysis: null, methodComparison: null,
+  pauseDraft: null, pauseAnalysis: null, pauseHighlights: null, candidates: [], selected: new Set(), repairAnalysis: null, methodComparison: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
@@ -63,8 +63,6 @@ function selectPreview(choice) {
   else preview.setMode(state.tab === 'layers' || dirty() ? 'composition' : 'loop');
 }
 
-const originalRepairSettings = () => ({ ...state.s, repair: null, preset: 'custom', method: 'natural', shift: 0, repeats: 1, repairOriginal: true });
-const originalRepairDirty = () => videoSignature(originalRepairSettings()) !== state.renderSignature;
 const busy = () => Boolean(state.job);
 const staticWallpaperLayout = () => state.s.preset === 'iphone' && ['lock', 'home'].includes(state.wallpaperScreen);
 
@@ -118,7 +116,7 @@ function update(partial, saveHistory = true) {
   if (saveHistory) remember();
   previewPlayback?.stop();
   const leavingWallpaper = state.s.preset === 'iphone' && partial.preset && partial.preset !== 'iphone';
-  state.s = { ...state.s, ...partial }; state.seam = null; $('#seam-result').replaceChildren();
+  state.s = { ...state.s, ...partial }; clearSeam();
   if (leavingWallpaper) {
     state.wallpaperScreen = 'editor';
   }
@@ -302,7 +300,7 @@ function updateActiveRange(partial, saveHistory = true) {
   if ('end' in partial) search.to = partial.end;
   updateSearch(search, saveHistory);
 }
-function clearSeam() { state.seam = null; $('#seam-result').replaceChildren(); }
+function clearSeam() { $('#seam-result').replaceChildren(); }
 function notice(message) { state.notice = message; refreshStatus(); }
 function report(error) {
   if (error?.name === 'AbortError') { notice('Operation cancelled.'); return; }
@@ -448,19 +446,11 @@ function refreshHeaderHint(issues, plan) {
   if (hint.textContent !== message) hint.textContent = message;
   hint.parentElement.dataset.tone = issue ? 'warning' : 'tip';
 }
-function refresh() {
-  if (state.mode === 'loop' && dirty() && !state.renderSettings?.repairOriginal) {
-    // A stale encoded frame cannot represent the current layout settings.
-    preview.setMode('composition');
-    return;
-  }
-  const { s, info } = state, plan = framePlan(s), exportSettings = downloadSettings(s), exportPlan = framePlan(exportSettings);
-  const issues = info.duration ? [...validate(exportSettings, info), ...validateLayers(s.layers, s)] : ['Open a playable video to begin.'];
-  const isGif = s.format === 'gif', wallpaper = s.preset === 'iphone';
+function refreshTimeline(plan) {
+  const { s, info } = state;
   const rendered = state.mode === 'loop' && state.render;
   const layerTiming = state.tab === 'layers';
   const timelineInfo = layerTiming ? {...s,duration:plan.duration} : rendered || info;
-  refreshStatus(); refreshBindings(); syncDisabled(); refreshHeaderHint(issues, plan);
   $('#source-meta').innerHTML = `<span class="file-name" title="${escapeHTML(info.name)}">${rendered ? 'Result' : escapeHTML(info.name || 'Open a video to begin')}</span>`
     + (timelineInfo.duration ? `<span>${timecode(timelineInfo.duration)}</span><span>${timelineInfo.width} × ${timelineInfo.height}</span><span>${humanSize(rendered ? rendered.blob.size : info.size)}</span>` : '');
   $('#timeline-panel').setAttribute('aria-label', layerTiming ? 'Layer timing timeline' : rendered ? 'Rendered loop timeline' : state.tab === 'find' ? 'Loop search timeline' : 'Source video timeline');
@@ -472,6 +462,69 @@ function refresh() {
   $('#trim-fields').hidden = Boolean(rendered) || layerTiming;
   $('#rendered-timeline-summary').hidden = !rendered || layerTiming;
   $('#ruler-labels').hidden = $('#filmstrip').hidden = layerTiming;
+}
+
+function refreshPreviewLabels(plan) {
+  const { s, info } = state;
+  $$('[data-preview-choice]').forEach(button => { const active = button.dataset.previewChoice === (state.tab === 'find' ? 'original' : state.previewChoice); button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
+  const liveLayers = state.tab === 'layers' && state.mode !== 'loop';
+  const resultPending = state.previewChoice === 'result' && dirty() && state.tab !== 'find';
+  const resultInvalid = validate(s, info).length || validateLayers(s.layers, s).length;
+  $('#preview-tag').textContent = state.tab === 'find' ? 'SEARCH RANGE'
+    : state.previewChoice === 'original' ? 'ORIGINAL'
+    : liveLayers ? 'LIVE LAYER EDITING'
+    : resultPending ? resultInvalid ? 'RESULT UNAVAILABLE' : state.job?.kind === 'preview' ? 'UPDATING RESULT' : 'DRAFT · PRESS PLAY'
+    : 'RESULT';
+  $('#preview-foot-message').textContent = state.tab === 'find' ? 'Search the highlighted source range. Choose a match to view its result.'
+    : state.previewChoice === 'original' ? 'Original motion with current framing. Loop effects and layers are excluded.'
+    : liveLayers ? 'Live layer editing. Press Play in Result to check the processed cycle.'
+    : resultPending ? resultInvalid ? 'Check Video settings to generate the result.' : state.job?.kind === 'preview' ? 'Updating the full selected cycle. The image shown is a draft.' : 'Draft frame. Press Play to update the full result and start playback.'
+    : `Full result: ${plan.duration.toFixed(3)}s · source range: ${(s.end-s.start).toFixed(3)}s${['crossfade','offset'].includes(s.method) ? ' · shortened by transition overlap' : ''}`;
+  $('#inspection-mode').textContent = state.mode === 'loop' ? 'Rendered preview' : 'Selected source range';
+}
+
+function refreshWallpaper(exportSettings, exportPlan) {
+  const { s } = state, wallpaper = s.preset === 'iphone';
+  const profile = phoneProfile(s);
+  const posterReady = state.wallpaperPosterSignature === posterSignature() && !dirty();
+  wallpaperPreview?.refresh({ enabled: wallpaper, screen: state.wallpaperScreen, width: profile.width, height: profile.height,
+    device: profile.chrome, posterURL: posterReady ? state.wallpaperPosterURL : '', disabled: busy(), draft: !posterReady });
+  const pairedDownload = wallpaper && pairedWallpaperKind(state.wallpaperDownload);
+  const liveProfile = wallpaperCompatibilityProfile(s);
+  const keyTime = keyPhotoTime(exportPlan.duration, exportSettings.fps, s.wallpaperPoster);
+  $('#wallpaper-key-time').textContent = `${keyTime.toFixed(3)}s`;
+  $('#wallpaper-range-note').textContent = `Finished cycle: ${exportPlan.duration.toFixed(3)}s. ${pairedDownload ? 'A 2-second cycle and a key photo at 0.5s or later are recommended for iPhone wallpaper.' : 'A short 2-second cycle is recommended for iPhone wallpaper.'}${pairedDownload && keyTime < 0.5 ? ' The selected key photo is near the start; try a later frame if iOS rejects it.' : ''}`;
+  const profileNote = `Live Photo uses ${liveProfile.width} × ${liveProfile.height} HEVC at 60 fps, preserving your framing and layers. `;
+  $('#wallpaper-download-note').textContent = state.wallpaperDownload === 'pvt' ? `${profileNote}Choose a folder to save a real .pvt package directly, without an archive. The package contains the paired photo, video, and metadata.`
+    : state.wallpaperDownload === 'live-photo' ? supportsPackageSave() ? 'Download an archive containing the native package. Choose PVT package to save it directly to a folder instead.'
+      : 'A .pvt is a package folder. This browser downloads it as ZIP; unpack it using the Photos import guide below. Direct package saving is unavailable here.'
+    : state.wallpaperDownload === 'kit' ? `${profileNote}Includes the browser-created Live Photo, an MP4 and JPG at that size, and Photos import instructions.`
+      : state.wallpaperDownload === 'image' ? `A static ${s.width} × ${s.height} wallpaper from the chosen frame. Choose Result to inspect the key photo.` : `A regular silent ${s.width} × ${s.height} MP4 at ${s.fps} fps. Choose Live Photo to download the paired photo and motion files.`;
+  if (state.wallpaperDownload === 'live-photo') $('#wallpaper-download-note').textContent = `${profileNote}${$('#wallpaper-download-note').textContent}`;
+  if (staticWallpaperLayout()) {
+    $('#preview-tag').textContent = posterReady ? 'KEY PHOTO LAYOUT' : 'DRAFT LAYOUT';
+    $('#preview-foot-message').textContent = posterReady
+      ? state.wallpaperScreen === 'lock' ? 'Selected key photo. Layout only; iOS creates the wake animation.' : 'Selected key photo. Home Screen wallpaper stays still.'
+      : 'Draft snapshot. Choose Video and press Play in Result to update the selected key photo.';
+  }
+  $('[data-action="frame-png"]').hidden = staticWallpaperLayout();
+  $('[data-action="frame-png"]').title = `Save PNG · ${s.width} × ${s.height}`;
+  $('#transport-time').hidden = staticWallpaperLayout();
+  void prepareWallpaperPoster();
+}
+
+function refresh() {
+  if (state.mode === 'loop' && dirty()) {
+    // A stale encoded frame cannot represent the current layout settings.
+    preview.setMode('composition');
+    return;
+  }
+  const { s, info } = state, plan = framePlan(s), exportSettings = downloadSettings(s), exportPlan = framePlan(exportSettings);
+  const issues = info.duration ? [...validate(exportSettings, info), ...validateLayers(s.layers, s)] : ['Open a playable video to begin.'];
+  const isGif = s.format === 'gif', wallpaper = s.preset === 'iphone';
+  const layerTiming = state.tab === 'layers';
+  refreshStatus(); refreshBindings(); syncDisabled(); refreshHeaderHint(issues, plan);
+  refreshTimeline(plan);
   $$('[data-tab]').forEach(button => { const active = button.dataset.tab === state.tab; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
   ['edit', 'find', 'inspect', 'repair', 'layers'].forEach(tab => { $(`#panel-${tab}`).hidden = tab !== state.tab; });
   $('#tool-title').textContent = state.tab === 'repair' ? 'Loop repair' : state.tab === 'layers' ? 'Layers' : state.tab === 'find' ? 'Find loops' : state.tab === 'inspect' ? 'Inspect seam' : 'Loop method';
@@ -501,7 +554,7 @@ function refresh() {
   $('#field-audio-strip').hidden = isGif;
   $('#gif-playback-settings').hidden = !isGif;
   $('#gif-pingpong-note').hidden = !pingpong;
-  $('#quality-field').hidden = $('#video-export-options').hidden = isGif;
+  $('#quality-field').hidden = isGif;
   $('#video-export-options').hidden = isGif || wallpaper;
   $('#audio-fields').hidden = wallpaper;
   $('#wallpaper-settings').hidden = !wallpaper;
@@ -536,50 +589,9 @@ function refresh() {
   $('#export-label').textContent = wallpaper ? state.wallpaperDownload === 'pvt' ? 'Save Live Photo (.pvt)' : state.wallpaperDownload === 'live-photo' ? 'Download Live Photo ZIP' : state.wallpaperDownload === 'kit' ? 'Download wallpaper kit' : state.wallpaperDownload === 'image' ? 'Download wallpaper JPG' : 'Download wallpaper MP4' : `Export ${s.format.toUpperCase()}`;
   $('#download-result').hidden = !state.lastExport;
   if (state.lastExport) $('#download-meta').textContent = `${humanSize(state.lastExport.blob.size)} · ${state.lastExport.hasAudio ? 'With audio' : 'No audio track'}`;
-  $$('[data-preview-choice]').forEach(button => { const active = button.dataset.previewChoice === (state.tab === 'find' ? 'original' : state.previewChoice); button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
-  const originalComparison = state.mode === 'loop' && state.renderSettings?.repairOriginal;
-  const liveLayers = state.tab === 'layers' && state.mode !== 'loop';
-  const resultPending = state.previewChoice === 'result' && dirty() && state.tab !== 'find';
-  const resultInvalid = validate(s, info).length || validateLayers(s.layers, s).length;
-  $('#preview-tag').textContent = state.tab === 'find' ? 'SEARCH RANGE'
-    : originalComparison || state.previewChoice === 'original' ? 'ORIGINAL'
-    : liveLayers ? 'LIVE LAYER EDITING'
-    : resultPending ? resultInvalid ? 'RESULT UNAVAILABLE' : state.job?.kind === 'preview' ? 'UPDATING RESULT' : 'DRAFT · PRESS PLAY'
-    : 'RESULT';
-  $('#preview-foot-message').textContent = state.tab === 'find' ? 'Search the highlighted source range. Choose a match to view its result.'
-    : originalComparison || state.previewChoice === 'original' ? 'Original motion with current framing. Loop effects and layers are excluded.'
-    : liveLayers ? 'Live layer editing. Press Play in Result to check the processed cycle.'
-    : resultPending ? resultInvalid ? 'Check Video settings to generate the result.' : state.job?.kind === 'preview' ? 'Updating the full selected cycle. The image shown is a draft.' : 'Draft frame. Press Play to update the full result and start playback.'
-    : `Full result: ${plan.duration.toFixed(3)}s · source range: ${(s.end-s.start).toFixed(3)}s${['crossfade','offset'].includes(s.method) ? ' · shortened by transition overlap' : ''}`;
-  $('#inspection-mode').textContent = state.mode === 'loop' ? 'Rendered preview' : 'Selected source range';
+  refreshPreviewLabels(plan);
   $('#timeline-fieldset').hidden = !info.duration;
-  const profile = phoneProfile(s);
-  const posterReady = state.wallpaperPosterSignature === posterSignature() && !dirty();
-  wallpaperPreview?.refresh({ enabled: wallpaper, screen: state.wallpaperScreen, width: profile.width, height: profile.height,
-    device: profile.chrome, posterURL: posterReady ? state.wallpaperPosterURL : '', disabled: busy(), draft: !posterReady });
-  const pairedDownload = wallpaper && pairedWallpaperKind(state.wallpaperDownload);
-  const liveProfile = wallpaperCompatibilityProfile(s);
-  const keyTime = keyPhotoTime(exportPlan.duration, exportSettings.fps, s.wallpaperPoster);
-  $('#wallpaper-key-time').textContent = `${keyTime.toFixed(3)}s`;
-  $('#wallpaper-range-note').textContent = `Finished cycle: ${exportPlan.duration.toFixed(3)}s. ${pairedDownload ? 'A 2-second cycle and a key photo at 0.5s or later are recommended for iPhone wallpaper.' : 'A short 2-second cycle is recommended for iPhone wallpaper.'}${pairedDownload && keyTime < 0.5 ? ' The selected key photo is near the start; try a later frame if iOS rejects it.' : ''}`;
-  const profileNote = `Live Photo uses ${liveProfile.width} × ${liveProfile.height} HEVC at 60 fps, preserving your framing and layers. `;
-  $('#wallpaper-download-note').textContent = state.wallpaperDownload === 'pvt' ? `${profileNote}Choose a folder to save a real .pvt package directly, without an archive. The package contains the paired photo, video, and metadata.`
-    : state.wallpaperDownload === 'live-photo' ? supportsPackageSave() ? 'Download an archive containing the native package. Choose PVT package to save it directly to a folder instead.'
-      : 'A .pvt is a package folder. This browser downloads it as ZIP; unpack it using the Photos import guide below. Direct package saving is unavailable here.'
-    : state.wallpaperDownload === 'kit' ? `${profileNote}Includes the browser-created Live Photo, an MP4 and JPG at that size, and Photos import instructions.`
-      : state.wallpaperDownload === 'image' ? `A static ${s.width} × ${s.height} wallpaper from the chosen frame. Choose Result to inspect the key photo.` : `A regular silent ${s.width} × ${s.height} MP4 at ${s.fps} fps. Choose Live Photo to download the paired photo and motion files.`;
-  if (state.wallpaperDownload === 'live-photo') $('#wallpaper-download-note').textContent = `${profileNote}${$('#wallpaper-download-note').textContent}`;
-  if (staticWallpaperLayout()) {
-    const originalComparison = state.mode === 'loop' && state.renderSettings?.repairOriginal;
-  $('#preview-tag').textContent = originalComparison ? originalRepairDirty() ? 'ORIGINAL LOOP · OUTDATED' : 'ORIGINAL LOOP' : posterReady ? 'KEY PHOTO LAYOUT' : 'DRAFT LAYOUT';
-    $('#preview-foot-message').textContent = posterReady
-      ? state.wallpaperScreen === 'lock' ? 'Selected key photo. Layout only; iOS creates the wake animation.' : 'Selected key photo. Home Screen wallpaper stays still.'
-      : 'Draft snapshot. Choose Video and press Play in Result to update the selected key photo.';
-  }
-  $('[data-action="frame-png"]').hidden = staticWallpaperLayout();
-  $('[data-action="frame-png"]').title = `Save PNG · ${s.width} × ${s.height}`;
-  $('#transport-time').hidden = staticWallpaperLayout();
-  void prepareWallpaperPoster();
+  refreshWallpaper(exportSettings, exportPlan);
   timeline?.render(); layerTimeline?.render(); preview?.refresh();
   if (layerTiming) $('#range-duration').textContent = `${plan.duration.toFixed(3)}s loop`;
   refreshPreviewEditor();
@@ -808,7 +820,7 @@ async function runAutoRepair() {
 }
 
 function showRenderedPreview(settings, result) {
-  state.previewChoice = settings.repairOriginal ? 'original' : 'result';
+  state.previewChoice = 'result';
   renderFilmstripController?.abort(); clearWallpaperPoster();
   if (state.renderURL) URL.revokeObjectURL(state.renderURL);
   state.renderURL = URL.createObjectURL(result.blob); state.render = result; state.renderSignature = videoSignature(settings);
@@ -958,17 +970,16 @@ function refreshRepair() {
   $('#repair-strength-value').textContent = `${$('#repair-strength').value}%`;
   $('#repair-overlap').disabled = !blend || busy() || !a;
   $('#repair-preview-note').textContent = state.mode === 'loop' && state.renderSettings
-    ? `${state.renderSettings.repairOriginal ? originalRepairDirty() ? 'Original preview is outdated. Render the original again.' : 'Original preview: no repairs or loop effects.' : dirty() ? 'The rendered preview is outdated. Render the result again.' : 'Rendered result includes the applied repairs and loop method.'} Compare several repeats. Composition does not show repairs.`
+    ? `${dirty() ? 'The rendered preview is outdated. Render the result again.' : 'Rendered result includes the applied repairs and loop method.'} Compare several repeats. Composition does not show repairs.`
     : 'Preview buttons render the selected range, including framing and layers. Composition is a draft and does not show repairs.';
 }
 
-async function runRender(isPreview, override = null) {
-  const requested = isPreview && override ? override : state.s;
+async function runRender(isPreview) {
   const directPackage = !isPreview && state.s.preset === 'iphone' && state.wallpaperDownload === 'pvt';
-  if (!state.file || validate(isPreview ? requested : downloadSettings(state.s), state.info).length || validateLayers(state.s.layers, state.s).length || !startJob(isPreview ? 'preview' : 'export', directPackage ? 'Choose a destination folder…' : 'Preparing render…')) return;
+  if (!state.file || validate(isPreview ? state.s : downloadSettings(state.s), state.info).length || validateLayers(state.s.layers, state.s).length || !startJob(isPreview ? 'preview' : 'export', directPackage ? 'Choose a destination folder…' : 'Preparing render…')) return;
   preview.pause();
   if (isPreview) refresh();
-  const settings = { ...requested }, wallpaper = settings.preset === 'iphone';
+  const settings = { ...state.s }, wallpaper = settings.preset === 'iphone';
   const kind = state.wallpaperDownload, controller = state.controller;
   try {
     let directory;
@@ -1029,7 +1040,6 @@ async function inspect() {
     const rendered = state.mode === 'loop' && state.renderURL;
     const result = await inspectSeam(rendered ? state.renderURL : state.sourceURL, rendered ? state.render.fps : state.info.fps || 30,
       state.controller.signal, rendered ? 0 : state.s.start, rendered ? undefined : state.s.end);
-    state.seam = result;
     $('#seam-result').innerHTML = `<div class="seam-images"><figure><img src="${result.last}" alt="Last video frame"><figcaption>Last frame</figcaption></figure><figure><img src="${result.first}" alt="First video frame"><figcaption>First frame</figcaption></figure><figure><img src="${result.diff}" alt="Absolute pixel differences amplified three times"><figcaption>Difference ×3</figcaption></figure></div><div class="seam-stats"><div><span>Image match</span><b>${result.visual.toFixed(1)}<small> /100</small></b></div><div><span>Motion match</span><b>${result.motion.toFixed(1)}<small> /100</small></b></div></div>`;
   } catch (error) { report(error); }
   finally { finishJob(); }
