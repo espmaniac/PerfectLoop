@@ -829,3 +829,46 @@ input[type=range]::-moz-range-thumb { box-shadow: var(--raised-shadow); }
 .pause-frame-field > input[type=range] { grid-column: 1 / -1; width: 100%; }
 .pause-step-buttons { display: flex; align-items: end; gap: 4px; }
 .pause-trim-region { position: absolute; top: 0; bottom: 0; background: #c5945077; border-inline: 1px solid #d5ac73; pointer-events: none; z-index: 2; }
+
+.layer-timeline { --track-label-width: 180px; min-width: 0; }
+.layer-timeline-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.layer-timeline-heading h3 { font-size: 13px; font-weight: 500; }
+.layer-timeline-heading > span { font-size: 11px; color: var(--dim); }
+.layer-timeline-heading b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.layer-track-scale, .layer-track-row { display: grid; grid-template-columns: var(--track-label-width) minmax(0,1fr); gap: 12px; min-width: 0; }
+.layer-track-scale { margin-bottom: 6px; color: var(--dim); font-size: 10px; }
+.layer-track-scale > span { padding-left: 10px; }
+.layer-track-ruler { display: flex; justify-content: space-between; gap: 3px; padding-block: 6px; border-bottom: 1px solid var(--line); cursor: crosshair; touch-action: none; font-variant-numeric: tabular-nums; }
+.layer-track-row { margin-bottom: 4px; }
+.layer-track-label { display: flex; align-items: center; gap: 8px; min-width: 0; height: 42px; padding: 5px 9px; border: 1px solid transparent; border-radius: 3px; background: var(--control); color: var(--text); text-align: left; }
+.layer-track-label > span:first-child { flex: 0 0 16px; }
+.layer-track-label > span:last-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.layer-track-label b, .layer-track-label small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layer-track-label b { font-size: 12px; font-weight: 500; }
+.layer-track-label small { font-size: 9px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.layer-track-row.selected .layer-track-label { border-color: var(--accent); background: var(--recess); box-shadow: var(--inset-shadow); }
+.layer-track-lane { position: relative; min-width: 0; height: 42px; border-block: 1px solid var(--edge); border-radius: 3px; background: var(--field); cursor: crosshair; touch-action: none; }
+.layer-track-clip { position: absolute; top: 5px; height: 30px; min-width: 1px; border: 1px solid #a2adb6; border-radius: 3px; background: #778590; box-shadow: var(--raised-shadow); }
+.layer-track-row.selected .layer-track-clip { background: var(--active-blue); border-color: var(--accent); }
+.layer-track-row.muted .layer-track-clip { opacity: .45; }
+.layer-track-body { position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 0 14px; border-radius: 2px; background: transparent; color: var(--text); cursor: grab; overflow: hidden; white-space: nowrap; text-align: left; }
+.layer-track-body > span { overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+.layer-track-body:active { cursor: grabbing; }
+[data-track-row="video"] .layer-track-body { cursor: crosshair; }
+.layer-track-body small { font-size: 9px; font-variant-numeric: tabular-nums; }
+.layer-track-edge { position: absolute; top: -1px; bottom: -1px; width: 16px; z-index: 2; padding: 0; background: transparent; cursor: ew-resize; touch-action: none; }
+.layer-track-edge.start { left: -7px; }
+.layer-track-edge.end { right: -7px; }
+.layer-track-edge::after { content: ''; position: absolute; left: 7px; top: 6px; bottom: 6px; width: 2px; border-radius: 1px; background: #f3f3f3; }
+.layer-track-playhead { position: absolute; top: -2px; bottom: -2px; border-left: 2px solid #fff; z-index: 3; pointer-events: none; }
+#layer-track-help { margin-top: 12px; }
+@media (max-width: 739px) {
+  .layer-timeline { --track-label-width: 100px; }
+  .layer-track-scale, .layer-track-row { gap: 8px; }
+  .layer-timeline-heading { flex-wrap: wrap; gap: 5px; }
+  .layer-track-label { padding-inline: 5px; gap: 5px; }
+  .layer-track-label b { font-size: 11px; }
+  .layer-track-ruler { font-size: 9px; }
+  .layer-track-ruler > span:nth-child(2), .layer-track-ruler > span:nth-child(4), .layer-track-body small { display: none; }
+  .layer-track-body { padding-inline: 9px; }
+}

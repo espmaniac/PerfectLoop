@@ -155,12 +155,12 @@ export class Preview {
     if (st.mode === 'composition') this.compositionTime = Math.max(0, this.compositionTime + direction / st.s.fps);
     this.syncPlayButton(); this.dirtyFrame = true;
   }
-  seek(time, mode = 'source') {
+  seek(time, mode = 'source', compositionTime = null) {
     this.setMode(mode);
     const st = this.getState(), video = this.active();
     const duration = mode === 'loop' ? st.render?.duration || video.duration : st.info.duration;
     video.currentTime = clamp(time, 0, Math.max(0, duration - 0.001));
-    if (mode === 'composition') this.compositionTime = Math.max(0, (video.currentTime - st.s.start) / st.s.speed);
+    if (mode === 'composition') this.compositionTime = Number.isFinite(compositionTime) ? Math.max(0, compositionTime) : Math.max(0, (video.currentTime - st.s.start) / st.s.speed);
     this.dirtyFrame = true; this.onTime(video.currentTime, mode);
   }
   toggleMute() {

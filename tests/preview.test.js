@@ -136,6 +136,13 @@ test('Invalid dimensions and incomplete seeks cannot produce empty frame downloa
     assert.throws(()=>f.preview.captureFrame(),/finish loading/);
 });
 
+test('Layer timeline seeks can retain finished time independently of the sampled source frame', t => {
+    const f=fixture(t);f.state.info.duration=20;f.source.duration=20;Object.assign(f.state.s,{start:10,end:18});
+    f.preview.seek(14.25,'composition',7);
+    assert.equal(f.source.currentTime,14.25);assert.equal(f.preview.compositionTime,7);
+    f.preview.seek(12,'composition');assert.equal(f.preview.compositionTime,2);
+});
+
 test('Play describes updating the result and encoding progress even while playback stays paused', t => {
     const f=fixture(t);Object.assign(f.state,{previewChoice:'result',tab:'edit',needsRender:true});
     f.preview.refresh();assert.equal(f.playButton.getAttribute('aria-label'),'Update and play result');
