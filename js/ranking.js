@@ -49,10 +49,10 @@ export function pairScore(a, an, bp, b, preferMotion, cuts = 0, bn) {
     const score = 100 * clamp(visual * 0.78 + motion * 0.22 - staticPenalty - Math.min(0.25, cuts * 0.07), 0, 1);
     return { start: a.time, end: b.time, score, visual: visual * 100, motion: motion * 100, activity, cuts };
 }
-// Shortlisted matches verified frame by frame. Longer ranges hold more separate
-// moments, so they get a larger budget.
-export function verifyLimit(seconds) {
-    return clamp(Math.ceil(seconds / 5), 32, 64);
+// Matches verified frame by frame: one for every stretch of the shortest loop
+// length, so every moment of a long video is checked.
+export function verifyLimit(seconds, minLength = 3) {
+    return clamp(Math.ceil(seconds / Math.max(2, minLength)), 32, 240);
 }
 // Seam error is measured in frame steps of local motion: a repeated or skipped
 // frame is about 0.4-0.9, while seamless repeats stay below 0.12 even with grain.
@@ -63,12 +63,12 @@ export function loopTier(seamError, exact = true) {
 }
 // Spread work over different moments: the strongest match of every stretch of
 // the source first, then the remaining strongest matches with ties spread out.
-// Each stretch is at least one loop long, so a weaker later scene is not
-// displaced by many strong matches elsewhere.
+// Each stretch is at least as long as the shortest match, so a weaker later
+// scene is not displaced by many strong matches elsewhere.
 export function diverseShortlist(candidates, limit) {
     if (!candidates.length) return [];
     const from = Math.min(...candidates.map(c => c.start)), to = Math.max(...candidates.map(c => c.start));
-    const size = Math.max(...candidates.map(c => c.end - c.start), (to - from) / limit, 1e-6);
+    const size = Math.max(Math.min(...candidates.map(c => c.end - c.start)), (to - from) / limit, 1e-6);
     const stretches = new Map();
     for (const c of candidates) {
         const key = Math.floor((c.start - from) / size), best = stretches.get(key);
@@ -79,12 +79,16 @@ export function diverseShortlist(candidates, limit) {
         if (picked.length < limit && !picked.includes(c)) picked.push(c);
     return picked;
 }
-// Show the cleanest loops this source offers: everything near the best seam,
-// and every perfect or good loop. A source without a seamless repeat still
-// lists its closest matches.
+// Every perfect and good loop is listed. A source without one lists its fair
+// loops, and a source without those its closest matches, so a search never
+// comes back empty.
 export function bestLoops(verified) {
+    for (const tiers of [['perfect', 'good'], ['fair']]) {
+        const found = verified.filter(c => tiers.includes(c.tier));
+        if (found.length) return found;
+    }
     const best = Math.min(...verified.map(c => c.seamError));
-    return verified.filter(c => c.seamError <= Math.max(SEAM_LIMITS.good, best * 1.8 + .15));
+    return verified.filter(c => c.seamError <= best * 1.8 + .15);
 }
 // A loop is seamless when the frame shown after its last frame is the frame the
 // source itself shows next. Compare the start with the source frame after the end
@@ -226,16 +230,44 @@ export function distinctCandidates(candidates, opts) {
     return distinct;
 }
 
+// Loops that show the same footage are one cycle at different phases, or played
+// more than once: their lengths are equal or whole multiples, and the first frame
+// of one appears inside the other, within the change between neighboring
+// samples. Each loop gets a cycle number shared by its repeats.
+export function markCycles(loops, frames) {
+    const at = time => {
+        let low = 0, high = frames.length - 1;
+        while (low < high) { const mid = (low + high) >> 1; frames[mid].time < time - 1e-7 ? low = mid + 1 : high = mid; }
+        return low;
+    };
+    const inside = loop => frames.slice(at(loop.start), Math.max(at(loop.start) + 1, at(loop.end)));
+    const repeats = (a, b) => {
+        const samples = inside(a), first = frames[at(b.start)];
+        const steps = samples.slice(1).map((frame, i) => pixelDistance(samples[i].pixels, frame.pixels)).sort((x, y) => x - y);
+        const step = steps[Math.floor(steps.length / 2)] || 0;
+        return Math.min(...samples.map(frame => pixelDistance(frame.pixels, first.pixels))) <= Math.max(.004, step * .75);
+    };
+    const cycle = loops.map((_, i) => i);
+    const root = i => cycle[i] === i ? i : (cycle[i] = root(cycle[i]));
+    for (let i = 0; i < loops.length; i++) for (let j = 0; j < i; j++) {
+        const a = loops[i], b = loops[j];
+        const [short, long] = [a.end - a.start, b.end - b.start].sort((x, y) => x - y), times = Math.round(long / short);
+        if (root(i) !== root(j) && Math.abs(long - times * short) <= .1 * times && (repeats(a, b) || repeats(b, a))) cycle[root(i)] = root(j);
+    }
+    loops.forEach((loop, i) => { loop.cycle = root(i); });
+    return loops;
+}
 // Nonmaximum suppression keeps the strongest representative of overlapping clips.
 // Compare with retained clips, so a chain of overlaps cannot hide a distant scene.
-export function filterSimilarRanges(candidates, hideSimilar = true, limit = hideSimilar ? 16 : 48) {
+export function filterSimilarRanges(candidates, hideSimilar = true, limit = Infinity) {
     const visible = [];
     for (const candidate of [...candidates].sort((a,b) => rank(b)-rank(a))) {
         const duplicate = visible.some(other => {
             if (Math.abs(candidate.start-other.start)<1e-7 && Math.abs(candidate.end-other.end)<1e-7) return true;
             if (!hideSimilar) return false;
-            const overlap = Math.max(0, Math.min(candidate.end,other.end)-Math.max(candidate.start,other.start));
-            return overlap / Math.min(candidate.end-candidate.start,other.end-other.start) >= .75;
+            const overlap = Math.min(candidate.end,other.end)-Math.max(candidate.start,other.start);
+            const shorter = Math.min(candidate.end-candidate.start,other.end-other.start);
+            return overlap / shorter >= .5 || (candidate.cycle !== undefined && candidate.cycle === other.cycle);
         });
         if (!duplicate) visible.push(candidate);
         if (visible.length >= limit) break;

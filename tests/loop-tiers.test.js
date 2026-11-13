@@ -45,11 +45,11 @@ test('Without a neighboring frame a loop is at most good', () => {
     assert.equal(loopTier(SEAM_LIMITS.good + .01, false), 'fair');
 });
 
-test('Without a seamless repeat, the closest matches are still listed', () => {
-    const clips = [1.2, 1.5, 1.8, 3, 6].map((seamError, i) => ({ id: i, seamError }));
-    assert.deepEqual(bestLoops(clips).map(c => c.id), [0, 1, 2]);
-    const mixed = [.05, .3, .9].map((seamError, i) => ({ id: i, seamError }));
-    assert.deepEqual(bestLoops(mixed).map(c => c.id), [0, 1], 'Perfect and good loops hide clearly worse ones');
+test('Every perfect and good loop is listed; otherwise fair loops, otherwise the closest matches', () => {
+    const clip = (id, seamError) => ({ id, seamError, tier: loopTier(seamError) });
+    assert.deepEqual(bestLoops([clip(0, .01), clip(1, .34), clip(2, .5), clip(3, 2)]).map(c => c.id), [0, 1], 'A good loop far from the best is still listed');
+    assert.deepEqual(bestLoops([clip(0, .5), clip(1, .9), clip(2, 1.2)]).map(c => c.id), [0, 1]);
+    assert.deepEqual(bestLoops([1.2, 1.5, 1.8, 3, 6].map((e, i) => clip(i, e))).map(c => c.id), [0, 1, 2]);
 });
 
 test('Verification covers different moments before near-duplicates of the strongest match', () => {

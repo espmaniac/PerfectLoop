@@ -1,5 +1,5 @@
 import { clamp } from './logic.js';
-import { bestLoops, distinctCandidates, diverseShortlist, pairScore, seamMatch, verifyLimit } from './ranking.js';
+import { bestLoops, distinctCandidates, diverseShortlist, markCycles, pairScore, seamMatch, verifyLimit } from './ranking.js';
 function aborted(signal) { if (signal?.aborted)
     throw new DOMException('Cancelled', 'AbortError'); }
 const helperVideos = new WeakSet();
@@ -174,7 +174,8 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             signal.addEventListener('abort', abort, { once: true });
             worker.onerror = () => { signal.removeEventListener('abort', abort); reject(new Error('The analysis worker failed. Try a smaller search range.')); };
             worker.onmessage = event => { signal.removeEventListener('abort', abort); event.data.error ? reject(new Error(event.data.error)) : resolve(event.data.candidates); };
-            worker.postMessage({ frames, options: { ...options, limit: 2 * verifyLimit(plan.end - plan.first), endBoundary: plan.end } }, frames.map(f => f.pixels.buffer));
+            // Frames are copied, not transferred: they also identify repeated cycles later.
+            worker.postMessage({ frames, options: { ...options, limit: 2 * verifyLimit(plan.end - plan.first, options.min), endBoundary: plan.end } });
         });
         worker.terminate();
         worker = undefined;
@@ -199,7 +200,7 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             cache.set(index, frame); return frame;
         };
         const radius = Math.max(1, Math.ceil(step * fps / 2));
-        const shortlist = diverseShortlist(candidates, verifyLimit(plan.end - plan.first));
+        const shortlist = diverseShortlist(candidates, verifyLimit(plan.end - plan.first, options.min));
         const verified = [];
         for (const [i, c] of shortlist.entries()) {
             aborted(signal);
@@ -219,7 +220,7 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             }
             if (best) verified.push(best);
         }
-        const distinct = verified.length ? distinctCandidates(bestLoops(verified), { ...options, limit: 48 }) : [];
+        const distinct = verified.length ? markCycles(distinctCandidates(bestLoops(verified), { ...options, limit: verified.length }), frames) : [];
         for (let i = 0; i < distinct.length; i++) {
             await seekVideo(video, distinct[i].start + 0.5 / fps, signal);
             // Keep the source's shape; the list scales the preview down.
