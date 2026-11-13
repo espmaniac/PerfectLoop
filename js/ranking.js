@@ -123,6 +123,15 @@ export function seamError({ start, startNext, startNext2, end, endPrevious, endP
     const worst = tiles.map(t => Math.max(0, t.error - Math.max(quiet, t.noise)) / (4 + t.normal)).sort((a, b) => b - a).slice(0, 6);
     return { error: worst.reduce((a, b) => a + b, 0) / worst.length, exact: Boolean(after || before) };
 }
+// A scene cut among the first or last three frames: one change far larger than
+// the next one. Such a loop flashes a frame of another scene at its seam, and the
+// cut would also inflate the normal motion that seam errors are measured against.
+export function cutAtBoundary({ start, startNext, startNext2, end, endPrevious, endPrevious2 }) {
+    const change = (a, b) => { let sum = 0; for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]); return sum / a.length; };
+    const cut = (jump, next) => jump > 25 && jump > 3 * next + 5;
+    return Boolean(startNext2 && cut(change(start.luma, startNext.luma), change(startNext.luma, startNext2.luma)))
+        || Boolean(endPrevious2 && cut(change(endPrevious.luma, end.luma), change(endPrevious2.luma, endPrevious.luma)));
+}
 // Seam quality decides the tier. Static clips and cuts only lower the ranking.
 export function seamMatch(frames, width, height, preferMotion, cuts = 0) {
     const seam = seamError(Object.fromEntries(Object.entries(frames).map(([key, frame]) => [key, frame?.luma])), width, height);

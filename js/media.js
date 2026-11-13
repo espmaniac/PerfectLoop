@@ -1,5 +1,5 @@
 import { clamp } from './logic.js';
-import { bestLoops, distinctCandidates, diverseShortlist, markCycles, pairScore, seamMatch, verifyLimit } from './ranking.js';
+import { bestLoops, cutAtBoundary, distinctCandidates, diverseShortlist, markCycles, pairScore, seamMatch, verifyLimit } from './ranking.js';
 function aborted(signal) { if (signal?.aborted)
     throw new DOMException('Cancelled', 'AbortError'); }
 const helperVideos = new WeakSet();
@@ -214,6 +214,7 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
                     continue;
                 const read = index => index >= firstIndex && index < endIndex ? readFrame(index) : undefined;
                 const frames = { start: await read(a), startNext: await read(a + 1), startNext2: await read(a + 2), end: await read(b - 1), endPrevious: await read(b - 2), endPrevious2: await read(b - 3), after: await read(b), before: await read(a - 1) };
+                if (cutAtBoundary(frames)) continue;
                 const match = seamMatch(frames, width, height, options.preferMotion, c.cuts);
                 if (!best || match.seamError < best.seamError)
                     best = { ...c, ...match, start: a / fps, end: b / fps, coarseScore: c.score, verified: true };

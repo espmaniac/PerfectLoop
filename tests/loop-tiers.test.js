@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SEAM_LIMITS, bestLoops, diverseShortlist, filterSimilarRanges, loopTier, seamError } from '../js/ranking.js';
+import { SEAM_LIMITS, bestLoops, cutAtBoundary, diverseShortlist, filterSimilarRanges, loopTier, seamError } from '../js/ranking.js';
 
 const seamless = error => ['perfect', 'good'].includes(loopTier(error));
 import { searchSamplePlan, searchVideo } from '../js/media.js';
@@ -27,6 +27,15 @@ test('An exact repeat is perfect, while a repeated or skipped seam frame is reje
     assert.ok(seam(10, 82, 36).error < 1e-9);
     assert.ok(!seamless(seam(10, 83, 36).error), 'One extra frame repeats the start');
     assert.ok(!seamless(seam(10, 81, 36).error), 'One missing frame skips motion');
+});
+
+test('A loop whose first or last frame belongs to another scene is recognized', () => {
+    const frames = index => ({ luma: scene(index, 36) });
+    const other = { luma: new Float32Array(W * H).fill(200) };
+    const loop = { start: frames(10), startNext: frames(11), startNext2: frames(12), end: frames(81), endPrevious: frames(80), endPrevious2: frames(79) };
+    assert.equal(cutAtBoundary(loop), false, 'Ordinary motion is not a cut');
+    assert.equal(cutAtBoundary({ ...loop, start: other }), true);
+    assert.equal(cutAtBoundary({ ...loop, end: other }), true);
 });
 
 test('Grain does not prevent a repeat from being perfect', () => {
