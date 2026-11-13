@@ -630,6 +630,8 @@ async function loadFile(file, sample = false) {
     history.past = []; history.future = []; preview.setMode(state.tab === 'find' ? 'source' : 'composition'); refresh();
     if (state.s.preset === 'iphone') setWallpaperScreen('lock');
     thumbnails(state.sourceURL, 10, controller.signal).then(frames => { if (!controller.signal.aborted) { state.filmstrip = frames; timeline.render(); } }).catch(() => {});
+    // A user's own video will likely be exported: fetch the engine while the browser is idle.
+    if (!sample) (globalThis.requestIdleCallback || (callback => setTimeout(callback, 3000)))(() => engine.preload(), { timeout: 10_000 });
   } catch (error) { if (!controller.signal.aborted) { state.nativeError = error.message || String(error); refresh(); } }
 }
 async function loadInitialSample() {

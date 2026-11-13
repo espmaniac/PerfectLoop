@@ -65,6 +65,16 @@ export class VideoEngine {
             if (this.heartbeat === heartbeat) this.heartbeat = undefined;
         }
     }
+    // Downloads and stores the engine in the background, so a later export starts
+    // at once. Skipped when the user has asked the browser to save data.
+    preload() {
+        const connection = globalThis.navigator?.connection;
+        if (this.ff.loaded || this.preloading || connection?.saveData || /(^|-)2g$/.test(connection?.effectiveType || '')) return;
+        const threaded = globalThis.crossOriginIsolated === true && typeof SharedArrayBuffer !== 'undefined';
+        this.preloading = this.assets.load(threaded, { signal: new AbortController().signal, onProgress: () => {} })
+            .catch(() => { /* The engine downloads again when it is needed. */ })
+            .finally(() => { this.preloading = undefined; });
+    }
     async load(onProgress) {
         if (this.cancelled) throw new DOMException('Cancelled', 'AbortError');
         if (this.ff.loaded)

@@ -151,32 +151,99 @@ export async function downloadEngineAsset(url, { signal, onBytes = () => {}, onW
     throw new Error(lastError?.message?.includes('HTTP ') || lastError?.message === damagedMessage ? lastError.message : networkMessage, { cause: lastError });
 }
 
+// Verified engine files are kept in Cache Storage, keyed by their SHA-256, so a
+// later visit starts without the network. Storage can be unavailable or full;
+// the engine then simply downloads again.
+const STORE = 'perfectloop-engine';
+const storeKey = (path, hash) => new URL(`${path}?sha256=${hash}`, import.meta.url).href;
+async function openStore() {
+    try { return await globalThis.caches?.open(STORE); } catch { return undefined; }
+}
+
 export class EngineAssets {
     urls = new Map();
     reload = new Set();
     hashes = ENGINE_ASSET_SHA256;
+    downloads = new Map();
     invalidateScripts() {
         for (const [path, url] of this.urls) if (path.endsWith('.js')) {
             URL.revokeObjectURL(url); this.urls.delete(path); this.reload.add(path);
         }
     }
-    async asset(path, type, { signal, onBytes, onWait }, transform) {
+    async stored(path) {
+        const hash = this.hashes[path], store = hash && await openStore();
+        try {
+            const response = await store?.match(storeKey(path, hash));
+            if (!response) return undefined;
+            const bytes = new Uint8Array(await response.arrayBuffer());
+            if (await sha256(bytes) === hash) return bytes;
+            await store.delete(storeKey(path, hash));
+        } catch { /* Fall back to the network. */ }
+        return undefined;
+    }
+    async isStored(path) {
+        const hash = this.hashes[path], store = hash && await openStore();
+        try { return Boolean(await store?.match(storeKey(path, hash))); } catch { return false; }
+    }
+    // Remove files of earlier engine versions.
+    async prune() {
+        const store = await openStore();
+        try {
+            const current = new Set(Object.entries(this.hashes).map(([path, hash]) => storeKey(path, hash)));
+            for (const request of await store?.keys() || []) if (!current.has(request.url)) await store.delete(request);
+        } catch { /* Pruning is best effort. */ }
+    }
+    // One download per file, shared by every caller (a background preload and an
+    // export that needs the engine). It stops only when every caller has cancelled.
+    download(path, type, { signal, onBytes, onWait }) {
+        let entry = this.downloads.get(path);
+        if (!entry) {
+            const controller = new AbortController(), subscribers = new Set();
+            entry = { subscribers, controller, received: 0 };
+            entry.promise = downloadEngineAsset(new URL(path, import.meta.url), {
+                signal: controller.signal,
+                reload: this.reload.has(path),
+                size: ENGINE_ASSET_BYTES[path],
+                hash: this.hashes[path],
+                onWait: state => { for (const s of subscribers) s.onWait?.(path, state); },
+                onBytes: received => { entry.received = received; for (const s of subscribers) s.onBytes?.(path, received); },
+                decode: bytes => {
+                    if (type === 'text/javascript' && /^\s*</.test(new TextDecoder().decode(bytes)))
+                        throw new Error('The connection returned a web page instead of the video engine.');
+                    return bytes;
+                },
+            }).then(async bytes => {
+                const hash = this.hashes[path], store = hash && await openStore();
+                try { await store?.put(storeKey(path, hash), new Response(bytes)); } catch { /* Quota or private mode. */ }
+                return bytes;
+            }).finally(() => this.downloads.delete(path));
+            this.downloads.set(path, entry);
+        }
+        const subscriber = { onBytes, onWait };
+        entry.subscribers.add(subscriber);
+        if (entry.received) onBytes?.(path, entry.received);
+        const leave = () => {
+            entry.subscribers.delete(subscriber);
+            if (!entry.subscribers.size) entry.controller.abort(signal.reason || cancelled());
+        };
+        signal.addEventListener('abort', leave, { once: true });
+        return abortable(entry.promise, signal).finally(() => { signal.removeEventListener('abort', leave); entry.subscribers.delete(subscriber); });
+    }
+    async asset(path, type, options, transform) {
         if (this.urls.has(path)) return this.urls.get(path);
-        const bytes = await downloadEngineAsset(new URL(path, import.meta.url), {
-            signal,
-            reload: this.reload.has(path),
-            size: ENGINE_ASSET_BYTES[path],
-            hash: this.hashes[path],
-            onWait: state => onWait?.(path, state),
-            decode: bytes => {
-                if (type === 'text/javascript' && /^\s*</.test(new TextDecoder().decode(bytes)))
-                    throw new Error('The connection returned a web page instead of the video engine.');
-                return transform ? transform(bytes) : bytes;
-            },
-            onBytes: received => onBytes(path, received),
-        });
-        signal.throwIfAborted();
-        const url = URL.createObjectURL(new Blob([bytes], { type }));
+        const stored = await this.stored(path);
+        const bytes = stored || await this.download(path, type, options);
+        options.signal.throwIfAborted();
+        let value;
+        try { value = transform ? await transform(bytes) : bytes; }
+        catch (error) {
+            // Never keep a stored file that fails to unpack.
+            if (stored) { const store = await openStore(); try { await store?.delete(storeKey(path, this.hashes[path])); } catch { /* Ignore. */ } }
+            throw error;
+        }
+        options.signal.throwIfAborted();
+        if (this.urls.has(path)) return this.urls.get(path);
+        const url = URL.createObjectURL(new Blob([value], { type }));
         this.urls.set(path, url);
         this.reload.delete(path);
         return url;
@@ -186,7 +253,11 @@ export class EngineAssets {
         const paths = [`${wrapper}const.js`, `${wrapper}errors.js`, `${wrapper}worker.js`, `${core}ffmpeg-core.js`,
             ...(threaded ? [`${core}ffmpeg-core.worker.js`] : []), `${core}ffmpeg-core.wasm.gz`];
         const pending = paths.filter(path => !this.urls.has(path));
-        const total = pending.reduce((sum, path) => sum + ENGINE_ASSET_BYTES[path], 0), received = new Map();
+        if (!this.pruned) { this.pruned = true; void this.prune(); }
+        const stored = new Set((await Promise.all(pending.map(async path => await this.isStored(path) && path))).filter(Boolean));
+        options.signal.throwIfAborted();
+        const downloading = pending.filter(path => !stored.has(path));
+        const total = downloading.reduce((sum, path) => sum + ENGINE_ASSET_BYTES[path], 0), received = new Map();
         let waiting;
         const report = (path, bytes) => {
             if (bytes > (received.get(path) || 0)) waiting = undefined; // Data is flowing again.
@@ -198,7 +269,8 @@ export class EngineAssets {
             options.onProgress(total ? downloaded / total : 1, `${action}: ${size(downloaded)} of ${size(total)} MB…`);
         };
         const wait = (path, kind) => { waiting = kind; report(path, received.get(path) || 0); };
-        if (pending.length) report(pending[0], 0);
+        if (downloading.length) report(downloading[0], 0);
+        else if (pending.length) options.onProgress(0, 'Loading the video engine from this device…', { progress: null });
         const downloadOptions = { ...options, onBytes: report, onWait: wait };
         const constants = await this.asset(`${wrapper}const.js`, js, downloadOptions);
         const errors = await this.asset(`${wrapper}errors.js`, js, downloadOptions);

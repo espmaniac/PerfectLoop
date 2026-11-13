@@ -228,3 +228,71 @@ test('Retries back off and keep going while each attempt gets further', async t 
     assert.deepEqual([...await pending], Array.from({ length: 13 }, (_, i) => i + 1), 'Twelve interruptions with progress never exhaust two failures');
     assert.equal(delays.length, 12);
 });
+
+function memoryCaches() {
+    const entries = new Map();
+    const cache = {
+        async match(key) { const bytes = entries.get(typeof key === 'string' ? key : key.url); return bytes && new Response(bytes); },
+        async put(key, response) { entries.set(key, new Uint8Array(await response.arrayBuffer())); },
+        async delete(key) { return entries.delete(typeof key === 'string' ? key : key.url); },
+        async keys() { return [...entries.keys()].map(url => ({ url })); },
+    };
+    return { entries, caches: { open: async () => cache } };
+}
+const realFiles = t => {
+    const requested = [];
+    t.mock.method(globalThis, 'fetch', async url => { requested.push(url.pathname); return new Response(await readFile(url)); });
+    return requested;
+};
+
+test('A verified engine is stored on the device and the next visit starts without the network', async t => {
+    const { entries, caches } = memoryCaches();
+    globalThis.caches = caches; t.after(() => delete globalThis.caches);
+    entries.set(new URL('../vendor/ffmpeg/const.js?sha256=old', new URL('../js/', import.meta.url)).href, new Uint8Array([1]));
+    const requested = realFiles(t), options = () => ({ signal: new AbortController().signal, onProgress: (fraction, message) => messages.push(message) });
+    let messages = [];
+    await new EngineAssets().load(false, options());
+    assert.equal(requested.length, 5);
+    await flush(); await flush();
+    assert(![...entries.keys()].some(key => key.endsWith('sha256=old')), 'Files of an earlier engine version are removed');
+    messages = [];
+    const urls = await new EngineAssets().load(false, options());
+    assert.equal(requested.length, 5, 'Nothing is downloaded again');
+    assert(urls.wasmURL);
+    assert(messages[0].startsWith('Loading the video engine from this device'));
+    assert(!messages.some(message => message.startsWith('Downloading')));
+});
+
+test('A damaged stored file is discarded and downloaded again', async t => {
+    const { entries, caches } = memoryCaches();
+    globalThis.caches = caches; t.after(() => delete globalThis.caches);
+    const requested = realFiles(t);
+    await new EngineAssets().load(false, { signal: new AbortController().signal, onProgress: () => {} });
+    const key = [...entries.keys()].find(url => url.includes('ffmpeg-core.wasm.gz'));
+    entries.get(key)[100] ^= 255;
+    await new EngineAssets().load(false, { signal: new AbortController().signal, onProgress: () => {} });
+    assert.deepEqual(requested.slice(5), ['/vendor/ffmpeg/ffmpeg-core.wasm.gz'].map(path => new URL(`..${path}`, new URL('../js/', import.meta.url)).pathname));
+});
+
+test('A background preload and an export share one download, and one cancelling does not stop the other', async t => {
+    const requested = realFiles(t), assets = new EngineAssets();
+    const background = new AbortController(), user = new AbortController();
+    const preload = assets.load(false, { signal: background.signal, onProgress: () => {} });
+    const cancelled = assets.load(false, { signal: new AbortController().signal, onProgress: () => {} });
+    const needed = assets.load(false, { signal: user.signal, onProgress: () => {} });
+    const [a, b] = await Promise.all([preload, needed, cancelled]);
+    assert.equal(requested.length, 5, 'Each file is requested once');
+    assert.equal(a.wasmURL, b.wasmURL);
+});
+
+test('A download stops when every caller cancels', async t => {
+    let requestSignal;
+    t.mock.method(globalThis, 'fetch', (_, { signal }) => { requestSignal = signal; return new Promise(() => {}); });
+    const assets = new EngineAssets(), first = new AbortController(), second = new AbortController();
+    const options = signal => ({ signal, onBytes: () => {}, onWait: () => {} });
+    const a = assert.rejects(assets.download('../vendor/ffmpeg/const.js', 'text/javascript', options(first.signal)), { name: 'AbortError' });
+    const b = assert.rejects(assets.download('../vendor/ffmpeg/const.js', 'text/javascript', options(second.signal)), { name: 'AbortError' });
+    await flush();
+    first.abort(); await a; assert.equal(requestSignal.aborted, false);
+    second.abort(); await b; assert.equal(requestSignal.aborted, true);
+});
