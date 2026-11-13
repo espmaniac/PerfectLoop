@@ -185,3 +185,12 @@ test('Overlap chains do not suppress a separate range indirectly', () => {
     const clips=Array.from({length:3},(_,i)=>({id:i,start:i*2,end:i*2+8,score:100-i}));
     assert.deepEqual(filterSimilarRanges(clips).map(c=>c.id),[0,2]);
 });
+
+test('A long range keeps weaker matches from later scenes when early matches are stronger', () => {
+    const frames = Array.from({ length: 241 }, (_, i) => {
+        const time = i / 2;
+        return frame(time, time < 20 ? 0.4 : 0.5 + 0.1 * Math.sin(time * 1.3) + (i % 3) * 0.004);
+    });
+    const candidates = rankFrames(frames, { ...options, to: 120, limit: 8 });
+    assert.ok(candidates.some(c => c.start >= 20), 'A later scene must reach verification');
+});
