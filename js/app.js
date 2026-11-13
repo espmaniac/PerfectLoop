@@ -714,14 +714,23 @@ async function runSearch() {
     if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     const result = await searchVideo(state.sourceURL, { ...state.opts, videoDuration: state.info.videoDuration }, rate, state.controller.signal, progress('search'));
     state.candidates = result.candidates; state.selected = new Set(); renderCandidates();
-    notice(result.candidates.length ? `Found ${tierSummary(result.candidates)}. Select one to compare loop methods.` : 'No perfect or good loop in this range. Widen the search range or loop lengths, allow scene cuts, or use Crossfade / Ping-pong.');
+    const seamless = result.candidates.some(candidate => ['perfect', 'good'].includes(candidate.tier));
+    notice(!result.candidates.length ? 'No loop candidates in this range. Widen the search range or loop lengths, or allow scene cuts.'
+      : seamless ? `Found ${tierSummary(result.candidates)}. Select one to compare loop methods.`
+      : `No seamless repeat in this range. Showing the ${result.candidates.length} closest matches; selecting one compares methods, and Crossfade can hide the remaining seam.`);
   } catch (error) { report(error); }
   finally { finishJob(); }
 }
 function visibleCandidates() { return filterSimilarRanges(state.candidates, state.opts.hideSimilar); }
+const LOOP_TIERS = {
+  perfect: { name: 'Perfect', detail: 'The frame after the seam matches the source within noise.' },
+  good: { name: 'Good', detail: 'A slight change at the seam, less than half a frame of motion.' },
+  fair: { name: 'Fair', detail: 'A noticeable change at the seam, up to about one frame of motion.' },
+  rough: { name: 'Rough', detail: 'A visible jump at the seam. Crossfade or Repair loop can hide it.' },
+};
 function tierSummary(candidates) {
-  const perfect = candidates.filter(candidate => candidate.tier === 'perfect').length, good = candidates.length - perfect;
-  return [perfect && `${perfect} perfect`, good && `${good} good`].filter(Boolean).join(' · ') + (candidates.length === 1 ? ' loop' : ' loops');
+  const counts = Object.keys(LOOP_TIERS).map(tier => [tier, candidates.filter(candidate => candidate.tier === tier).length]);
+  return counts.filter(([, count]) => count).map(([tier, count]) => `${count} ${tier}`).join(' · ') + (candidates.length === 1 ? ' loop' : ' loops');
 }
 function renderCandidates() {
   const visible = visibleCandidates();
@@ -732,7 +741,7 @@ function renderCandidates() {
     <label class="candidate-check" title="Include in batch export"><span>Batch</span><input type="checkbox" data-candidate-check="${candidate.id}" aria-label="Select candidate ${index + 1} for batch export" ${state.selected.has(candidate.id) ? 'checked' : ''}></label>
     <img src="${candidate.thumbnail}" alt="Start frame of candidate ${index + 1}">
     <button class="candidate-main" data-candidate="${candidate.id}"><b>${timecode(candidate.start)} <span>→</span> ${timecode(candidate.end)}</b><small>${(candidate.end - candidate.start).toFixed(3)}s${candidate.cuts ? ` · ${candidate.cuts} cuts` : ''}</small><span class="candidate-use">${icon('Check', 14)} Use this loop</span></button>
-    <span class="score tier ${candidate.tier === 'perfect' ? 'strong' : ''}" title="${candidate.tier === 'perfect' ? 'The frame after the seam matches the source within noise.' : 'A slight change at the seam, less than half a frame of motion.'} Checked frame by frame on the unframed source.">${candidate.tier === 'perfect' ? 'Perfect' : 'Good'}<small>loop</small></span></div>`).join('');
+    <span class="score tier ${candidate.tier === 'perfect' ? 'strong' : ''}" title="${LOOP_TIERS[candidate.tier].detail} Checked frame by frame on the unframed source.">${LOOP_TIERS[candidate.tier].name}<small>seam</small></span></div>`).join('');
   $('#batch-button').hidden = !state.selected.size;
   $('#batch-button').innerHTML = icon('Download', 15) + `Export ${state.selected.size} natural loops as ZIP`;
 }

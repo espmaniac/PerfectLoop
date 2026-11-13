@@ -1,5 +1,5 @@
 import { clamp } from './logic.js';
-import { VERIFY_LIMIT, distinctCandidates, pairScore, seamMatch } from './ranking.js';
+import { VERIFY_LIMIT, bestLoops, distinctCandidates, diverseShortlist, pairScore, seamMatch } from './ranking.js';
 function aborted(signal) { if (signal?.aborted)
     throw new DOMException('Cancelled', 'AbortError'); }
 const helperVideos = new WeakSet();
@@ -199,26 +199,27 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             cache.set(index, frame); return frame;
         };
         const radius = Math.max(1, Math.ceil(step * fps / 2));
-        const shortlist = [...candidates].sort((x, y) => y.score - x.score).slice(0, VERIFY_LIMIT);
+        const shortlist = diverseShortlist(candidates, VERIFY_LIMIT);
         const verified = [];
         for (const [i, c] of shortlist.entries()) {
             aborted(signal);
             onProgress(.72 + i / shortlist.length * .26, `Checking seam ${i + 1} of ${shortlist.length} frame by frame…`);
-            const a = Math.max(firstIndex, Math.round(c.start * fps)), sampledEnd = Math.round(c.end * fps);
+            // Both boundaries may be off by up to half a sampling step.
+            const sampledStart = Math.round(c.start * fps), sampledEnd = Math.round(c.end * fps);
             let best;
-            for (let b = sampledEnd - radius; b <= sampledEnd + radius; b++) {
+            for (let a = Math.max(firstIndex, sampledStart - radius); a <= sampledStart + radius; a++) for (let b = sampledEnd - radius; b <= sampledEnd + radius; b++) {
                 const duration = (b - a) / fps;
                 if (b > endIndex || b - a < 4 || duration < options.min - 1e-6 || duration > options.max + 1e-6)
                     continue;
                 const read = index => index >= firstIndex && index < endIndex ? readFrame(index) : undefined;
                 const frames = { start: await read(a), startNext: await read(a + 1), startNext2: await read(a + 2), end: await read(b - 1), endPrevious: await read(b - 2), endPrevious2: await read(b - 3), after: await read(b), before: await read(a - 1) };
                 const match = seamMatch(frames, width, height, options.preferMotion, c.cuts);
-                if (!best || match.score > best.score)
+                if (!best || match.seamError < best.seamError)
                     best = { ...c, ...match, start: a / fps, end: b / fps, coarseScore: c.score, verified: true };
             }
             if (best) verified.push(best);
         }
-        const distinct = distinctCandidates(verified.filter(c => c.tier), { ...options, limit: 48 });
+        const distinct = verified.length ? distinctCandidates(bestLoops(verified), { ...options, limit: 48 }) : [];
         for (let i = 0; i < distinct.length; i++) {
             await seekVideo(video, distinct[i].start + 0.5 / fps, signal);
             distinct[i].thumbnail = capture(video).toDataURL('image/jpeg', 0.75);
