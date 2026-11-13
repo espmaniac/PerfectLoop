@@ -222,7 +222,8 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
         const distinct = verified.length ? distinctCandidates(bestLoops(verified), { ...options, limit: 48 }) : [];
         for (let i = 0; i < distinct.length; i++) {
             await seekVideo(video, distinct[i].start + 0.5 / fps, signal);
-            distinct[i].thumbnail = capture(video).toDataURL('image/jpeg', 0.75);
+            // Keep the source's shape; the list scales the preview down.
+            distinct[i].thumbnail = capture(video, width, height).toDataURL('image/jpeg', 0.75);
             onProgress(0.98 + i / distinct.length * 0.02, 'Preparing loop candidates…');
         }
         return { candidates: distinct, step };
