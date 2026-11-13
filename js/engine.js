@@ -2,6 +2,7 @@ import { sourceMetadata } from './source-metadata.js';
 import { videoSelectionGeometry } from './framing.js';
 import { FFmpeg, FFFSType } from '../vendor/ffmpeg/index.js';
 import { EngineAssets } from './engine-assets.js';
+import { containerMetadata } from './container-metadata.js';
 import { audioGraph, framePlan, geometry, validate, videoGraph } from './logic.js';
 import { rasterizeLayers, rasterizeVideoPatch, validateLayers } from './layers.js';
 import { layerOverlayGraph } from './layer-export.js';
@@ -63,6 +64,16 @@ export class VideoEngine {
             clearTimeout(timer);
             if (this.heartbeat === heartbeat) this.heartbeat = undefined;
         }
+    }
+    // Downloads and stores the engine in the background, so a later export starts
+    // at once. Skipped when the user has asked the browser to save data.
+    preload() {
+        const connection = globalThis.navigator?.connection;
+        if (this.ff.loaded || this.preloading || connection?.saveData || /(^|-)2g$/.test(connection?.effectiveType || '')) return;
+        const threaded = globalThis.crossOriginIsolated === true && typeof SharedArrayBuffer !== 'undefined';
+        this.preloading = this.assets.load(threaded, { signal: new AbortController().signal, onProgress: () => {} })
+            .catch(() => { /* The engine downloads again when it is needed. */ })
+            .finally(() => { this.preloading = undefined; });
     }
     async load(onProgress) {
         if (this.cancelled) throw new DOMException('Cancelled', 'AbortError');
@@ -359,6 +370,9 @@ export class VideoEngine {
     }
     async inspect(file, onProgress) {
         this.cancelled = false;
+        // MP4 and MOV metadata is read directly, without downloading the engine.
+        const quick = await containerMetadata(file);
+        if (quick) return quick;
         try {
             await this.load(onProgress);
             const source = await this.mount(file), probe = await this.probe(source);

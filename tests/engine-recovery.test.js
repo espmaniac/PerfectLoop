@@ -84,3 +84,21 @@ test('Engine download display uses its own percent while render progress stays w
     assert.equal(download.fraction, .015); assert.equal(download.display.progress, .5);
     assert(reports.filter(report => !report.message.startsWith('Downloading')).every(report => report.display.progress === null));
 });
+
+test('Background preload downloads once, ignores failures, and respects data saving', async t => {
+    const { engine } = fixture();
+    let loads = 0;
+    engine.assets.load = async () => { loads++; throw new TypeError('offline'); };
+    engine.preload(); engine.preload();
+    await flush(); await flush();
+    assert.equal(loads, 1, 'A preload in progress is not started twice');
+    engine.preload(); await flush(); await flush();
+    assert.equal(loads, 2, 'A failed preload can run again later');
+    const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    t.after(() => previous ? Object.defineProperty(globalThis, 'navigator', previous) : delete globalThis.navigator);
+    for (const connection of [{ saveData: true }, { effectiveType: 'slow-2g' }, { effectiveType: '2g' }]) {
+        Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { connection } });
+        engine.preload(); await flush();
+    }
+    assert.equal(loads, 2);
+});
