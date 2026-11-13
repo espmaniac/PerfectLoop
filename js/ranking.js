@@ -49,8 +49,11 @@ export function pairScore(a, an, bp, b, preferMotion, cuts = 0, bn) {
     const score = 100 * clamp(visual * 0.78 + motion * 0.22 - staticPenalty - Math.min(0.25, cuts * 0.07), 0, 1);
     return { start: a.time, end: b.time, score, visual: visual * 100, motion: motion * 100, activity, cuts };
 }
-// Shortlisted matches verified frame by frame, strongest sampled matches first.
-export const VERIFY_LIMIT = 32;
+// Shortlisted matches verified frame by frame. Longer ranges hold more separate
+// moments, so they get a larger budget.
+export function verifyLimit(seconds) {
+    return clamp(Math.ceil(seconds / 5), 32, 64);
+}
 // Seam error is measured in frame steps of local motion: a repeated or skipped
 // frame is about 0.4-0.9, while seamless repeats stay below 0.12 even with grain.
 export const SEAM_LIMITS = { perfect: 0.15, good: 0.35, fair: 1 };
@@ -58,15 +61,22 @@ export function loopTier(seamError, exact = true) {
     if (seamError <= SEAM_LIMITS.perfect && exact) return 'perfect';
     return seamError <= SEAM_LIMITS.good ? 'good' : seamError <= SEAM_LIMITS.fair ? 'fair' : 'rough';
 }
-// Spread verification over different moments: the strongest match of each
-// separate range first, then the remaining strongest matches.
+// Spread work over different moments: the strongest match of every stretch of
+// the source first, then the remaining strongest matches with ties spread out.
+// Each stretch is at least one loop long, so a weaker later scene is not
+// displaced by many strong matches elsewhere.
 export function diverseShortlist(candidates, limit) {
-    const sorted = [...candidates].sort((x, y) => y.score - x.score), picked = [];
-    const overlaps = (a, b) => Math.max(0, Math.min(a.end, b.end) - Math.max(a.start, b.start)) / Math.min(a.end - a.start, b.end - b.start) >= .75;
-    for (const candidate of sorted)
-        if (picked.length < limit && !picked.some(other => overlaps(candidate, other))) picked.push(candidate);
-    for (const candidate of sorted)
-        if (picked.length < limit && !picked.includes(candidate)) picked.push(candidate);
+    if (!candidates.length) return [];
+    const from = Math.min(...candidates.map(c => c.start)), to = Math.max(...candidates.map(c => c.start));
+    const size = Math.max(...candidates.map(c => c.end - c.start), (to - from) / limit, 1e-6);
+    const stretches = new Map();
+    for (const c of candidates) {
+        const key = Math.floor((c.start - from) / size), best = stretches.get(key);
+        if (!best || c.score > best.score) stretches.set(key, c);
+    }
+    const picked = [...stretches.values()].sort((x, y) => y.score - x.score).slice(0, limit);
+    for (const c of distinctCandidates(candidates, { limit: limit * 2 }))
+        if (picked.length < limit && !picked.includes(c)) picked.push(c);
     return picked;
 }
 // Show the cleanest loops this source offers: everything near the best seam,
@@ -163,7 +173,9 @@ export function rankFrames(frames, opts) {
                 break;
         }
     }
-    const candidates = distinctCandidates(shortlist, opts);
+    // The strongest match of every separate range first, so a long video is
+    // covered throughout instead of around its few strongest moments.
+    const candidates = diverseShortlist(shortlist, opts.limit ?? 16);
     // Always validate the complete selected cycle, even if coarse sampling favors
     // a shorter fragment or its global score falls below the shortlist cutoff.
     const duration = opts.endBoundary - frames[0]?.time;

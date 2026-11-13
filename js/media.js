@@ -1,5 +1,5 @@
 import { clamp } from './logic.js';
-import { VERIFY_LIMIT, bestLoops, distinctCandidates, diverseShortlist, pairScore, seamMatch } from './ranking.js';
+import { bestLoops, distinctCandidates, diverseShortlist, pairScore, seamMatch, verifyLimit } from './ranking.js';
 function aborted(signal) { if (signal?.aborted)
     throw new DOMException('Cancelled', 'AbortError'); }
 const helperVideos = new WeakSet();
@@ -174,7 +174,7 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             signal.addEventListener('abort', abort, { once: true });
             worker.onerror = () => { signal.removeEventListener('abort', abort); reject(new Error('The analysis worker failed. Try a smaller search range.')); };
             worker.onmessage = event => { signal.removeEventListener('abort', abort); event.data.error ? reject(new Error(event.data.error)) : resolve(event.data.candidates); };
-            worker.postMessage({ frames, options: { ...options, limit: 48, endBoundary: plan.end } }, frames.map(f => f.pixels.buffer));
+            worker.postMessage({ frames, options: { ...options, limit: 2 * verifyLimit(plan.end - plan.first), endBoundary: plan.end } }, frames.map(f => f.pixels.buffer));
         });
         worker.terminate();
         worker = undefined;
@@ -199,7 +199,7 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             cache.set(index, frame); return frame;
         };
         const radius = Math.max(1, Math.ceil(step * fps / 2));
-        const shortlist = diverseShortlist(candidates, VERIFY_LIMIT);
+        const shortlist = diverseShortlist(candidates, verifyLimit(plan.end - plan.first));
         const verified = [];
         for (const [i, c] of shortlist.entries()) {
             aborted(signal);
