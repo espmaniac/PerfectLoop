@@ -2,6 +2,7 @@ import { sourceMetadata } from './source-metadata.js';
 import { videoSelectionGeometry } from './framing.js';
 import { FFmpeg, FFFSType } from '../vendor/ffmpeg/index.js';
 import { EngineAssets } from './engine-assets.js';
+import { containerMetadata } from './container-metadata.js';
 import { audioGraph, framePlan, geometry, validate, videoGraph } from './logic.js';
 import { rasterizeLayers, rasterizeVideoPatch, validateLayers } from './layers.js';
 import { layerOverlayGraph } from './layer-export.js';
@@ -359,6 +360,9 @@ export class VideoEngine {
     }
     async inspect(file, onProgress) {
         this.cancelled = false;
+        // MP4 and MOV metadata is read directly, without downloading the engine.
+        const quick = await containerMetadata(file);
+        if (quick) return quick;
         try {
             await this.load(onProgress);
             const source = await this.mount(file), probe = await this.probe(source);
