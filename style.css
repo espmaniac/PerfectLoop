@@ -478,6 +478,8 @@ kbd { background: #ffffff07; color: var(--dim); border: 1px solid var(--line); b
 .score { font-size: 19px; font-variant-numeric: tabular-nums; text-align: center; color: #cacaca; }
 .score.strong { color: #f1f1f1; }
 .score small { display: block; font-size: 9px; font-weight: 400; color: var(--dim); margin-top: 2px; }
+.score.tier { font-size: 12px; font-weight: 600; }
+.score.tier.strong { color: var(--accent); }
 .seam-images { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; margin-top: 20px; }
 .seam-images figure { margin: 0; min-width: 0; }
 .seam-images img { width: 100%; aspect-ratio: var(--source-aspect,9/16); object-fit: contain; border-radius: 6px; background: #141414; display: block; }

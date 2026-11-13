@@ -42,7 +42,7 @@ const state = {
   previewChoice: 'result', mode: 'source', tab: 'edit', playhead: 0, filmstrip: [], activeLayerId: '',
   renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
   wallpaperScreen: 'editor', wallpaperDownload: supportsPackageSave() ? 'pvt' : 'live-photo', wallpaperPosterURL: '', wallpaperPosterSignature: '',
-  opts: { from: 0, to: 18, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true, hideSimilar: true },
+  opts: { from: 0, to: 18, min: 3, max: 8, preferMotion: true, avoidCuts: true, hideSimilar: true },
   pauseDraft: null, pauseAnalysis: null, pauseHighlights: null, candidates: [], selected: new Set(), repairAnalysis: null, methodComparison: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
@@ -714,21 +714,25 @@ async function runSearch() {
     if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     const result = await searchVideo(state.sourceURL, { ...state.opts, videoDuration: state.info.videoDuration }, rate, state.controller.signal, progress('search'));
     state.candidates = result.candidates; state.selected = new Set(); renderCandidates();
-    notice(result.candidates.length ? `${result.candidates.length} candidate loops found. Source fit is preliminary; select a candidate to compare loop methods. Sampling spacing: ${result.step.toFixed(2)}s.` : 'No close natural loop found. Widen the search range, allow scene cuts, or use Crossfade / Ping-pong.');
+    notice(result.candidates.length ? `Found ${tierSummary(result.candidates)}. Select one to compare loop methods.` : 'No perfect or good loop in this range. Widen the search range or loop lengths, allow scene cuts, or use Crossfade / Ping-pong.');
   } catch (error) { report(error); }
   finally { finishJob(); }
 }
 function visibleCandidates() { return filterSimilarRanges(state.candidates, state.opts.hideSimilar); }
+function tierSummary(candidates) {
+  const perfect = candidates.filter(candidate => candidate.tier === 'perfect').length, good = candidates.length - perfect;
+  return [perfect && `${perfect} perfect`, good && `${good} good`].filter(Boolean).join(' · ') + (candidates.length === 1 ? ' loop' : ' loops');
+}
 function renderCandidates() {
   const visible = visibleCandidates();
   $('#candidate-section').hidden = !state.candidates.length;
-  $('#candidate-count').textContent = `${visible.length} of ${state.candidates.length} matches`;
+  $('#candidate-count').textContent = visible.length < state.candidates.length ? `${tierSummary(visible)} · ${state.candidates.length - visible.length} similar hidden` : tierSummary(visible);
   $('#select-top').innerHTML = icon(state.selected.size ? 'X' : 'ListChecks', 16) + `<span>${state.selected.size ? 'Clear selection' : 'Select top 5'}</span>`;
   $('#candidates').innerHTML = visible.map((candidate, index) => `<div class="candidate">
     <label class="candidate-check" title="Include in batch export"><span>Batch</span><input type="checkbox" data-candidate-check="${candidate.id}" aria-label="Select candidate ${index + 1} for batch export" ${state.selected.has(candidate.id) ? 'checked' : ''}></label>
     <img src="${candidate.thumbnail}" alt="Start frame of candidate ${index + 1}">
-    <button class="candidate-main" data-candidate="${candidate.id}"><b>${timecode(candidate.start)} <span>→</span> ${timecode(candidate.end)}</b><small>${(candidate.end - candidate.start).toFixed(3)}s · ${candidate.verified ? 'Seam checked' : candidate.refined ? 'Frame refined' : 'Coarse match'}${candidate.cuts ? ` · ${candidate.cuts} cuts` : ''}</small><span class="candidate-use">${icon('Check', 14)} Use this loop</span></button>
-    <span class="score ${candidate.score >= 90 ? 'strong' : ''}" title="Source seam estimate before framing and method processing. Select this candidate to compare loop methods.">${candidate.score.toFixed(0)}<small>source fit</small></span></div>`).join('');
+    <button class="candidate-main" data-candidate="${candidate.id}"><b>${timecode(candidate.start)} <span>→</span> ${timecode(candidate.end)}</b><small>${(candidate.end - candidate.start).toFixed(3)}s${candidate.cuts ? ` · ${candidate.cuts} cuts` : ''}</small><span class="candidate-use">${icon('Check', 14)} Use this loop</span></button>
+    <span class="score tier ${candidate.tier === 'perfect' ? 'strong' : ''}" title="${candidate.tier === 'perfect' ? 'The frame after the seam matches the source within noise.' : 'A slight change at the seam, less than half a frame of motion.'} Checked frame by frame on the unframed source.">${candidate.tier === 'perfect' ? 'Perfect' : 'Good'}<small>loop</small></span></div>`).join('');
   $('#batch-button').hidden = !state.selected.size;
   $('#batch-button').innerHTML = icon('Download', 15) + `Export ${state.selected.size} natural loops as ZIP`;
 }
@@ -1026,7 +1030,7 @@ async function batchExport() {
       const candidate = chosen[i], settings = { ...state.s, repair: null, start: candidate.start, end: candidate.end, method: 'natural', shift: 0, repeats: 1 };
       const result = await engine.render(state.file, settings, state.info, (fraction, text, display) => progress('batch')((i + fraction) / chosen.length, `Loop ${i + 1}/${chosen.length}: ${text}`, display));
       files[`${String(i + 1).padStart(2, '0')}-${result.name}`] = new Uint8Array(await result.blob.arrayBuffer());
-      files[`${String(i + 1).padStart(2, '0')}-settings.json`] = new TextEncoder().encode(JSON.stringify({ source: state.file.name, settings, visualScore: candidate.score }, null, 2));
+      files[`${String(i + 1).padStart(2, '0')}-settings.json`] = new TextEncoder().encode(JSON.stringify({ source: state.file.name, settings, loop: candidate.tier, seamError: candidate.seamError }, null, 2));
     }
     if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     const zipped = zipSync(files, { level: 0 }); download(new Blob([zipped], { type: 'application/zip' }), 'perfect-loop-candidates.zip');

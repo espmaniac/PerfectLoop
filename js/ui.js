@@ -39,8 +39,7 @@ export function initializeFields() {
     + numberField('to', 'Search to', { suffix: 's', scope: 'search' })
     + numberField('min', 'Min loop length', { min: 0.1, suffix: 's', scope: 'search' })
     + numberField('max', 'Max loop length', { min: 0.1, suffix: 's', scope: 'search' });
-  $('#search-options').innerHTML = selectField('precision', 'Search precision', [['fast', 'Quick · 0.5s samples'], ['balanced', 'Balanced · 0.25s samples'], ['detailed', 'Detailed · 0.1s samples']], { scope: 'search' })
-    + toggleField('preferMotion', 'Prefer visible motion', { scope: 'search' })
+  $('#search-options').innerHTML = toggleField('preferMotion', 'Prefer visible motion', { scope: 'search' })
     + toggleField('avoidCuts', 'Avoid scene cuts', { scope: 'search' });
   $('#preset-field').innerHTML = selectField('preset', 'Destination preset', [['spotify', 'Spotify Canvas'], ['vertical', 'Vertical music visual'], ['iphone', 'iPhone wallpaper'], ['custom', 'Custom']]);
   $('#wallpaper-device-field').innerHTML = selectField('wallpaperDevice', 'Phone screen size', [...PHONE_PROFILES.map(profile => [profile.id, `${profile.name} · ${profile.width} × ${profile.height}`]), ['custom', 'Custom phone size']])

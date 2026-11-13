@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { distinctCandidates, filterSimilarRanges, pairScore, rankFrames } from '../js/ranking.js';
 import { searchSamplePlan, searchVideo } from '../js/media.js';
 
-const options = { from: 0, to: 60, min: 3, max: 8, precision: 'balanced', preferMotion: false, avoidCuts: true };
+const options = { from: 0, to: 60, min: 3, max: 8, preferMotion: false, avoidCuts: true };
 const frame = (time, level) => ({ time, pixels: new Float32Array(32 * 32 * 3).fill(level) });
 
 test('Equal-quality repeats remain discoverable throughout a video instead of filling an early raw shortlist', () => {
@@ -58,7 +58,7 @@ test('Temporal spread breaks equal-quality ties without promoting weaker loops',
 });
 
 test('Coarse sampling covers both ends of a long range within the 1601-frame budget', () => {
-    const opts = { ...options, from: 40, to: 7240, precision: 'detailed' };
+    const opts = { ...options, from: 40, to: 7240 };
     const plan = searchSamplePlan(opts, 30, 7300);
     assert.equal(plan.times.length, 1601);
     assert.equal(plan.times[0], 40);
@@ -73,7 +73,7 @@ test('Coarse sampling covers both ends of a long range within the 1601-frame bud
 });
 
 test('Sampling and terminal boundaries stay inside fractional nonzero source selections', () => {
-    const opts = { ...options, from: 40.03, to: 56.07, precision: 'detailed' };
+    const opts = { ...options, from: 40.03, to: 56.07 };
     const plan = searchSamplePlan(opts, 30, 60);
     assert.equal(plan.first, 1201 / 30);
     assert.equal(plan.end, 1682 / 30);
@@ -91,7 +91,7 @@ test('An exact minimum-length selection is searchable, while a shorter frame-ali
     assert.throws(() => searchSamplePlan(options, 0, 60), /frame rate/);
 });
 
-test('An exact-length selection at low frame rates refines its terminal seam without decoding outside the range', async t => {
+test('An exact-length selection at low frame rates verifies its terminal seam without decoding outside the range', async t => {
     const previous = new Map(['document', 'window', 'Worker'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
     t.after(() => {
         for (const [key, descriptor] of previous) {
@@ -140,7 +140,8 @@ test('An exact-length selection at low frame rates refines its terminal seam wit
     assert.equal(result.candidates.length, 1);
     assert.equal(result.candidates[0].start, 40);
     assert.equal(result.candidates[0].end, 56);
-    assert.equal(result.candidates[0].refined, true, 'The terminal candidate must receive frame-level refinement');
+    assert.equal(result.candidates[0].verified, true, 'The terminal candidate must receive frame-level verification');
+    assert.equal(result.candidates[0].tier, 'good', 'Without a neighboring frame the seam cannot be confirmed perfect');
     assert.ok(seeks.every(time => time >= 40 && time < 56));
     assert.ok(seeks.some(time => Math.abs(time - (56 - 1.5 / 6)) < 1e-7), 'Boundary motion needs a real penultimate frame');
 });

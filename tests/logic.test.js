@@ -67,7 +67,7 @@ test('Motion mismatch ranks below matching images with compatible movement', () 
     const bad = pairScore(d(a, 0), d(next, 0.1), d(wrong, 5.9), d(a, 6), false);
     assert.ok(good.score > bad.score + 10);
     const statics = Array.from({ length: 21 }, (_, i) => d(a, i * 0.5));
-    assert.ok(rankFrames(statics, { from: 0, to: 10, min: 3, max: 8, precision: 'balanced', preferMotion: true, avoidCuts: true }).every(c => c.score <= 90.01));
+    assert.ok(rankFrames(statics, { from: 0, to: 10, min: 3, max: 8, preferMotion: true, avoidCuts: true }).every(c => c.score <= 90.01));
 });
 let native = true;
 try {

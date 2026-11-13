@@ -1,6 +1,5 @@
-import { scoreBoundary } from './auto-repair-core.js';
 import { clamp } from './logic.js';
-import { distinctCandidates, pairScore } from './ranking.js';
+import { VERIFY_LIMIT, distinctCandidates, pairScore, seamMatch } from './ranking.js';
 function aborted(signal) { if (signal?.aborted)
     throw new DOMException('Cancelled', 'AbortError'); }
 const helperVideos = new WeakSet();
@@ -139,8 +138,10 @@ export function searchSamplePlan(options, fps, duration) {
     const lastFrame = endFrame - 1;
     if (lastFrame <= firstFrame || (endFrame - firstFrame) / fps < options.min - 1e-6)
         throw new Error('Choose a search range long enough for the requested loop duration at the source frame rate.');
-    const requestedStep = options.precision === 'fast' ? 0.5 : options.precision === 'detailed' ? 0.1 : 0.25;
-    const intervals = Math.min(1600, lastFrame - firstFrame, Math.max(1, Math.floor((lastFrame - firstFrame) / fps / requestedStep)));
+    // About ten samples per second keep every repeat within one or two source
+    // frames of a sample. Verification then checks the neighboring frames.
+    const stepFrames = Math.max(1, Math.round(fps / 10));
+    const intervals = Math.min(1600, lastFrame - firstFrame, Math.max(1, Math.ceil((lastFrame - firstFrame) / stepFrames)));
     const times = Array.from({ length: intervals + 1 }, (_, i) => (firstFrame + Math.round(i * (lastFrame - firstFrame) / intervals)) / fps);
     return { times, first: firstFrame / fps, last: lastFrame / fps, end: endFrame / fps, step: (lastFrame - firstFrame) / fps / intervals };
 }
@@ -163,7 +164,7 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             // rounding can otherwise display the preceding frame.
             await seekVideo(video, t + 0.5 / fps, signal);
             frames.push(descriptor(video, t));
-            onProgress(i / count * 0.68, `Sampling frame ${i + 1} of ${count} · ${step.toFixed(2)}s spacing`);
+            onProgress(i / count * 0.68, `Sampling frame ${i + 1} of ${count}…`);
         }
         aborted(signal);
         onProgress(0.7, 'Comparing image structure and motion…');
@@ -177,75 +178,47 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
         });
         worker.terminate();
         worker = undefined;
-        const fullCandidate = candidates.find(c => Math.abs(c.start-plan.first)<1e-7 && Math.abs(c.end-plan.end)<1e-7);
-        // Refine the strongest matches around exact frame timestamps. B is exclusive.
-        for (let i = 0; i < Math.min(5, candidates.length); i++) {
-            aborted(signal);
-            onProgress(0.72 + i / 5 * 0.2, `Refining match ${i + 1} at frame precision…`);
-            // At an exclusive terminal end, the center itself is not readable.
-            // Include both the last frame and its predecessor even at low FPS.
-            const c = candidates[i], radius = Math.max(2, Math.min(8, Math.ceil(step / 2 * fps)));
-            const starts = [], ends = [];
-            for (const [center, list] of [[c.start, starts], [c.end, ends]]) {
-                for (let j = -radius; j <= radius + 1; j++) {
-                    const t = (Math.round(center * fps) + j) / fps;
-                    if (t < plan.first - 1e-7 || t > plan.last + 1e-7)
-                        continue;
-                    await seekVideo(video, t + 0.5 / fps, signal);
-                    list.push(descriptor(video, t));
-                }
-            }
-            let best;
-            for (let a = 0; a < starts.length - 1; a++)
-                for (let b = 1; b < ends.length; b++) {
-                    const terminal = Math.abs(ends[b].time - plan.last) < 1e-7;
-                    if (!terminal && b === ends.length - 1)
-                        continue;
-                    const end = terminal ? plan.end : ends[b].time;
-                    const d = end - starts[a].time;
-                    if (d < options.min - 1e-6 || d > options.max + 1e-6)
-                        continue;
-                    const match = { id: c.id, ...pairScore(starts[a], starts[a + 1], ends[b - 1], ends[b], options.preferMotion, c.cuts, ends[b + 1]), end, refined: true };
-                    if (!best || match.score > best.score)
-                        best = match;
-                }
-            if (best)
-                candidates[i] = best;
-        }
-        if (fullCandidate && !candidates.some(c => Math.abs(c.start-fullCandidate.start)<1e-7 && Math.abs(c.end-fullCandidate.end)<1e-7)) candidates.push(fullCandidate);
-        // Verify real adjacent boundary frames at a larger, aspect-preserving size.
-        // Local tile errors expose small bubbles and highlights hidden by a static background.
+        // Verify promising matches with real adjacent frames at every nearby exclusive
+        // end. A sampled end can sit a frame or two away from the true repeat, and a
+        // duplicated or skipped frame at the seam is exactly what must be rejected.
         const ratio = Math.min(1, 160 / Math.max(video.videoWidth, video.videoHeight));
         const width = Math.max(1, Math.round(video.videoWidth * ratio));
         const height = Math.max(1, Math.round(video.videoHeight * ratio));
         const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const firstIndex = Math.round(plan.first * fps), endIndex = Math.round(plan.end * fps);
         const cache = new Map();
         const readFrame = async index => {
             if (cache.has(index)) return cache.get(index);
             await seekVideo(video, (index + .5) / fps, signal);
             ctx.drawImage(video, 0, 0, width, height);
             const rgba = ctx.getImageData(0, 0, width, height).data;
-            const pixels = Float32Array.from({ length: width * height }, (_, p) => rgba[p*4]*.2126 + rgba[p*4+1]*.7152 + rgba[p*4+2]*.0722);
-            if (cache.size >= 256) cache.delete(cache.keys().next().value);
-            cache.set(index, pixels); return pixels;
+            const luma = Float32Array.from({ length: width * height }, (_, p) => rgba[p*4]*.2126 + rgba[p*4+1]*.7152 + rgba[p*4+2]*.0722);
+            const frame = { ...descriptor(video, index / fps), luma };
+            if (cache.size >= 512) cache.delete(cache.keys().next().value);
+            cache.set(index, frame); return frame;
         };
-        for (const [i, candidate] of candidates.entries()) {
+        const radius = Math.max(1, Math.ceil(step * fps / 2));
+        const shortlist = [...candidates].sort((x, y) => y.score - x.score).slice(0, VERIFY_LIMIT);
+        const verified = [];
+        for (const [i, c] of shortlist.entries()) {
             aborted(signal);
-            onProgress(.92 + i / candidates.length * .06, `Checking local motion at seam ${i + 1} of ${candidates.length}…`);
-            const first = Math.round(candidate.start * fps), end = Math.round(candidate.end * fps);
-            if (end-first < 2) continue;
-            const indices = [0,1,2,3].map(k => first + Math.min(k,end-first-1))
-                .concat([4,3,2,1].map(k => Math.max(first,end-k)));
-            const boundary = [];
-            for (const index of indices) boundary.push(await readFrame(index));
-            const report = scoreBoundary(boundary,width,height);
-            candidate.coarseScore = candidate.score;
-            candidate.boundaryError = report.score;
-            candidate.score = Math.min(candidate.score, 100 * Math.exp(-report.score / 25));
-            candidate.verified = true;
+            onProgress(.72 + i / shortlist.length * .26, `Checking seam ${i + 1} of ${shortlist.length} frame by frame…`);
+            const a = Math.max(firstIndex, Math.round(c.start * fps)), sampledEnd = Math.round(c.end * fps);
+            let best;
+            for (let b = sampledEnd - radius; b <= sampledEnd + radius; b++) {
+                const duration = (b - a) / fps;
+                if (b > endIndex || b - a < 4 || duration < options.min - 1e-6 || duration > options.max + 1e-6)
+                    continue;
+                const read = index => index >= firstIndex && index < endIndex ? readFrame(index) : undefined;
+                const frames = { start: await read(a), startNext: await read(a + 1), startNext2: await read(a + 2), end: await read(b - 1), endPrevious: await read(b - 2), endPrevious2: await read(b - 3), after: await read(b), before: await read(a - 1) };
+                const match = seamMatch(frames, width, height, options.preferMotion, c.cuts);
+                if (!best || match.score > best.score)
+                    best = { ...c, ...match, start: a / fps, end: b / fps, coarseScore: c.score, verified: true };
+            }
+            if (best) verified.push(best);
         }
-        const distinct = distinctCandidates(candidates, { ...options, limit: 48 });
+        const distinct = distinctCandidates(verified.filter(c => c.tier), { ...options, limit: 48 });
         for (let i = 0; i < distinct.length; i++) {
             await seekVideo(video, distinct[i].start + 0.5 / fps, signal);
             distinct[i].thumbnail = capture(video).toDataURL('image/jpeg', 0.75);
