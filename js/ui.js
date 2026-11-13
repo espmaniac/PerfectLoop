@@ -36,9 +36,7 @@ export function initializeFields() {
   $('#loop-settings').prepend($('#field-setting-shift'));
   $('#motion-fields').innerHTML = toggleField('interpolate', 'Motion interpolation', { detail: 'Smoother speed changes; significantly slower to render.' });
   $('#search-range-fields').innerHTML = numberField('from', 'Search from', { suffix: 's', scope: 'search' })
-    + numberField('to', 'Search to', { suffix: 's', scope: 'search' })
-    + numberField('min', 'Min loop length', { min: 0.1, suffix: 's', scope: 'search' })
-    + numberField('max', 'Max loop length', { min: 0.1, suffix: 's', scope: 'search' });
+    + numberField('to', 'Search to', { suffix: 's', scope: 'search' });
   $('#search-options').innerHTML = toggleField('preferMotion', 'Prefer visible motion', { scope: 'search' })
     + toggleField('avoidCuts', 'Avoid scene cuts', { scope: 'search' });
   $('#preset-field').innerHTML = selectField('preset', 'Destination preset', [['spotify', 'Spotify Canvas'], ['vertical', 'Vertical music visual'], ['iphone', 'iPhone wallpaper'], ['custom', 'Custom']]);

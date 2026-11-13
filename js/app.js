@@ -4,7 +4,7 @@ import { PreviewPlayback } from './preview-playback.js';
 import { compareLoopMethods } from './method-comparison.js';
 import { methodContext } from './method-fit.js';
 import { moveLayerInStack } from './layer-order.js';
-import { filterSimilarRanges } from './ranking.js';
+import { SHORTEST_LOOP } from './ranking.js';
 import { alignVideoToFrame } from './framing.js';
 import { autoRepair } from './auto-repair.js';
 import { reviewAutoRepair } from './auto-repair-dialog.js';
@@ -42,7 +42,7 @@ const state = {
   previewChoice: 'result', mode: 'source', tab: 'edit', playhead: 0, filmstrip: [], activeLayerId: '',
   renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
   wallpaperScreen: 'editor', wallpaperDownload: supportsPackageSave() ? 'pvt' : 'live-photo', wallpaperPosterURL: '', wallpaperPosterSignature: '',
-  opts: { from: 0, to: 18, min: 3, max: 8, preferMotion: true, avoidCuts: true, hideSimilar: true },
+  opts: { from: 0, to: 18, preferMotion: true, avoidCuts: true },
   pauseDraft: null, pauseAnalysis: null, pauseHighlights: null, candidates: [], selected: new Set(), repairAnalysis: null, methodComparison: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
@@ -124,7 +124,7 @@ function update(partial, saveHistory = true) {
 }
 function restore(value) {
   previewPlayback?.stop();
-  const searchChanged = Object.keys(state.opts).some(key => key !== 'hideSimilar' && state.opts[key] !== value.opts[key]);
+  const searchChanged = Object.keys(state.opts).some(key => state.opts[key] !== value.opts[key]);
   const duration=state.info.videoDuration||state.info.duration;
   const end=Math.min(value.s.end,duration),start=end<value.s.end ? Math.min(value.s.start,Math.max(0,end-3*value.s.speed/value.s.fps)) : value.s.start;
   state.s=start!==value.s.start||end!==value.s.end ? {...value.s,start,end,repair:null,seamPause:null} : value.s;
@@ -288,8 +288,7 @@ function updateSearch(partial, saveHistory = true) {
   if (Object.entries(partial).every(([key, value]) => state.opts[key] === value)) return;
   if (saveHistory) remember();
   state.opts = { ...state.opts, ...partial };
-  if (Object.keys(partial).every(key => key === 'hideSimilar')) { state.selected = new Set(); renderCandidates(); }
-  else clearCandidates();
+  clearCandidates();
   if ('from' in partial || 'to' in partial) preview.setMode('source');
   else refresh();
 }
@@ -380,7 +379,7 @@ function refreshBindings() {
   $('[data-setting="transition"][type="range"]').max = Math.max(state.s.transition, Math.min(30, (state.s.end - state.s.start) / state.s.speed / 2));
   $('[data-search="from"]').max = Math.max(0, state.opts.to - gap); $('[data-search="to"]').max = state.info.duration;
   $('[data-search="from"]').step = $('[data-search="to"]').step = 1 / rate;
-  $('[data-search="to"]').min = state.opts.from + gap; $('[data-search="max"]').min = state.opts.min;
+  $('[data-search="to"]').min = state.opts.from + gap;
   $('[data-wallpaper="kind"]').value = state.wallpaperDownload;
 }
 function refreshHeaderHint(issues, plan) {
@@ -626,7 +625,7 @@ async function loadFile(file, sample = false) {
     if (state.s.preset === 'spotify' && (info.duration < 3 || info.duration > 8)) state.s = { ...state.s, preset: 'custom' };
     if (state.s.preset === 'iphone') state.s = { ...state.s, ...wallpaperRange(downloadSettings(state.s), info) };
     if (state.s.aspect === 'original') state.s = { ...state.s, ...dimensionsForAspect('original', info, state.s.rotate) };
-    state.opts = { ...state.opts, from: 0, to: info.duration, max: Math.min(state.opts.max, info.duration) };
+    state.opts = { ...state.opts, from: 0, to: info.duration };
     history.past = []; history.future = []; preview.setMode(state.tab === 'find' ? 'source' : 'composition'); refresh();
     if (state.s.preset === 'iphone') setWallpaperScreen('lock');
     thumbnails(state.sourceURL, 10, controller.signal).then(frames => { if (!controller.signal.aborted) { state.filmstrip = frames; timeline.render(); } }).catch(() => {});
@@ -714,16 +713,15 @@ async function runSearch() {
       }
     }
     if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-    const result = await searchVideo(state.sourceURL, { ...state.opts, videoDuration: state.info.videoDuration }, rate, state.controller.signal, progress('search'));
+    const result = await searchVideo(state.sourceURL, { ...state.opts, min: SHORTEST_LOOP, max: state.opts.to - state.opts.from, videoDuration: state.info.videoDuration }, rate, state.controller.signal, progress('search'));
     state.candidates = result.candidates; state.selected = new Set(); renderCandidates();
     const seamless = result.candidates.some(candidate => ['perfect', 'good'].includes(candidate.tier));
-    notice(!result.candidates.length ? 'No loop candidates in this range. Widen the search range or loop lengths, or allow scene cuts.'
+    notice(!result.candidates.length ? 'No loop candidates in this range. Widen the search range or allow scene cuts.'
       : seamless ? `Found ${tierSummary(result.candidates)}. Select one to compare loop methods.`
       : `No seamless repeat in this range. Showing the ${result.candidates.length} closest matches; selecting one compares methods, and Crossfade can hide the remaining seam.`);
   } catch (error) { report(error); }
   finally { finishJob(); }
 }
-function visibleCandidates() { return filterSimilarRanges(state.candidates, state.opts.hideSimilar); }
 const LOOP_TIERS = {
   perfect: { name: 'Perfect', detail: 'The frame after the seam matches the source within noise.' },
   good: { name: 'Good', detail: 'A slight change at the seam, less than half a frame of motion.' },
@@ -735,9 +733,9 @@ function tierSummary(candidates) {
   return counts.filter(([, count]) => count).map(([tier, count]) => `${count} ${tier}`).join(' · ') + (candidates.length === 1 ? ' loop' : ' loops');
 }
 function renderCandidates() {
-  const visible = visibleCandidates();
+  const visible = state.candidates;
   $('#candidate-section').hidden = !state.candidates.length;
-  $('#candidate-count').textContent = visible.length < state.candidates.length ? `${tierSummary(visible)} · ${state.candidates.length - visible.length} similar hidden` : tierSummary(visible);
+  $('#candidate-count').textContent = tierSummary(visible);
   $('#select-top').innerHTML = icon(state.selected.size ? 'X' : 'ListChecks', 16) + `<span>${state.selected.size ? 'Clear selection' : 'Select top 5'}</span>`;
   $('#candidates').innerHTML = visible.map((candidate, index) => `<div class="candidate">
     <label class="candidate-check" title="Include in batch export"><span>Batch</span><input type="checkbox" data-candidate-check="${candidate.id}" aria-label="Select candidate ${index + 1} for batch export" ${state.selected.has(candidate.id) ? 'checked' : ''}></label>
@@ -791,16 +789,24 @@ async function compareCurrentMethods(saveHistory = true) {
   state.methodComparison = comparison;
   const recommended = comparison.rows.find(row => row.id === comparison.recommended);
   if (recommended) {
-    update({ method: recommended.id, shift: recommended.settings.shift }, saveHistory);
+    update({ method: recommended.id, shift: recommended.settings.shift, ...canvasRepeats({ ...state.s, method: recommended.id }) }, saveHistory);
     notice(`${recommended.name} selected · source ${timecode(state.s.start)}–${timecode(state.s.end)} · output ${recommended.duration.toFixed(3)}s · estimated fit ${Math.round(recommended.score)}. Press Play in Result to check it.`);
   }
   refresh();
+}
+// A short loop for Spotify Canvas repeats enough cycles to reach three seconds,
+// when that fits within eight.
+function canvasRepeats(s) {
+  if (s.preset !== 'spotify' || s.format === 'gif') return {};
+  const cycle = framePlan({ ...s, repeats: 1 }).duration, repeats = Math.max(1, Math.ceil(3 / cycle - 1e-6));
+  return { repeats: repeats * cycle <= 8 + 1e-6 ? repeats : 1 };
 }
 async function chooseCandidate(id) {
   const candidate = state.candidates.find(item => item.id === id); if (!candidate || busy()) return;
   state.methodComparison = null;
   remember();
-  update({ start: candidate.start, end: candidate.end, method: 'natural', shift: 0, repeats: 1, repair: null }, false);
+  const range = { start: candidate.start, end: candidate.end, method: 'natural', shift: 0, repeats: 1, repair: null };
+  update({ ...range, ...canvasRepeats({ ...state.s, ...range }) }, false);
   state.previewChoice = 'result'; state.tab = 'edit'; preview.setMode('composition'); preview.seek(candidate.start); refresh();
   if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
   await compareCurrentMethods(false);
@@ -1061,7 +1067,6 @@ async function inspect() {
 }
 function setPreset(preset) {
   update(preset === 'iphone' ? wallpaperPreset(state.s, state.info) : preset === 'spotify' ? { preset, aspect: '9:16', width: 576, height: 1024, fps: 30, format: 'mp4', audio: 'strip', repeats: 1 } : preset === 'vertical' ? { preset, aspect: '9:16', width: 720, height: 1280, fps: 30 } : { preset, aspect: 'custom' });
-  updateSearch({ min: 3, max: preset === 'spotify' ? 8 : 15 }, false);
   if (preset === 'iphone') setWallpaperScreen('lock');
   else { state.wallpaperScreen = 'editor'; refresh(); }
 }
@@ -1412,7 +1417,7 @@ const actions = {
   mute: () => preview.toggleMute(), guides: () => { preview.toggleGuides(); refreshPreviewEditor(); }, fullscreen: () => preview.fullscreen(), 'frame-png': () => { if (!staticWallpaperLayout()) return preview.saveFrame(); },
   zoom: () => timeline.toggleZoom(), 'mark-in': () => mark('start'), 'mark-out': () => mark('end'), 'fit-duration': fitDuration,
   'download-again': () => { if (state.lastExport) download(state.lastExport.blob, state.lastExport.name); },
-  'select-top': () => { state.selected = state.selected.size ? new Set() : new Set(visibleCandidates().slice(0, 5).map(candidate => candidate.id)); renderCandidates(); },
+  'select-top': () => { state.selected = state.selected.size ? new Set() : new Set(state.candidates.slice(0, 5).map(candidate => candidate.id)); renderCandidates(); },
 };
 document.addEventListener('click', event => {
   const button = event.target.closest('button'); if (!button || button.matches(':disabled')) return;
