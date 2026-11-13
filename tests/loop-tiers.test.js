@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SEAM_LIMITS, bestLoops, cutAtBoundary, diverseShortlist, filterSimilarRanges, frameMatchError, loopTier, markCycles, sceneStarts, seamError } from '../js/ranking.js';
+import { SEAM_LIMITS, bestLoops, cutAtBoundary, diverseShortlist, isCut, loopTier, seamError } from '../js/ranking.js';
 
 const seamless = error => ['perfect', 'good'].includes(loopTier(error));
 import { searchSamplePlan, searchVideo } from '../js/media.js';
@@ -60,25 +60,17 @@ test('Without a neighboring frame a loop is at most good', () => {
     assert.equal(loopTier(SEAM_LIMITS.good + .01, false), 'fair');
 });
 
-test('Every perfect and good loop is listed; otherwise the best loop of every scene', () => {
-    const clip = (id, start, seamError) => ({ id, start, seamError, tier: loopTier(seamError) });
-    assert.deepEqual(bestLoops([clip(0, 1, .01), clip(1, 50, .34), clip(2, 80, .5), clip(3, 90, 2)], [0, 40]).map(c => c.id), [0, 1], 'A good loop far from the best is still listed');
-    const rough = [clip(0, 1, 1.5), clip(1, 5, 1.2), clip(2, 42, 3), clip(3, 47, 2.4), clip(4, 70, .9)];
-    assert.deepEqual(bestLoops(rough, [0, 40, 65]).map(c => c.id), [1, 3, 4], 'One per scene, however weak');
+test('Every loop found is listed cleanest first; rough loops only when nothing is better', () => {
+    const clip = (id, start, seamError, score = 50) => ({ id, start, end: start + 3, seamError, score, tier: loopTier(seamError) });
+    const found = [clip('rough', 1, 2), clip('good', 5, .3, 40), clip('perfect', 9, .01, 30), clip('fair', 9.1, .8), clip('repeat', 20, .01, 20)];
+    assert.deepEqual(bestLoops(found).map(c => c.id), ['perfect', 'repeat', 'good', 'fair'], 'Repeats and overlaps stay; tiers come first');
+    assert.deepEqual(bestLoops([clip('a', 1, 3), clip('b', 4, 1.5), clip('a again', 1, 3)]).map(c => c.id), ['b', 'a'], 'Without better loops every rough loop is listed once');
 });
 
 test('Verification covers different moments before near-duplicates of the strongest match', () => {
     const early = Array.from({ length: 5 }, (_, i) => ({ id: `early-${i}`, start: i * .1, end: 4 + i * .1, score: 99 - i }));
     const late = { id: 'late', start: 12, end: 16, score: 80 };
     assert.deepEqual(diverseShortlist([...early, late], 2).map(c => c.id), ['early-0', 'late']);
-});
-
-test('Perfect loops are listed before good loops regardless of motion preference', () => {
-    const visible = filterSimilarRanges([
-        { id: 'good', start: 0, end: 4, score: 99, tier: 'good' },
-        { id: 'perfect', start: 10, end: 14, score: 85, tier: 'perfect' },
-    ]);
-    assert.deepEqual(visible.map(c => c.id), ['perfect', 'good']);
 });
 
 test('Sampling uses about ten frames per second regardless of frame rate', () => {
@@ -160,13 +152,8 @@ function figure(time, head = 0.8) {
     return { time, pixels };
 }
 
-test('An edit that only replaces a face is a scene cut, and its loops are not repeats of each other', async () => {
+test('An edit that only replaces a face is a scene cut, while ordinary motion is not', () => {
     const frames = Array.from({ length: 301 }, (_, i) => figure(i / 10, i < 150 ? 0.8 : 0.1));
-    assert.deepEqual(sceneStarts(frames), [0, 15], 'The same motion with another face starts a new scene');
-    // Real frames for confirmation: the descriptors' luminance, at the sample nearest each time.
-    const luma = time => frames[Math.round(time * 10)].pixels.filter((_, p) => p % 3 === 0);
-    const confirm = async (time, loop) => frameMatchError(luma(loop.start), luma(time), luma(time + .1), 32, 32) <= SEAM_LIMITS.perfect;
-    const loops = await markCycles([{ start: 2, end: 5.6 }, { start: 20, end: 23.6 }, { start: 6, end: 9.6 }], frames, confirm);
-    assert.notEqual(loops[0].cycle, loops[1].cycle, 'A different face is a different loop');
-    assert.equal(loops[0].cycle, loops[2].cycle, 'The same face at another phase is a repeat');
+    const cuts = frames.map((_, i) => i > 0 && isCut(frames, i)).flatMap((cut, i) => cut ? [i] : []);
+    assert.deepEqual(cuts, [150]);
 });

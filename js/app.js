@@ -4,7 +4,7 @@ import { PreviewPlayback } from './preview-playback.js';
 import { compareLoopMethods } from './method-comparison.js';
 import { methodContext } from './method-fit.js';
 import { moveLayerInStack } from './layer-order.js';
-import { SHORTEST_LOOP, filterSimilarRanges } from './ranking.js';
+import { SHORTEST_LOOP } from './ranking.js';
 import { alignVideoToFrame } from './framing.js';
 import { autoRepair } from './auto-repair.js';
 import { reviewAutoRepair } from './auto-repair-dialog.js';
@@ -42,7 +42,7 @@ const state = {
   previewChoice: 'result', mode: 'source', tab: 'edit', playhead: 0, filmstrip: [], activeLayerId: '',
   renderSettings: null, renderPlayhead: 0, renderFilmstrip: [],
   wallpaperScreen: 'editor', wallpaperDownload: supportsPackageSave() ? 'pvt' : 'live-photo', wallpaperPosterURL: '', wallpaperPosterSignature: '',
-  opts: { from: 0, to: 18, preferMotion: true, avoidCuts: true, hideSimilar: true },
+  opts: { from: 0, to: 18, preferMotion: true, avoidCuts: true },
   pauseDraft: null, pauseAnalysis: null, pauseHighlights: null, candidates: [], selected: new Set(), repairAnalysis: null, methodComparison: null,
   job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
 };
@@ -124,7 +124,7 @@ function update(partial, saveHistory = true) {
 }
 function restore(value) {
   previewPlayback?.stop();
-  const searchChanged = Object.keys(state.opts).some(key => key !== 'hideSimilar' && state.opts[key] !== value.opts[key]);
+  const searchChanged = Object.keys(state.opts).some(key => state.opts[key] !== value.opts[key]);
   const duration=state.info.videoDuration||state.info.duration;
   const end=Math.min(value.s.end,duration),start=end<value.s.end ? Math.min(value.s.start,Math.max(0,end-3*value.s.speed/value.s.fps)) : value.s.start;
   state.s=start!==value.s.start||end!==value.s.end ? {...value.s,start,end,repair:null,seamPause:null} : value.s;
@@ -288,8 +288,7 @@ function updateSearch(partial, saveHistory = true) {
   if (Object.entries(partial).every(([key, value]) => state.opts[key] === value)) return;
   if (saveHistory) remember();
   state.opts = { ...state.opts, ...partial };
-  if (Object.keys(partial).every(key => key === 'hideSimilar')) { state.selected = new Set(); renderCandidates(); }
-  else clearCandidates();
+  clearCandidates();
   if ('from' in partial || 'to' in partial) preview.setMode('source');
   else refresh();
 }
@@ -723,7 +722,6 @@ async function runSearch() {
   } catch (error) { report(error); }
   finally { finishJob(); }
 }
-function visibleCandidates() { return filterSimilarRanges(state.candidates, state.opts.hideSimilar); }
 const LOOP_TIERS = {
   perfect: { name: 'Perfect', detail: 'The frame after the seam matches the source within noise.' },
   good: { name: 'Good', detail: 'A slight change at the seam, less than half a frame of motion.' },
@@ -735,9 +733,9 @@ function tierSummary(candidates) {
   return counts.filter(([, count]) => count).map(([tier, count]) => `${count} ${tier}`).join(' · ') + (candidates.length === 1 ? ' loop' : ' loops');
 }
 function renderCandidates() {
-  const visible = visibleCandidates();
+  const visible = state.candidates;
   $('#candidate-section').hidden = !state.candidates.length;
-  $('#candidate-count').textContent = visible.length < state.candidates.length ? `${tierSummary(visible)} · ${state.candidates.length - visible.length} similar hidden` : tierSummary(visible);
+  $('#candidate-count').textContent = tierSummary(visible);
   $('#select-top').innerHTML = icon(state.selected.size ? 'X' : 'ListChecks', 16) + `<span>${state.selected.size ? 'Clear selection' : 'Select top 5'}</span>`;
   $('#candidates').innerHTML = visible.map((candidate, index) => `<div class="candidate">
     <label class="candidate-check" title="Include in batch export"><span>Batch</span><input type="checkbox" data-candidate-check="${candidate.id}" aria-label="Select candidate ${index + 1} for batch export" ${state.selected.has(candidate.id) ? 'checked' : ''}></label>
@@ -1419,7 +1417,7 @@ const actions = {
   mute: () => preview.toggleMute(), guides: () => { preview.toggleGuides(); refreshPreviewEditor(); }, fullscreen: () => preview.fullscreen(), 'frame-png': () => { if (!staticWallpaperLayout()) return preview.saveFrame(); },
   zoom: () => timeline.toggleZoom(), 'mark-in': () => mark('start'), 'mark-out': () => mark('end'), 'fit-duration': fitDuration,
   'download-again': () => { if (state.lastExport) download(state.lastExport.blob, state.lastExport.name); },
-  'select-top': () => { state.selected = state.selected.size ? new Set() : new Set(visibleCandidates().slice(0, 5).map(candidate => candidate.id)); renderCandidates(); },
+  'select-top': () => { state.selected = state.selected.size ? new Set() : new Set(state.candidates.slice(0, 5).map(candidate => candidate.id)); renderCandidates(); },
 };
 document.addEventListener('click', event => {
   const button = event.target.closest('button'); if (!button || button.matches(':disabled')) return;

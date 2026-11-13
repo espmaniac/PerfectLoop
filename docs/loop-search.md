@@ -19,15 +19,11 @@ The comparison uses 12-pixel tiles. Each tile's difference is reduced by its noi
 
 When neither neighboring frame is inside the selection (the loop is the complete range), only a jump beyond the usual motion can be measured, and the loop is listed as Good at most.
 
-Every perfect and good loop is listed. A source without one lists the best loop of every scene, however weak, so each place where a loop is possible can be reviewed and a search never comes back empty. A scene cut is a sampled step where the whole frame changes, or where one of sixteen regions changes abruptly — far more than in the neighboring steps — such as an edit that keeps the composition but replaces a face. Cleaner tiers are listed first. Within a tier, **Prefer visible motion** lowers nearly static clips and scene cuts lower the ranking. Neither changes the tier.
+Every loop found is listed, including repeats of the same motion and overlapping ranges; loops refined to the same range appear once. Rough loops are listed only when the source has no perfect, good, or fair loop, so a search never comes back empty. A scene cut is a sampled step where the whole frame changes, or where one of sixteen regions changes abruptly — far more than in the neighboring steps — such as an edit that keeps the composition but replaces a face. Cleaner tiers are listed first. Within a tier, **Prefer visible motion** lowers nearly static clips and scene cuts lower the ranking. Neither changes the tier.
 
 `sourceMetadata` obtains the video-track duration before searching. Video duration takes precedence over the container duration, which may include a longer audio tail. Sampling, verification, and exclusive ends stay inside the selected range and the actual video track. The source is not repaired or modified during search.
 
-## Result filtering
-
-**Hide similar ranges** is enabled by default. A weaker result is hidden when it shares at least half of the shorter clip with an already retained result, or when it shows the same cycle at another phase or played more than once: the lengths are equal or whole multiples (within 0.1 seconds per cycle) and the first frame of one appears inside the other. Sampled descriptors, compared region by region, suggest the phase; real frames within one sampling step of it confirm the match as strictly as a perfect seam. A repeating motion is therefore listed once, wherever it recurs, while the same motion with a different face or detail stays a separate loop. Comparison is with retained clips only, preventing a chain of small shifts from suppressing an unrelated later range.
-
-Turning the switch off reveals the cached alternatives immediately. It does not decode the video again. Changing the filter clears batch selection; Select top 5 operates on visible results. Undo and Redo restore the filter without discarding the search results.
+## Result list
 
 The result list has no fixed length. Verification caches up to 512 decoded frames.
 
