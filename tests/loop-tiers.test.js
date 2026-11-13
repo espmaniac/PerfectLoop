@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SEAM_LIMITS, bestLoops, diverseShortlist, filterSimilarRanges, loopTier, seamError } from '../js/ranking.js';
+import { SEAM_LIMITS, bestLoops, cutAtBoundary, diverseShortlist, filterSimilarRanges, frameMatchError, loopTier, markCycles, sceneStarts, seamError } from '../js/ranking.js';
 
 const seamless = error => ['perfect', 'good'].includes(loopTier(error));
 import { searchSamplePlan, searchVideo } from '../js/media.js';
@@ -29,6 +29,15 @@ test('An exact repeat is perfect, while a repeated or skipped seam frame is reje
     assert.ok(!seamless(seam(10, 81, 36).error), 'One missing frame skips motion');
 });
 
+test('A loop whose first or last frame belongs to another scene is recognized', () => {
+    const frames = index => ({ luma: scene(index, 36) });
+    const other = { luma: new Float32Array(W * H).fill(200) };
+    const loop = { start: frames(10), startNext: frames(11), startNext2: frames(12), end: frames(81), endPrevious: frames(80), endPrevious2: frames(79) };
+    assert.equal(cutAtBoundary(loop), false, 'Ordinary motion is not a cut');
+    assert.equal(cutAtBoundary({ ...loop, start: other }), true);
+    assert.equal(cutAtBoundary({ ...loop, end: other }), true);
+});
+
 test('Grain does not prevent a repeat from being perfect', () => {
     const error = seam(10, 82, 36, { noise: 24 }).error;
     assert.ok(error <= SEAM_LIMITS.perfect, `error ${error}`);
@@ -45,11 +54,11 @@ test('Without a neighboring frame a loop is at most good', () => {
     assert.equal(loopTier(SEAM_LIMITS.good + .01, false), 'fair');
 });
 
-test('Without a seamless repeat, the closest matches are still listed', () => {
-    const clips = [1.2, 1.5, 1.8, 3, 6].map((seamError, i) => ({ id: i, seamError }));
-    assert.deepEqual(bestLoops(clips).map(c => c.id), [0, 1, 2]);
-    const mixed = [.05, .3, .9].map((seamError, i) => ({ id: i, seamError }));
-    assert.deepEqual(bestLoops(mixed).map(c => c.id), [0, 1], 'Perfect and good loops hide clearly worse ones');
+test('Every perfect and good loop is listed; otherwise the best loop of every scene', () => {
+    const clip = (id, start, seamError) => ({ id, start, seamError, tier: loopTier(seamError) });
+    assert.deepEqual(bestLoops([clip(0, 1, .01), clip(1, 50, .34), clip(2, 80, .5), clip(3, 90, 2)], [0, 40]).map(c => c.id), [0, 1], 'A good loop far from the best is still listed');
+    const rough = [clip(0, 1, 1.5), clip(1, 5, 1.2), clip(2, 42, 3), clip(3, 47, 2.4), clip(4, 70, .9)];
+    assert.deepEqual(bestLoops(rough, [0, 40, 65]).map(c => c.id), [1, 3, 4], 'One per scene, however weak');
 });
 
 test('Verification covers different moments before near-duplicates of the strongest match', () => {
@@ -135,4 +144,23 @@ test('Search finds the exact period of a repeating video and never a frame more 
         assert.ok(frames === 2 * period || frames === 3 * period, `${frames} frames`);
         assert.equal(candidate.tier, 'perfect');
     }
+});
+
+// Descriptors of a figure that moves in a cycle; its 8 x 8 "head" tile can be recolored.
+function figure(time, head = 0.8) {
+    const pixels = new Float32Array(32 * 32 * 3).fill(0.2), x = Math.round(12 + 6 * Math.sin(time * Math.PI / 1.8));
+    for (let y = 8; y < 30; y++) for (let i = x; i < x + 8; i++) pixels.fill(0.6, (y * 32 + i) * 3, (y * 32 + i) * 3 + 3);
+    for (let y = 0; y < 8; y++) for (let i = 16; i < 24; i++) pixels.fill(head, (y * 32 + i) * 3, (y * 32 + i) * 3 + 3);
+    return { time, pixels };
+}
+
+test('An edit that only replaces a face is a scene cut, and its loops are not repeats of each other', async () => {
+    const frames = Array.from({ length: 301 }, (_, i) => figure(i / 10, i < 150 ? 0.8 : 0.1));
+    assert.deepEqual(sceneStarts(frames), [0, 15], 'The same motion with another face starts a new scene');
+    // Real frames for confirmation: the descriptors' luminance, at the sample nearest each time.
+    const luma = time => frames[Math.round(time * 10)].pixels.filter((_, p) => p % 3 === 0);
+    const confirm = async (time, loop) => frameMatchError(luma(loop.start), luma(time), luma(time + .1), 32, 32) <= SEAM_LIMITS.perfect;
+    const loops = await markCycles([{ start: 2, end: 5.6 }, { start: 20, end: 23.6 }, { start: 6, end: 9.6 }], frames, confirm);
+    assert.notEqual(loops[0].cycle, loops[1].cycle, 'A different face is a different loop');
+    assert.equal(loops[0].cycle, loops[2].cycle, 'The same face at another phase is a repeat');
 });

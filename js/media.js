@@ -1,5 +1,5 @@
 import { clamp } from './logic.js';
-import { bestLoops, distinctCandidates, diverseShortlist, pairScore, seamMatch, verifyLimit } from './ranking.js';
+import { SEAM_LIMITS, bestLoops, cutAtBoundary, distinctCandidates, frameMatchError, diverseShortlist, markCycles, pairScore, sceneStarts, seamMatch, verifyLimit } from './ranking.js';
 function aborted(signal) { if (signal?.aborted)
     throw new DOMException('Cancelled', 'AbortError'); }
 const helperVideos = new WeakSet();
@@ -174,7 +174,8 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             signal.addEventListener('abort', abort, { once: true });
             worker.onerror = () => { signal.removeEventListener('abort', abort); reject(new Error('The analysis worker failed. Try a smaller search range.')); };
             worker.onmessage = event => { signal.removeEventListener('abort', abort); event.data.error ? reject(new Error(event.data.error)) : resolve(event.data.candidates); };
-            worker.postMessage({ frames, options: { ...options, limit: 2 * verifyLimit(plan.end - plan.first), endBoundary: plan.end } }, frames.map(f => f.pixels.buffer));
+            // Frames are copied, not transferred: they also identify repeated cycles later.
+            worker.postMessage({ frames, options: { ...options, limit: 2 * verifyLimit(plan.end - plan.first, options.min), endBoundary: plan.end } });
         });
         worker.terminate();
         worker = undefined;
@@ -199,7 +200,7 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             cache.set(index, frame); return frame;
         };
         const radius = Math.max(1, Math.ceil(step * fps / 2));
-        const shortlist = diverseShortlist(candidates, verifyLimit(plan.end - plan.first));
+        const shortlist = diverseShortlist(candidates, verifyLimit(plan.end - plan.first, options.min));
         const verified = [];
         for (const [i, c] of shortlist.entries()) {
             aborted(signal);
@@ -213,13 +214,22 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
                     continue;
                 const read = index => index >= firstIndex && index < endIndex ? readFrame(index) : undefined;
                 const frames = { start: await read(a), startNext: await read(a + 1), startNext2: await read(a + 2), end: await read(b - 1), endPrevious: await read(b - 2), endPrevious2: await read(b - 3), after: await read(b), before: await read(a - 1) };
+                if (cutAtBoundary(frames)) continue;
                 const match = seamMatch(frames, width, height, options.preferMotion, c.cuts);
                 if (!best || match.seamError < best.seamError)
                     best = { ...c, ...match, start: a / fps, end: b / fps, coarseScore: c.score, verified: true };
             }
             if (best) verified.push(best);
         }
-        const distinct = verified.length ? distinctCandidates(bestLoops(verified), { ...options, limit: 48 }) : [];
+        // A repeat is confirmed with real frames: the other loop's first frame must
+        // appear within one sampling step of the sampled phase, as precisely as a perfect seam.
+        const confirm = async (time, loop) => {
+            const first = await readFrame(Math.round(loop.start * fps)), center = Math.round(time * fps);
+            for (let index = Math.max(firstIndex, center - radius - 1); index <= Math.min(endIndex - 2, center + radius + 1); index++)
+                if (frameMatchError(first.luma, (await readFrame(index)).luma, (await readFrame(index + 1)).luma, width, height) <= SEAM_LIMITS.perfect) return true;
+            return false;
+        };
+        const distinct = verified.length ? await markCycles(distinctCandidates(bestLoops(verified, sceneStarts(frames)), { ...options, limit: verified.length }), frames, confirm) : [];
         for (let i = 0; i < distinct.length; i++) {
             await seekVideo(video, distinct[i].start + 0.5 / fps, signal);
             // Keep the source's shape; the list scales the preview down.

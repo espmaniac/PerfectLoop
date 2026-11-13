@@ -5,6 +5,34 @@ export function pixelDistance(a, b) {
         sum += Math.abs(a[i] - b[i]);
     return sum / a.length;
 }
+// The largest mean RGB difference among sixteen 8 x 8 tiles of two descriptors.
+// A change confined to a small region (a face, a hand) is not averaged away.
+export function tileChange(a, b) {
+    let largest = 0;
+    for (let by = 0; by < 32; by += 8)
+        for (let bx = 0; bx < 32; bx += 8) {
+            let sum = 0;
+            for (let y = by; y < by + 8; y++)
+                for (let p = (y * 32 + bx) * 3, end = p + 24; p < end; p++) sum += Math.abs(a[p] - b[p]);
+            largest = Math.max(largest, sum / 192);
+        }
+    return largest;
+}
+// A scene cut between samples i - 1 and i: the whole frame changes, or one region
+// changes abruptly, far more than in the neighboring steps (an edit that keeps the
+// composition but replaces, say, a face).
+export function isCut(frames, i) {
+    const change = j => j > 0 && j < frames.length ? tileChange(frames[j - 1].pixels, frames[j].pixels) : 0;
+    if (pixelDistance(frames[i - 1].pixels, frames[i].pixels) > 0.24) return true;
+    const jump = change(i);
+    return jump > 0.25 && jump > 3 * Math.max(change(i - 1), change(i + 1)) + 0.02;
+}
+// Start times of the scenes in sampled frames.
+export function sceneStarts(frames) {
+    const starts = frames.length ? [frames[0].time] : [];
+    for (let i = 1; i < frames.length; i++) if (isCut(frames, i)) starts.push(frames[i].time);
+    return starts;
+}
 export function visualFit(a, b) {
     let ss = 0, blocks = 0;
     // Local SSIM on sixteen 8×8 luminance windows, plus RGB error.
@@ -49,10 +77,10 @@ export function pairScore(a, an, bp, b, preferMotion, cuts = 0, bn) {
     const score = 100 * clamp(visual * 0.78 + motion * 0.22 - staticPenalty - Math.min(0.25, cuts * 0.07), 0, 1);
     return { start: a.time, end: b.time, score, visual: visual * 100, motion: motion * 100, activity, cuts };
 }
-// Shortlisted matches verified frame by frame. Longer ranges hold more separate
-// moments, so they get a larger budget.
-export function verifyLimit(seconds) {
-    return clamp(Math.ceil(seconds / 5), 32, 64);
+// Matches verified frame by frame: one for every stretch of the shortest loop
+// length, so every moment of a long video is checked.
+export function verifyLimit(seconds, minLength = 3) {
+    return clamp(Math.ceil(seconds / Math.max(2, minLength)), 32, 240);
 }
 // Seam error is measured in frame steps of local motion: a repeated or skipped
 // frame is about 0.4-0.9, while seamless repeats stay below 0.12 even with grain.
@@ -63,12 +91,12 @@ export function loopTier(seamError, exact = true) {
 }
 // Spread work over different moments: the strongest match of every stretch of
 // the source first, then the remaining strongest matches with ties spread out.
-// Each stretch is at least one loop long, so a weaker later scene is not
-// displaced by many strong matches elsewhere.
+// Each stretch is at least as long as the shortest match, so a weaker later
+// scene is not displaced by many strong matches elsewhere.
 export function diverseShortlist(candidates, limit) {
     if (!candidates.length) return [];
     const from = Math.min(...candidates.map(c => c.start)), to = Math.max(...candidates.map(c => c.start));
-    const size = Math.max(...candidates.map(c => c.end - c.start), (to - from) / limit, 1e-6);
+    const size = Math.max(Math.min(...candidates.map(c => c.end - c.start)), (to - from) / limit, 1e-6);
     const stretches = new Map();
     for (const c of candidates) {
         const key = Math.floor((c.start - from) / size), best = stretches.get(key);
@@ -79,12 +107,18 @@ export function diverseShortlist(candidates, limit) {
         if (picked.length < limit && !picked.includes(c)) picked.push(c);
     return picked;
 }
-// Show the cleanest loops this source offers: everything near the best seam,
-// and every perfect or good loop. A source without a seamless repeat still
-// lists its closest matches.
-export function bestLoops(verified) {
-    const best = Math.min(...verified.map(c => c.seamError));
-    return verified.filter(c => c.seamError <= Math.max(SEAM_LIMITS.good, best * 1.8 + .15));
+// Every perfect and good loop is listed. A source without one lists the best
+// loop of every scene (scene start times from sceneStarts), so each place where
+// a loop is possible can be reviewed, and a search never comes back empty.
+export function bestLoops(verified, scenes = [-Infinity]) {
+    const seamless = verified.filter(c => c.tier === 'perfect' || c.tier === 'good');
+    if (seamless.length) return seamless;
+    const best = new Map();
+    for (const c of verified) {
+        const scene = scenes.filter(start => start <= c.start + 1e-7).length;
+        if (!best.has(scene) || c.seamError < best.get(scene).seamError) best.set(scene, c);
+    }
+    return [...best.values()];
 }
 // A loop is seamless when the frame shown after its last frame is the frame the
 // source itself shows next. Compare the start with the source frame after the end
@@ -119,6 +153,15 @@ export function seamError({ start, startNext, startNext2, end, endPrevious, endP
     const worst = tiles.map(t => Math.max(0, t.error - Math.max(quiet, t.noise)) / (4 + t.normal)).sort((a, b) => b - a).slice(0, 6);
     return { error: worst.reduce((a, b) => a + b, 0) / worst.length, exact: Boolean(after || before) };
 }
+// A scene cut among the first or last three frames: one change far larger than
+// the next one. Such a loop flashes a frame of another scene at its seam, and the
+// cut would also inflate the normal motion that seam errors are measured against.
+export function cutAtBoundary({ start, startNext, startNext2, end, endPrevious, endPrevious2 }) {
+    const change = (a, b) => { let sum = 0; for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]); return sum / a.length; };
+    const cut = (jump, next) => jump > 25 && jump > 3 * next + 5;
+    return Boolean(startNext2 && cut(change(start.luma, startNext.luma), change(startNext.luma, startNext2.luma)))
+        || Boolean(endPrevious2 && cut(change(endPrevious.luma, end.luma), change(endPrevious2.luma, endPrevious.luma)));
+}
 // Seam quality decides the tier. Static clips and cuts only lower the ranking.
 export function seamMatch(frames, width, height, preferMotion, cuts = 0) {
     const seam = seamError(Object.fromEntries(Object.entries(frames).map(([key, frame]) => [key, frame?.luma])), width, height);
@@ -136,7 +179,7 @@ export function rankFrames(frames, opts) {
     frames = frames.filter(frame => frame.time >= opts.from - 1e-7 && frame.time < opts.to - 1e-7);
     const prefix = new Uint32Array(frames.length);
     for (let i = 1; i < frames.length; i++)
-        prefix[i] = prefix[i - 1] + (pixelDistance(frames[i - 1].pixels, frames[i].pixels) > 0.24 ? 1 : 0);
+        prefix[i] = prefix[i - 1] + (isCut(frames, i) ? 1 : 0);
     const shortlist = [];
     for (let a = 0; a < frames.length - 1; a++) {
         const matches = [];
@@ -226,16 +269,66 @@ export function distinctCandidates(candidates, opts) {
     return distinct;
 }
 
+// How visibly frame x differs from frame y, in the units of seamError: tile
+// differences beyond the grain of quiet tiles, relative to y's own motion.
+export function frameMatchError(x, y, yNext, width, height) {
+    const size = 12, tiles = [];
+    for (let ty = 0; ty < height; ty += size)
+        for (let tx = 0; tx < width; tx += size) {
+            let error = 0, normal = 0, count = 0;
+            for (let j = ty; j < Math.min(height, ty + size); j++)
+                for (let i = tx; i < Math.min(width, tx + size); i++, count++) {
+                    const p = j * width + i;
+                    error += Math.abs(x[p] - y[p]); normal += Math.abs(yNext[p] - y[p]);
+                }
+            tiles.push({ error: error / count, normal: normal / count });
+        }
+    const quiet = tiles.map(t => t.normal).sort((a, b) => a - b)[Math.floor(tiles.length * .1)] || 0;
+    const worst = tiles.map(t => Math.max(0, t.error - quiet) / (4 + t.normal)).sort((a, b) => b - a).slice(0, 6);
+    return worst.reduce((a, b) => a + b, 0) / worst.length;
+}
+// Loops that show the same footage are one cycle at different phases, or played
+// more than once: their lengths are equal or whole multiples, and the first frame
+// of one appears inside the other. Sampled descriptors find a likely phase;
+// confirm(time, loop) then checks real frames near that time against the loop's
+// first frame, as strictly as a perfect seam. Each loop gets a cycle number
+// shared by its repeats.
+export async function markCycles(loops, frames, confirm = async () => true) {
+    const at = time => {
+        let low = 0, high = frames.length - 1;
+        while (low < high) { const mid = (low + high) >> 1; frames[mid].time < time - 1e-7 ? low = mid + 1 : high = mid; }
+        return low;
+    };
+    const inside = loop => frames.slice(at(loop.start), Math.max(at(loop.start) + 1, at(loop.end)));
+    const repeats = async (a, b) => {
+        const samples = inside(a), first = frames[at(b.start)];
+        const steps = samples.slice(1).map((frame, i) => tileChange(samples[i].pixels, frame.pixels)).sort((x, y) => x - y);
+        const step = steps[Math.floor(steps.length / 2)] || 0;
+        const distances = samples.map(frame => tileChange(frame.pixels, first.pixels));
+        const nearest = distances.indexOf(Math.min(...distances));
+        return distances[nearest] <= Math.max(.01, step * .75) && await confirm(samples[nearest].time, b);
+    };
+    const cycle = loops.map((_, i) => i);
+    const root = i => cycle[i] === i ? i : (cycle[i] = root(cycle[i]));
+    for (let i = 0; i < loops.length; i++) for (let j = 0; j < i; j++) {
+        const a = loops[i], b = loops[j];
+        const [short, long] = [a.end - a.start, b.end - b.start].sort((x, y) => x - y), times = Math.round(long / short);
+        if (root(i) !== root(j) && Math.abs(long - times * short) <= .1 * times && (await repeats(a, b) || await repeats(b, a))) cycle[root(i)] = root(j);
+    }
+    loops.forEach((loop, i) => { loop.cycle = root(i); });
+    return loops;
+}
 // Nonmaximum suppression keeps the strongest representative of overlapping clips.
 // Compare with retained clips, so a chain of overlaps cannot hide a distant scene.
-export function filterSimilarRanges(candidates, hideSimilar = true, limit = hideSimilar ? 16 : 48) {
+export function filterSimilarRanges(candidates, hideSimilar = true, limit = Infinity) {
     const visible = [];
     for (const candidate of [...candidates].sort((a,b) => rank(b)-rank(a))) {
         const duplicate = visible.some(other => {
             if (Math.abs(candidate.start-other.start)<1e-7 && Math.abs(candidate.end-other.end)<1e-7) return true;
             if (!hideSimilar) return false;
-            const overlap = Math.max(0, Math.min(candidate.end,other.end)-Math.max(candidate.start,other.start));
-            return overlap / Math.min(candidate.end-candidate.start,other.end-other.start) >= .75;
+            const overlap = Math.min(candidate.end,other.end)-Math.max(candidate.start,other.start);
+            const shorter = Math.min(candidate.end-candidate.start,other.end-other.start);
+            return overlap / shorter >= .5 || (candidate.cycle !== undefined && candidate.cycle === other.cycle);
         });
         if (!duplicate) visible.push(candidate);
         if (visible.length >= limit) break;
