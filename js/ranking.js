@@ -49,6 +49,58 @@ export function pairScore(a, an, bp, b, preferMotion, cuts = 0, bn) {
     const score = 100 * clamp(visual * 0.78 + motion * 0.22 - staticPenalty - Math.min(0.25, cuts * 0.07), 0, 1);
     return { start: a.time, end: b.time, score, visual: visual * 100, motion: motion * 100, activity, cuts };
 }
+// Shortlisted matches verified frame by frame, strongest sampled matches first.
+export const VERIFY_LIMIT = 32;
+// Seam error is measured in frame steps of local motion: a repeated or skipped
+// frame is about 0.4-0.9, while seamless repeats stay below 0.12 even with grain.
+export const SEAM_LIMITS = { perfect: 0.15, good: 0.35 };
+export function loopTier(seamError, exact = true) {
+    return seamError <= SEAM_LIMITS.perfect && exact ? 'perfect' : seamError <= SEAM_LIMITS.good ? 'good' : '';
+}
+// A loop is seamless when the frame shown after its last frame is the frame the
+// source itself shows next. Compare the start with the source frame after the end
+// (and the end with the frame before the start) in small tiles, relative to the
+// normal change between neighboring frames. A repeated or skipped frame counts as
+// a full frame of motion, while grain and compression noise are discounted.
+export function seamError({ start, startNext, startNext2, end, endPrevious, endPrevious2, after, before }, width, height) {
+    const size = 12, tiles = [];
+    const tileMean = (a, b, x, y) => {
+        let sum = 0, count = 0;
+        for (let j = y; j < Math.min(height, y + size); j++)
+            for (let i = x; i < Math.min(width, x + size); i++, count++)
+                sum += Math.abs(a[j * width + i] - b[j * width + i]);
+        return sum / count;
+    };
+    for (let y = 0; y < height; y += size)
+        for (let x = 0; x < width; x += size) {
+            const step = [tileMean(startNext, start, x, y), tileMean(end, endPrevious, x, y)];
+            const normal = (step[0] + step[1]) / 2;
+            // Motion accumulates over two frames while noise does not, so a tile
+            // whose two-frame change equals its one-frame change contains only noise.
+            const twoSteps = [startNext2 && tileMean(startNext2, start, x, y), endPrevious2 && tileMean(end, endPrevious2, x, y)];
+            const noise = Math.min(...[0, 1].map(k => twoSteps[k] === undefined ? 0 : clamp(2 * step[k] - twoSteps[k], 0, step[k])));
+            const truths = [after && tileMean(start, after, x, y), before && tileMean(end, before, x, y)].filter(v => v !== undefined);
+            // Without either neighbor, only a jump beyond the usual motion is measurable.
+            const error = truths.length ? Math.min(...truths) : Math.max(0, tileMean(start, end, x, y) - normal * 1.5);
+            tiles.push({ error, noise, normal });
+        }
+    // Even grain is also visible as the quietest tiles' frame-to-frame change.
+    const quiet = tiles.map(t => t.normal).sort((a, b) => a - b)[Math.floor(tiles.length * .1)] || 0;
+    // A small moving object must not be averaged away by a static background.
+    const worst = tiles.map(t => Math.max(0, t.error - Math.max(quiet, t.noise)) / (4 + t.normal)).sort((a, b) => b - a).slice(0, 6);
+    return { error: worst.reduce((a, b) => a + b, 0) / worst.length, exact: Boolean(after || before) };
+}
+// Seam quality decides the tier. Static clips and cuts only lower the ranking.
+export function seamMatch(frames, width, height, preferMotion, cuts = 0) {
+    const seam = seamError(Object.fromEntries(Object.entries(frames).map(([key, frame]) => [key, frame?.luma])), width, height);
+    const { activity } = motionFit(frames.start.pixels, frames.startNext.pixels, frames.endPrevious.pixels, frames.end.pixels);
+    // Without a neighboring frame (the whole selection), a loop cannot be confirmed perfect.
+    const tier = loopTier(seam.error, seam.exact);
+    const quality = 100 * Math.exp(-seam.error * 0.7);
+    const staticPenalty = preferMotion ? Math.max(0, 1 - activity / 0.015) * 10 : 0;
+    const score = clamp(quality - staticPenalty - Math.min(25, cuts * 7), 0, 100);
+    return { tier, quality, score, seamError: seam.error, activity, cuts };
+}
 export function rankFrames(frames, opts) {
     // Bounds are enforced here as well as during decoding: analysis workers and
     // refinement must never nominate a clip outside the requested source range.
@@ -103,15 +155,17 @@ export function rankFrames(frames, opts) {
     }
     return candidates;
 }
+// Perfect loops always precede good ones; motion and cuts order loops within a tier.
+const rank = candidate => candidate.score + (candidate.tier === 'perfect' ? 200 : candidate.tier === 'good' ? 100 : 0);
 export function distinctCandidates(candidates, opts) {
     const limit = opts.limit ?? 16;
-    const best = [...candidates].sort((x, y) => y.score - x.score);
+    const best = [...candidates].sort((x, y) => rank(y) - rank(x));
     const distinct = [];
-    const separation = opts.precision === 'detailed' ? 0.3 : 0.6;
+    const separation = 0.3;
     const duplicate = c => distinct.some(x => Math.abs(x.start - c.start) < separation && Math.abs((x.end - x.start) - (c.end - c.start)) < 0.35);
     for (let index = 0; index < best.length && distinct.length < limit;) {
         let end = index + 1;
-        while (end < best.length && Math.abs(best[end].score - best[index].score) < 1e-8)
+        while (end < best.length && Math.abs(rank(best[end]) - rank(best[index])) < 1e-8)
             end++;
         // Equal quality carries no reason to prefer the beginning of a video.
         // Spread ties across source time, without promoting weaker matches.
@@ -144,7 +198,7 @@ export function distinctCandidates(candidates, opts) {
 // Compare with retained clips, so a chain of overlaps cannot hide a distant scene.
 export function filterSimilarRanges(candidates, hideSimilar = true, limit = hideSimilar ? 16 : 48) {
     const visible = [];
-    for (const candidate of [...candidates].sort((a,b) => b.score-a.score)) {
+    for (const candidate of [...candidates].sort((a,b) => rank(b)-rank(a))) {
         const duplicate = visible.some(other => {
             if (Math.abs(candidate.start-other.start)<1e-7 && Math.abs(candidate.end-other.end)<1e-7) return true;
             if (!hideSimilar) return false;
