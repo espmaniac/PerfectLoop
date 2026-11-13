@@ -104,12 +104,12 @@ export function diverseShortlist(candidates, limit) {
     return picked;
 }
 // Every loop found is listed, repeats included, cleanest first. Rough loops are
-// listed only when the source has no better one, so a search never comes back
-// empty. Loops refined to the same range are listed once.
+// hidden only when the source has a perfect or good loop, so a search never comes
+// back empty. Loops refined to the same range are listed once.
 export function bestLoops(verified) {
-    const better = verified.filter(c => c.tier !== 'rough');
+    const seamless = verified.some(c => c.tier === 'perfect' || c.tier === 'good');
     const unique = new Map();
-    for (const c of better.length ? better : verified) {
+    for (const c of seamless ? verified.filter(c => c.tier !== 'rough') : verified) {
         const key = `${c.start.toFixed(6)}-${c.end.toFixed(6)}`;
         if (!unique.has(key) || rank(c) > rank(unique.get(key))) unique.set(key, c);
     }
