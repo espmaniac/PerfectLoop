@@ -741,7 +741,7 @@ function renderCandidates() {
   $('#select-top').innerHTML = icon(state.selected.size ? 'X' : 'ListChecks', 16) + `<span>${state.selected.size ? 'Clear selection' : 'Select top 5'}</span>`;
   $('#candidates').innerHTML = visible.map((candidate, index) => `<div class="candidate">
     <label class="candidate-check" title="Include in batch export"><span>Batch</span><input type="checkbox" data-candidate-check="${candidate.id}" aria-label="Select candidate ${index + 1} for batch export" ${state.selected.has(candidate.id) ? 'checked' : ''}></label>
-    <img src="${candidate.thumbnail}" alt="Start frame of candidate ${index + 1}">
+    <span class="candidate-thumb"><img src="${candidate.thumbnail}" alt="Start frame of candidate ${index + 1}"></span>
     <button class="candidate-main" data-candidate="${candidate.id}"><b>${timecode(candidate.start)} <span>→</span> ${timecode(candidate.end)}</b><small>${(candidate.end - candidate.start).toFixed(3)}s${candidate.cuts ? ` · ${candidate.cuts} cuts` : ''}</small><span class="candidate-use">${icon('Check', 14)} Use this loop</span></button>
     <span class="score tier ${candidate.tier === 'perfect' ? 'strong' : ''}" title="${LOOP_TIERS[candidate.tier].detail} Checked frame by frame on the unframed source.">${LOOP_TIERS[candidate.tier].name}<small>seam</small></span></div>`).join('');
   $('#batch-button').hidden = !state.selected.size;
