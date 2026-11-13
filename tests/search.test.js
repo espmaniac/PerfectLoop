@@ -181,11 +181,11 @@ test('Similar-range filtering keeps the best overlapping clip and exposes altern
     assert.equal(JSON.stringify(candidates),snapshot);
 });
 
-test('Loops of one repeating cycle, at any phase or number of cycles, are listed once; other footage stays', () => {
+test('Loops of one repeating cycle, at any phase or number of cycles, are listed once; other footage stays', async () => {
     // A cycle of 36 samples (3.6 s), then unrelated footage from 30 s.
     const split = (time, level) => ({ time, pixels: Float32Array.from({ length: 32 * 32 * 3 }, (_, p) => p < 1536 ? level : 1 - level) });
     const frames = Array.from({ length: 451 }, (_, i) => i < 300 ? frame(i / 10, 0.4 + 0.2 * Math.sin(i * Math.PI / 18)) : split(i / 10, 0.9 - i * 0.0005));
-    const clips = markCycles([
+    const clips = await markCycles([
         { id: 'cycle', start: 1, end: 4.6, score: 99 },
         { id: 'later phase', start: 20.3, end: 23.9, score: 98 },
         { id: 'two cycles', start: 5, end: 12.2, score: 97 },

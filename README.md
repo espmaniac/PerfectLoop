@@ -41,7 +41,7 @@ For Spotify Canvas, the finished video must be **3–8 seconds, portrait, and si
 
 ## 💡 Before you export
 
-- **Check the join.** Auto find lists every perfect and good loop without overlapping repeats (or the closest matches when there are none); watch the result to judge smoothness.
+- **Check the join.** Auto find lists every perfect and good loop without overlapping repeats (or the best loop of every scene when there are none); watch the result to judge smoothness.
 - **Check the duration.** A dissolve shortens the cycle; forward-and-backward playback makes it longer.
 - **Check the audio.** Muting playback does not remove audio from the download — set export audio in **Video settings**.
 

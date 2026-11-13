@@ -1,5 +1,5 @@
 import { clamp } from './logic.js';
-import { bestLoops, cutAtBoundary, distinctCandidates, diverseShortlist, markCycles, pairScore, seamMatch, verifyLimit } from './ranking.js';
+import { SEAM_LIMITS, bestLoops, cutAtBoundary, distinctCandidates, frameMatchError, diverseShortlist, markCycles, pairScore, sceneStarts, seamMatch, verifyLimit } from './ranking.js';
 function aborted(signal) { if (signal?.aborted)
     throw new DOMException('Cancelled', 'AbortError'); }
 const helperVideos = new WeakSet();
@@ -221,7 +221,15 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
             }
             if (best) verified.push(best);
         }
-        const distinct = verified.length ? markCycles(distinctCandidates(bestLoops(verified), { ...options, limit: verified.length }), frames) : [];
+        // A repeat is confirmed with real frames: the other loop's first frame must
+        // appear within one sampling step of the sampled phase, as precisely as a perfect seam.
+        const confirm = async (time, loop) => {
+            const first = await readFrame(Math.round(loop.start * fps)), center = Math.round(time * fps);
+            for (let index = Math.max(firstIndex, center - radius - 1); index <= Math.min(endIndex - 2, center + radius + 1); index++)
+                if (frameMatchError(first.luma, (await readFrame(index)).luma, (await readFrame(index + 1)).luma, width, height) <= SEAM_LIMITS.perfect) return true;
+            return false;
+        };
+        const distinct = verified.length ? await markCycles(distinctCandidates(bestLoops(verified, sceneStarts(frames)), { ...options, limit: verified.length }), frames, confirm) : [];
         for (let i = 0; i < distinct.length; i++) {
             await seekVideo(video, distinct[i].start + 0.5 / fps, signal);
             // Keep the source's shape; the list scales the preview down.
