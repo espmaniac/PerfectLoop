@@ -1,10 +1,12 @@
 # Loop search
 
+Loops of any length from one second (`SHORTEST_LOOP`) up to the whole search range are considered. Shorter clips are mostly seams. With **Avoid scene cuts**, a loop cannot be longer than its scene.
+
 Search has two stages.
 
 **Sampling.** Descriptors (32 × 32 RGB) are taken about ten times per second: every `round(fps / 10)` source frames, up to 1,601 samples for long ranges. A true repeat therefore lands within one or two frames of a sample. The analysis worker ranks sampled pairs by image structure and forward motion. It returns the strongest match of every stretch of the source first (each stretch at least as long as the shortest match), then the remaining strongest matches, so a long video is covered throughout rather than around its few strongest moments. The complete range is also returned when it fits the length limits and scene-cut policy.
 
-**Frame-level verification.** Shortlisted candidates are verified — one for every stretch of the minimum loop length in the search range (at least 2 seconds), between 32 and 240 — with real frames at up to 160 pixels on the longest side. The shortlist is chosen the same way, so different moments of the video are checked before near-duplicates of the strongest match. Every start and exclusive end within half a sampling step of the sampled boundaries is tested. For each end, the seam is measured directly: the first frame of the loop is compared with the source frame after the end, and the last frame with the source frame before the start. In a seamless loop these are the same images.
+**Frame-level verification.** Shortlisted candidates are verified — one for every 2 seconds of search range, between 32 and 240 — with real frames at up to 160 pixels on the longest side. The shortlist is chosen the same way, so different moments of the video are checked before near-duplicates of the strongest match. Every start and exclusive end within half a sampling step of the sampled boundaries is tested. For each end, the seam is measured directly: the first frame of the loop is compared with the source frame after the end, and the last frame with the source frame before the start. In a seamless loop these are the same images.
 
 The comparison uses 12-pixel tiles. Each tile's difference is reduced by its noise level and divided by the tile's normal frame-to-frame change, so the error is measured in frame steps of local motion. Noise is the larger of the quietest tiles' change (even grain) and the tile's own noise, estimated from the fact that motion accumulates over two frames while noise does not. The six worst tiles are averaged, so a small moving object is not hidden by a static background.
 

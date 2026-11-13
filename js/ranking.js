@@ -79,7 +79,9 @@ export function pairScore(a, an, bp, b, preferMotion, cuts = 0, bn) {
 }
 // Matches verified frame by frame: one for every stretch of the shortest loop
 // length, so every moment of a long video is checked.
-export function verifyLimit(seconds, minLength = 3) {
+// Loops shorter than this are mostly seams; there is no upper limit.
+export const SHORTEST_LOOP = 1;
+export function verifyLimit(seconds, minLength = SHORTEST_LOOP) {
     return clamp(Math.ceil(seconds / Math.max(2, minLength)), 32, 240);
 }
 // Seam error is measured in frame steps of local motion: a repeated or skipped
@@ -144,7 +146,8 @@ export function seamError({ start, startNext, startNext2, end, endPrevious, endP
             const noise = Math.min(...[0, 1].map(k => twoSteps[k] === undefined ? 0 : clamp(2 * step[k] - twoSteps[k], 0, step[k])));
             const truths = [after && tileMean(start, after, x, y), before && tileMean(end, before, x, y)].filter(v => v !== undefined);
             // Without either neighbor, only a jump beyond the usual motion is measurable.
-            const error = truths.length ? Math.min(...truths) : Math.max(0, tileMean(start, end, x, y) - normal * 1.5);
+            // Both sides must match: one alone accepts a loop whose motion reverses at the seam.
+            const error = truths.length ? Math.max(...truths) : Math.max(0, tileMean(start, end, x, y) - normal * 1.5);
             tiles.push({ error, noise, normal });
         }
     // Even grain is also visible as the quietest tiles' frame-to-frame change.

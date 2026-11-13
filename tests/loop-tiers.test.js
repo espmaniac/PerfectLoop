@@ -7,9 +7,9 @@ import { searchSamplePlan, searchVideo } from '../js/media.js';
 
 const W = 160, H = 90;
 // A bright square moves around an ellipse with a period of `period` frames.
-function scene(index, period, { noise = 0, drift = 0 } = {}) {
-    const phase = 2 * Math.PI * index / period;
-    const cx = 80 + 45 * Math.sin(phase) + drift * index, cy = 45 + 25 * Math.cos(phase);
+function scene(index, period, { noise = 0, drift = 0, flat = false } = {}) {
+    const phase = 2 * Math.PI * (index % period) / period; // Exactly periodic, without rounding drift.
+    const cx = 80 + 45 * Math.sin(phase) + drift * index, cy = flat ? 45 : 45 + 25 * Math.cos(phase);
     let seed = index * 7919 + 13;
     const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     return Float32Array.from({ length: W * H }, (_, p) => {
@@ -38,6 +38,12 @@ test('A loop whose first or last frame belongs to another scene is recognized', 
     assert.equal(cutAtBoundary({ ...loop, end: other }), true);
 });
 
+test('A loop whose motion reverses at the seam is rejected even though one side matches', () => {
+    // Side-to-side motion: frames 4 and 14 share a position but move in opposite directions.
+    const error = seam(4, 14, 36, { flat: true }).error;
+    assert.ok(!['perfect', 'good'].includes(loopTier(error)), `error ${error}`);
+});
+
 test('Grain does not prevent a repeat from being perfect', () => {
     const error = seam(10, 82, 36, { noise: 24 }).error;
     assert.ok(error <= SEAM_LIMITS.perfect, `error ${error}`);
@@ -45,7 +51,7 @@ test('Grain does not prevent a repeat from being perfect', () => {
 });
 
 test('A slight drift is good rather than perfect, and a larger drift is rough', () => {
-    assert.equal(loopTier(seam(10, 82, 36, { drift: .03 }).error), 'good');
+    assert.equal(loopTier(seam(10, 82, 36, { drift: .015 }).error), 'good');
     assert.equal(loopTier(seam(10, 82, 36, { drift: .2 }).error), 'rough');
 });
 
