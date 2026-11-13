@@ -53,9 +53,28 @@ export function pairScore(a, an, bp, b, preferMotion, cuts = 0, bn) {
 export const VERIFY_LIMIT = 32;
 // Seam error is measured in frame steps of local motion: a repeated or skipped
 // frame is about 0.4-0.9, while seamless repeats stay below 0.12 even with grain.
-export const SEAM_LIMITS = { perfect: 0.15, good: 0.35 };
+export const SEAM_LIMITS = { perfect: 0.15, good: 0.35, fair: 1 };
 export function loopTier(seamError, exact = true) {
-    return seamError <= SEAM_LIMITS.perfect && exact ? 'perfect' : seamError <= SEAM_LIMITS.good ? 'good' : '';
+    if (seamError <= SEAM_LIMITS.perfect && exact) return 'perfect';
+    return seamError <= SEAM_LIMITS.good ? 'good' : seamError <= SEAM_LIMITS.fair ? 'fair' : 'rough';
+}
+// Spread verification over different moments: the strongest match of each
+// separate range first, then the remaining strongest matches.
+export function diverseShortlist(candidates, limit) {
+    const sorted = [...candidates].sort((x, y) => y.score - x.score), picked = [];
+    const overlaps = (a, b) => Math.max(0, Math.min(a.end, b.end) - Math.max(a.start, b.start)) / Math.min(a.end - a.start, b.end - b.start) >= .75;
+    for (const candidate of sorted)
+        if (picked.length < limit && !picked.some(other => overlaps(candidate, other))) picked.push(candidate);
+    for (const candidate of sorted)
+        if (picked.length < limit && !picked.includes(candidate)) picked.push(candidate);
+    return picked;
+}
+// Show the cleanest loops this source offers: everything near the best seam,
+// and every perfect or good loop. A source without a seamless repeat still
+// lists its closest matches.
+export function bestLoops(verified) {
+    const best = Math.min(...verified.map(c => c.seamError));
+    return verified.filter(c => c.seamError <= Math.max(SEAM_LIMITS.good, best * 1.8 + .15));
 }
 // A loop is seamless when the frame shown after its last frame is the frame the
 // source itself shows next. Compare the start with the source frame after the end
@@ -155,8 +174,9 @@ export function rankFrames(frames, opts) {
     }
     return candidates;
 }
-// Perfect loops always precede good ones; motion and cuts order loops within a tier.
-const rank = candidate => candidate.score + (candidate.tier === 'perfect' ? 200 : candidate.tier === 'good' ? 100 : 0);
+// Cleaner tiers always come first; motion and cuts order loops within a tier.
+const TIER_RANK = { perfect: 300, good: 200, fair: 100 };
+const rank = candidate => candidate.score + (TIER_RANK[candidate.tier] ?? 0);
 export function distinctCandidates(candidates, opts) {
     const limit = opts.limit ?? 16;
     const best = [...candidates].sort((x, y) => rank(y) - rank(x));

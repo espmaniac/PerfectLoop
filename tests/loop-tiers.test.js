@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SEAM_LIMITS, filterSimilarRanges, loopTier, seamError } from '../js/ranking.js';
+import { SEAM_LIMITS, bestLoops, diverseShortlist, filterSimilarRanges, loopTier, seamError } from '../js/ranking.js';
+
+const seamless = error => ['perfect', 'good'].includes(loopTier(error));
 import { searchSamplePlan, searchVideo } from '../js/media.js';
 
 const W = 160, H = 90;
@@ -23,24 +25,37 @@ function seam(a, b, period, options) {
 test('An exact repeat is perfect, while a repeated or skipped seam frame is rejected', () => {
     assert.equal(loopTier(seam(10, 82, 36).error), 'perfect');
     assert.ok(seam(10, 82, 36).error < 1e-9);
-    assert.equal(loopTier(seam(10, 83, 36).error), '', 'One extra frame repeats the start');
-    assert.equal(loopTier(seam(10, 81, 36).error), '', 'One missing frame skips motion');
+    assert.ok(!seamless(seam(10, 83, 36).error), 'One extra frame repeats the start');
+    assert.ok(!seamless(seam(10, 81, 36).error), 'One missing frame skips motion');
 });
 
 test('Grain does not prevent a repeat from being perfect', () => {
     const error = seam(10, 82, 36, { noise: 24 }).error;
     assert.ok(error <= SEAM_LIMITS.perfect, `error ${error}`);
-    assert.equal(loopTier(seam(10, 83, 36, { noise: 24 }).error), '');
+    assert.ok(!seamless(seam(10, 83, 36, { noise: 24 }).error));
 });
 
-test('A slight drift is good rather than perfect, and a larger drift is hidden', () => {
+test('A slight drift is good rather than perfect, and a larger drift is rough', () => {
     assert.equal(loopTier(seam(10, 82, 36, { drift: .03 }).error), 'good');
-    assert.equal(loopTier(seam(10, 82, 36, { drift: .2 }).error), '');
+    assert.equal(loopTier(seam(10, 82, 36, { drift: .2 }).error), 'rough');
 });
 
 test('Without a neighboring frame a loop is at most good', () => {
     assert.equal(loopTier(0, false), 'good');
-    assert.equal(loopTier(SEAM_LIMITS.good + .01, false), '');
+    assert.equal(loopTier(SEAM_LIMITS.good + .01, false), 'fair');
+});
+
+test('Without a seamless repeat, the closest matches are still listed', () => {
+    const clips = [1.2, 1.5, 1.8, 3, 6].map((seamError, i) => ({ id: i, seamError }));
+    assert.deepEqual(bestLoops(clips).map(c => c.id), [0, 1, 2]);
+    const mixed = [.05, .3, .9].map((seamError, i) => ({ id: i, seamError }));
+    assert.deepEqual(bestLoops(mixed).map(c => c.id), [0, 1], 'Perfect and good loops hide clearly worse ones');
+});
+
+test('Verification covers different moments before near-duplicates of the strongest match', () => {
+    const early = Array.from({ length: 5 }, (_, i) => ({ id: `early-${i}`, start: i * .1, end: 4 + i * .1, score: 99 - i }));
+    const late = { id: 'late', start: 12, end: 16, score: 80 };
+    assert.deepEqual(diverseShortlist([...early, late], 2).map(c => c.id), ['early-0', 'late']);
 });
 
 test('Perfect loops are listed before good loops regardless of motion preference', () => {
