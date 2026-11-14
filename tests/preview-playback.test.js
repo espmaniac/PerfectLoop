@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { PreviewPlayback } from '../js/preview-playback.js';
 
 function fixture() {
-    const state = {info:{duration:8}, sourceURL:'source-a', previewChoice:'result', tab:'edit', mode:'composition', renderURL:''};
+    // Interpolation needs an encoded result; most settings play live instead.
+    const state = {info:{duration:8}, s:{method:'crossfade', interpolate:true, repair:null}, sourceURL:'source-a', previewChoice:'result', tab:'edit', mode:'composition', renderURL:''};
     const video = {paused:true}, calls = {renders:0, plays:0};
     let dirty = true;
     const preview = {
@@ -69,4 +70,13 @@ test('No media or another active job prevents rendering or playback',async()=>{
     const f=fixture();f.state.info.duration=0;await f.playback.play();
     f.state.info.duration=8;f.state.job={kind:'export'};await f.playback.play();
     assert.deepEqual(f.calls,{renders:0,plays:0});
+});
+
+test('Loop methods without repairs or interpolation play live without encoding', async () => {
+    const f = fixture(); f.state.s = {method:'pingpong', interpolate:false, repair:null};
+    await f.playback.play();
+    assert.deepEqual(f.calls, {renders:0, plays:1}); assert.equal(f.state.mode, 'composition');
+    f.video.paused = true; f.state.mode = 'loop'; f.state.renderURL = 'old-encoded-result';
+    await f.playback.play();
+    assert.equal(f.state.mode, 'composition', 'An older encoded result gives way to the live one');
 });

@@ -2,6 +2,8 @@ import { clamp, download, timecode, framePlan } from './logic.js';
 import { drawLayers } from './layers.js';
 import { $, icon } from './ui.js';
 import { videoTransform } from './framing.js';
+import { LoopFrameCache } from './loop-cache.js';
+import { needsEncoding, outputFrame } from './loop-frames.js';
 
 export function drawFrame(canvas, video, settings, rendered, layerTime = null) {
   // Keep the last frame while the decoder seeks across the loop boundary.
@@ -17,6 +19,25 @@ export function drawFrame(canvas, video, settings, rendered, layerTime = null) {
   return true;
 }
 
+// One output frame of the live loop-method preview: up to two cached source
+// frames blended as the export blends them, a fade to black, framing, layers.
+function drawLoopFrame(canvas, settings, cache, sourceWidth, sourceHeight, time, layerTime) {
+  const { outputFrames } = framePlan(settings), j = Math.floor(time * settings.fps + 1e-6) % outputFrames;
+  const { a, b, weight, level } = outputFrame(settings, j), first = cache.frame(a), second = cache.frame(b);
+  if (!first || (weight > 0 && !second)) return false;
+  const ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
+  ctx.fillStyle = settings.background; ctx.fillRect(0, 0, w, h);
+  drawLayers(ctx, (settings.layers || []).filter(layer => layer.placement === 'below'), settings, layerTime, framePlan(settings).duration);
+  const { sx, sy, offsetX, offsetY } = videoTransform(settings, sourceWidth, sourceHeight, w, h);
+  ctx.save(); ctx.translate(w / 2 + offsetX, h / 2 + offsetY); ctx.scale(settings.mirror ? -sx : sx, sy); ctx.rotate(settings.rotate * Math.PI / 180);
+  ctx.drawImage(first, -sourceWidth / 2, -sourceHeight / 2, sourceWidth, sourceHeight);
+  if (weight > 0) { ctx.globalAlpha = weight; ctx.drawImage(second, -sourceWidth / 2, -sourceHeight / 2, sourceWidth, sourceHeight); }
+  if (level < 1) { ctx.globalAlpha = 1 - level; ctx.fillStyle = '#000'; ctx.fillRect(-sourceWidth / 2, -sourceHeight / 2, sourceWidth, sourceHeight); }
+  ctx.restore();
+  drawLayers(ctx, (settings.layers || []).filter(layer => layer.placement !== 'below'), settings, layerTime, framePlan(settings).duration);
+  return true;
+}
+
 function drawPreviewFrame(canvas, video, settings, rendered, layerTime) {
   if (!drawFrame(canvas, video, settings, rendered, layerTime)) return false;
   if (!rendered && layerTime !== null) drawLayers(canvas.getContext('2d'), (settings.layers || []).filter(layer => layer.placement !== 'below'), settings,
@@ -29,9 +50,10 @@ function clearFrame(canvas) {
 }
 
 export class Preview {
-  constructor(getState, onMode, onTime, {needsRender = () => false} = {}) {
+  constructor(getState, onMode, onTime, {needsRender = () => false, onLive = () => {}} = {}) {
     this.getState = getState; this.onMode = onMode; this.onTime = onTime;
     this.needsRender = needsRender;
+    this.cache = new LoopFrameCache(() => { this.dirtyFrame = true; onLive(); });
     this.source = $('#source-video'); this.output = $('#loop-video'); this.canvas = $('#preview-canvas');
     this.muted = true; this.guides = false; this.seamPreview = false; this.dirtyFrame = true; this.lastFrame = ''; this.lastTick = 0;
     this.compositionTime = 0; this.compositionTick = null;
@@ -51,6 +73,15 @@ export class Preview {
     this.frame = this.frame.bind(this); this.raf = requestAnimationFrame(this.frame);
   }
   active() { const st = this.getState(); return st.mode === 'loop' && st.renderURL ? this.output : this.source; }
+  // Result shown live in the browser: every loop method except repairs and
+  // interpolation, which only the encoder can produce.
+  live(st = this.getState()) {
+    return st.mode === 'composition' && st.previewChoice === 'result' && st.tab !== 'find' && !needsEncoding(st.s);
+  }
+  // Fraction of the frames decoded for a method that needs them, or 1 when ready.
+  liveProgress(st = this.getState()) {
+    return !this.live(st) || st.s.method === 'natural' ? 1 : this.cache.ready ? 1 : this.cache.progress;
+  }
   sourceRange() {
     const st = this.getState(), search = st.mode === 'source' && st.tab === 'find';
     const duration = Number.isFinite(st.info.duration) ? Math.max(0, st.info.duration) : 0;
@@ -181,7 +212,9 @@ export class Preview {
     const rendered = st.mode === 'loop' && Boolean(st.renderURL);
     const layerTime = st.mode === 'composition' && st.previewChoice !== 'original' ? this.compositionTime : null;
     // Use decoded media, not the small display canvas or the editor's zoomed view.
-    if (!drawPreviewFrame(canvas, this.active(), st.s, rendered, layerTime)) {
+    const method = this.live(st) && st.s.method !== 'natural';
+    if (!(method ? drawLoopFrame(canvas, st.s, this.cache, st.info.width, st.info.height, this.compositionTime, this.compositionTime)
+      : drawPreviewFrame(canvas, this.active(), st.s, rendered, layerTime))) {
       canvas.width = canvas.height = 1;
       throw new Error('Wait for the preview frame to finish loading, then save it again.');
     }
@@ -212,7 +245,11 @@ export class Preview {
       if (range.end > range.start && (video.currentTime >= range.end - 0.005 || video.currentTime < range.start - 0.05)) video.currentTime = range.start;
     }
     const key = `${st.previewChoice}-${st.mode}-${video.currentTime}-${video.readyState}-${st.mode === 'composition' ? this.compositionTime : ''}`;
-    if (this.dirtyFrame || key !== this.lastFrame) {
+    const method = this.live(st) && st.s.method !== 'natural';
+    if (method) this.cache.ensure(st.sourceURL, st.s, st.info);
+    if (method && (this.dirtyFrame || key !== this.lastFrame) && drawLoopFrame(this.canvas, st.s, this.cache, st.info.width, st.info.height, this.compositionTime, this.compositionTime)) {
+      this.lastFrame = key; this.dirtyFrame = false;
+    } else if (this.dirtyFrame || key !== this.lastFrame) {
       // Composition uses live framing; encoded output already includes its layers.
       if (drawPreviewFrame(this.canvas, video, st.s, st.mode !== 'composition', st.mode === 'composition' && st.previewChoice !== 'original' ? this.compositionTime : null)) {
         this.lastFrame = key; this.dirtyFrame = false;

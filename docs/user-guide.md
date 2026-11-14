@@ -2,7 +2,7 @@
 
 [Open PerfectLoop](https://espmaniac.github.io/PerfectLoop/) · [Quick start](../README.md)
 
-Use this guide for advanced repairs, layers, animation, and wallpaper preparation. Original and Result share the current video framing; Result shows the processed loop. Edits pause playback and update the draft frame without rendering. Press **Play** in **Result** to update the full cycle and start playback; an unchanged result plays immediately. Original plays the source without rendering. Video transforms stay in Original until you choose Result.
+Use this guide for advanced repairs, layers, animation, and wallpaper preparation. Original and Result share the current video framing; Result shows the processed loop. Result plays every loop method live in the browser — Natural cut, Crossfade, Offset dissolve, Ping-pong, Smooth ping-pong, and Fade — with framing and layers, and without encoding. The first time a blending or reversing method is shown for a range, its frames are decoded once (**Preparing preview**); Natural motion plays meanwhile. Repairs and motion interpolation are produced only by the encoder: with those, edits update a draft frame, and **Play** in **Result** encodes the full cycle before playing; an unchanged result plays immediately. Original plays the source without rendering. Video transforms stay in Original until you choose Result.
 
 ## Time layers on the timeline
 
