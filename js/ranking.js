@@ -18,19 +18,14 @@ export function tileChange(a, b) {
         }
     return largest;
 }
-// A scene cut between samples i - 1 and i: the whole frame or one region changes
-// abruptly, far more than in the neighboring steps. A cut between similar shots
-// (the same place from another angle, an edit that replaces only a face) is a
-// small change, but still a spike against ordinary motion.
+// A scene cut between samples i - 1 and i: the whole frame changes, or one region
+// changes abruptly, far more than in the neighboring steps (an edit that keeps the
+// composition but replaces, say, a face).
 export function isCut(frames, i) {
-    const spike = (measure, floor) => {
-        const change = j => j > 0 && j < frames.length ? measure(frames[j - 1].pixels, frames[j].pixels) : 0;
-        const jump = change(i);
-        // Three steps on each side: held frames in animation move in jumps too.
-        const around = Math.max(...[-3, -2, -1, 1, 2, 3].map(k => change(i + k)));
-        return jump > floor && jump > 3 * around + 0.01;
-    };
-    return pixelDistance(frames[i - 1].pixels, frames[i].pixels) > 0.24 || spike(pixelDistance, 0.03) || spike(tileChange, 0.05);
+    const change = j => j > 0 && j < frames.length ? tileChange(frames[j - 1].pixels, frames[j].pixels) : 0;
+    if (pixelDistance(frames[i - 1].pixels, frames[i].pixels) > 0.24) return true;
+    const jump = change(i);
+    return jump > 0.25 && jump > 3 * Math.max(change(i - 1), change(i + 1)) + 0.02;
 }
 export function visualFit(a, b) {
     let ss = 0, blocks = 0;
@@ -76,8 +71,13 @@ export function pairScore(a, an, bp, b, preferMotion, cuts = 0, bn) {
     const score = 100 * clamp(visual * 0.78 + motion * 0.22 - staticPenalty - Math.min(0.25, cuts * 0.07), 0, 1);
     return { start: a.time, end: b.time, score, visual: visual * 100, motion: motion * 100, activity, cuts };
 }
+// Matches verified frame by frame: one for every stretch of the shortest loop
+// length, so every moment of a long video is checked.
 // Loops shorter than this are mostly seams; there is no upper limit.
 export const SHORTEST_LOOP = 1;
+export function verifyLimit(seconds, minLength = SHORTEST_LOOP) {
+    return clamp(Math.ceil(seconds / Math.max(2, minLength)), 32, 240);
+}
 // Seam error is measured in frame steps of local motion: a repeated or skipped
 // frame is about 0.4-0.9, while seamless repeats stay below 0.12 even with grain.
 export const SEAM_LIMITS = { perfect: 0.15, good: 0.35, fair: 1 };
@@ -103,23 +103,17 @@ export function diverseShortlist(candidates, limit) {
         if (picked.length < limit && !picked.includes(c)) picked.push(c);
     return picked;
 }
-// One loop per scene: the cleanest loop of every scene, in order through the
-// range, however many scenes there are. A loop belongs to the scene in which it
-// starts; scenes are given by their start times.
-export function bestPerScene(verified, sceneStarts) {
-    const best = new Map();
-    const better = (c, other) => rank(c) - rank(other) || other.seamError - c.seamError;
-    for (const c of verified) {
-        const scene = sceneStarts.filter(start => start <= c.start + 1e-7).length;
-        if (!best.has(scene) || better(c, best.get(scene)) > 0) best.set(scene, c);
+// Every loop found is listed, repeats included, cleanest first. Rough loops are
+// hidden only when the source has a perfect or good loop, so a search never comes
+// back empty. Loops refined to the same range are listed once.
+export function bestLoops(verified) {
+    const seamless = verified.some(c => c.tier === 'perfect' || c.tier === 'good');
+    const unique = new Map();
+    for (const c of seamless ? verified.filter(c => c.tier !== 'rough') : verified) {
+        const key = `${c.start.toFixed(6)}-${c.end.toFixed(6)}`;
+        if (!unique.has(key) || rank(c) > rank(unique.get(key))) unique.set(key, c);
     }
-    return [...best.values()].sort((x, y) => x.start - y.start);
-}
-// Start times of the scenes in sampled frames.
-export function sceneStarts(frames) {
-    const starts = frames.length ? [frames[0].time] : [];
-    for (let i = 1; i < frames.length; i++) if (isCut(frames, i)) starts.push(frames[i].time);
-    return starts;
+    return [...unique.values()].sort((x, y) => rank(y) - rank(x) || x.seamError - y.seamError);
 }
 // A loop is seamless when the frame shown after its last frame is the frame the
 // source itself shows next. Compare the start with the source frame after the end
@@ -218,33 +212,9 @@ export function rankFrames(frames, opts) {
                 break;
         }
     }
-    // Every scene is searched on its own: matches from different parts of it, more
-    // for a longer scene. A scene whose frames never pass the cheap shortlist still
-    // gets its closest pair, so each scene can offer a loop.
-    const sceneOfStart = new Map(frames.map((frame, i) => [frame.time, prefix[i]]));
-    const scenes = new Map(), candidates = [];
-    for (const match of shortlist) {
-        const scene = sceneOfStart.get(match.start);
-        if (!scenes.has(scene)) scenes.set(scene, []);
-        scenes.get(scene).push(match);
-    }
-    for (let first = 0; first < frames.length;) {
-        let last = first;
-        while (last + 1 < frames.length && prefix[last + 1] === prefix[first]) last++;
-        const end = last === frames.length - 1 && Number.isFinite(opts.endBoundary) ? opts.endBoundary : frames[last].time;
-        const seconds = end - frames[first].time, matches = scenes.get(prefix[first]);
-        if (matches?.length) candidates.push(...diverseShortlist(matches, clamp(Math.ceil(seconds / 5), 3, 64)));
-        else if (seconds >= opts.min - 1e-6) {
-            let closest;
-            for (let a = first; a < last; a++) for (let b = a + 1; b <= last; b++) {
-                const stop = b === frames.length - 1 && Number.isFinite(opts.endBoundary) ? opts.endBoundary : frames[b].time;
-                const d = stop - frames[a].time, distance = pixelDistance(frames[a].pixels, frames[b].pixels);
-                if (d >= opts.min - 1e-6 && d <= opts.max + 1e-6 && stop <= opts.to + 1e-7 && (!closest || distance < closest.distance)) closest = { a, b, end: stop, distance };
-            }
-            if (closest) candidates.push({ id: `${closest.a}-${closest.b}`, ...pairScore(frames[closest.a], frames[closest.a + 1], frames[closest.b - 1], frames[closest.b], opts.preferMotion, 0, frames[closest.b + 1]), end: closest.end });
-        }
-        first = last + 1;
-    }
+    // The strongest match of every separate range first, so a long video is
+    // covered throughout instead of around its few strongest moments.
+    const candidates = diverseShortlist(shortlist, opts.limit ?? 16);
     // Always validate the complete selected cycle, even if coarse sampling favors
     // a shorter fragment or its global score falls below the shortlist cutoff.
     const duration = opts.endBoundary - frames[0]?.time;
