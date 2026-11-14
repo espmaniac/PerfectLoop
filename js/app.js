@@ -5,6 +5,7 @@ import { compareLoopMethods } from './method-comparison.js';
 import { methodContext } from './method-fit.js';
 import { moveLayerInStack } from './layer-order.js';
 import { SHORTEST_LOOP } from './ranking.js';
+import { needsEncoding } from './loop-frames.js';
 import { alignVideoToFrame } from './framing.js';
 import { autoRepair } from './auto-repair.js';
 import { reviewAutoRepair } from './auto-repair-dialog.js';
@@ -55,12 +56,14 @@ const pairedWallpaperKind = kind => ['pvt', 'live-photo', 'kit'].includes(kind);
 const downloadSettings = settings => settings.preset === 'iphone' && pairedWallpaperKind(state.wallpaperDownload)
   ? wallpaperExportSettings(settings) : settings;
 const dirty = () => videoSignature(state.s) !== state.renderSignature;
+// Only repairs and interpolation wait for an encoded result; the rest plays live.
+const resultNeedsRender = () => needsEncoding(state.s) && dirty();
 function selectPreview(choice) {
   layerTimeline?.finishGesture();
   previewPlayback?.stop();
   state.previewChoice = choice;
   if (choice === 'original') preview.setMode(state.tab === 'find' ? 'source' : 'composition');
-  else preview.setMode(state.tab === 'layers' || dirty() ? 'composition' : 'loop');
+  else preview.setMode(state.tab === 'layers' || resultNeedsRender() || !needsEncoding(state.s) ? 'composition' : 'loop');
 }
 
 const busy = () => Boolean(state.job);
@@ -494,17 +497,20 @@ function refreshPreviewLabels(plan) {
   const { s, info } = state;
   $$('[data-preview-choice]').forEach(button => { const active = button.dataset.previewChoice === (state.tab === 'find' ? 'original' : state.previewChoice); button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   const liveLayers = state.tab === 'layers' && state.mode !== 'loop';
-  const resultPending = state.previewChoice === 'result' && dirty() && state.tab !== 'find';
+  const resultPending = state.previewChoice === 'result' && resultNeedsRender() && state.tab !== 'find';
+  const live = preview?.live(), preparing = live ? preview.liveProgress() : 1;
   const resultInvalid = validate(s, info).length || validateLayers(s.layers, s).length;
   $('#preview-tag').textContent = state.tab === 'find' ? 'SEARCH RANGE'
     : state.previewChoice === 'original' ? 'ORIGINAL'
     : liveLayers ? 'LIVE LAYER EDITING'
     : resultPending ? resultInvalid ? 'RESULT UNAVAILABLE' : state.task?.kind === 'preview' ? 'UPDATING RESULT' : 'DRAFT · PRESS PLAY'
+    : live ? preparing < 1 ? `PREPARING PREVIEW · ${Math.round(preparing * 100)}%` : 'RESULT · LIVE'
     : 'RESULT';
   $('#preview-foot-message').textContent = state.tab === 'find' ? 'Search the highlighted source range. Choose a match to view its result.'
     : state.previewChoice === 'original' ? 'Original motion with current framing. Loop effects and layers are excluded.'
     : liveLayers ? 'Live layer editing. Press Play in Result to check the processed cycle.'
     : resultPending ? resultInvalid ? 'Check Video settings to generate the result.' : state.task?.kind === 'preview' ? 'Updating the full selected cycle. The image shown is a draft.' : 'Draft frame. Press Play to update the full result and start playback.'
+    : live ? preparing < 1 ? 'Decoding the selected frames to show this loop method live. Natural motion plays meanwhile.' : `Live result: ${plan.duration.toFixed(3)}s, drawn in the browser. Export encodes the same frames.`
     : `Full result: ${plan.duration.toFixed(3)}s · source range: ${(s.end-s.start).toFixed(3)}s${['crossfade','offset'].includes(s.method) ? ' · shortened by transition overlap' : ''}`;
   $('#inspection-mode').textContent = state.mode === 'loop' ? 'Rendered preview' : 'Selected source range';
 }
@@ -1312,7 +1318,7 @@ preview = new Preview(() => state, mode => { state.mode = mode; if (mode === 'so
     const key = `${videoSignature(state.s)}:${preview?.lastFrame}`;
     if (key !== wallpaperDraftFrame) { wallpaperDraftFrame = key; wallpaperPreview?.captureStill(); }
   }
-}, {needsRender: dirty});
+}, {needsRender: resultNeedsRender, onLive: () => refreshPreviewLabels(framePlan(state.s))});
 previewPlayback = new PreviewPlayback({getState: () => state, preview, render: () => runRender(true), needsRender: dirty});
 timeline = new Timeline(() => state, updateActiveRange, time => {
   previewEditor?.finish();

@@ -27,3 +27,7 @@ Application source: **GPL-3.0-or-later**. Bundled dependencies retain their own 
 ## Background work
 
 Analyses run in the background and never block editing: Auto find, method comparison, seam inspection, pause detection, repair analysis, automatic repair, and Result updates. Starting another analysis, a Result update, or an export stops the running one and says so. Exports, batch exports, proxies, and imports run in the foreground; editing is disabled until they finish or are cancelled. Cancel stops whichever is running.
+
+## Live loop preview
+
+Result draws loop methods in the browser instead of encoding them. `loop-frames.js` maps every output frame of one cycle to its source frames — a single frame, a blend of two with the head's weight, or a fade level — exactly as `videoGraph` builds the export; the mapping was checked against FFmpeg output for every method at several frame rates, lengths, overlaps, and seam positions. `loop-cache.js` decodes the frames of the selected range once, at the output frame rate, scaled to at most 720 px and a 160 MB budget, in its own hidden video element, so it never interrupts other work. Framing and layers are applied when each frame is drawn. Repairs and motion interpolation still need the encoder.
