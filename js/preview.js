@@ -1,7 +1,7 @@
 import { clamp, download, timecode, framePlan } from './logic.js';
 import { drawLayers } from './layers.js';
 import { $, icon } from './ui.js';
-import { videoTransform } from './framing.js';
+import { drawFramed } from './frame-reader.js';
 import { LoopFrameCache } from './loop-cache.js';
 import { needsEncoding, outputFrame } from './loop-frames.js';
 
@@ -12,12 +12,16 @@ export function drawFrame(canvas, video, settings, rendered, layerTime = null) {
   ctx.fillStyle = settings.background; ctx.fillRect(0, 0, w, h);
   if (rendered) { ctx.drawImage(video, 0, 0, w, h); return true; }
   if (layerTime !== null) drawLayers(ctx, (settings.layers || []).filter(layer => layer.placement === 'below'), settings, layerTime, framePlan(settings).duration);
-  const sw = video.videoWidth, sh = video.videoHeight;
-  const { sx, sy, offsetX, offsetY } = videoTransform(settings, sw, sh, w, h);
-  ctx.save(); ctx.translate(w / 2 + offsetX, h / 2 + offsetY); ctx.scale(settings.mirror ? -sx : sx, sy);
-  ctx.rotate(settings.rotate * Math.PI / 180); ctx.drawImage(video, -sw / 2, -sh / 2); ctx.restore();
+  drawFramed(ctx, video, settings, w, h, video.videoWidth, video.videoHeight, false);
   return true;
 }
+
+// A black image covering the video area for fades.
+let blackImage;
+const black = () => {
+  if (!blackImage) { blackImage = document.createElement('canvas'); blackImage.width = blackImage.height = 1; blackImage.getContext('2d').fillRect(0, 0, 1, 1); }
+  return blackImage;
+};
 
 // One output frame of the live loop-method preview: up to two cached source
 // frames blended as the export blends them, a fade to black, framing, layers.
@@ -28,12 +32,11 @@ function drawLoopFrame(canvas, settings, cache, sourceWidth, sourceHeight, time,
   const ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
   ctx.fillStyle = settings.background; ctx.fillRect(0, 0, w, h);
   drawLayers(ctx, (settings.layers || []).filter(layer => layer.placement === 'below'), settings, layerTime, framePlan(settings).duration);
-  const { sx, sy, offsetX, offsetY } = videoTransform(settings, sourceWidth, sourceHeight, w, h);
-  ctx.save(); ctx.translate(w / 2 + offsetX, h / 2 + offsetY); ctx.scale(settings.mirror ? -sx : sx, sy); ctx.rotate(settings.rotate * Math.PI / 180);
-  ctx.drawImage(first, -sourceWidth / 2, -sourceHeight / 2, sourceWidth, sourceHeight);
-  if (weight > 0) { ctx.globalAlpha = weight; ctx.drawImage(second, -sourceWidth / 2, -sourceHeight / 2, sourceWidth, sourceHeight); }
-  if (level < 1) { ctx.globalAlpha = 1 - level; ctx.fillStyle = '#000'; ctx.fillRect(-sourceWidth / 2, -sourceHeight / 2, sourceWidth, sourceHeight); }
-  ctx.restore();
+  const place = (image, alpha) => { ctx.globalAlpha = alpha; drawFramed(ctx, image, settings, w, h, sourceWidth, sourceHeight, false); };
+  place(first, 1);
+  if (weight > 0) place(second, weight);
+  if (level < 1) place(black(), 1 - level);
+  ctx.globalAlpha = 1;
   drawLayers(ctx, (settings.layers || []).filter(layer => layer.placement !== 'below'), settings, layerTime, framePlan(settings).duration);
   return true;
 }

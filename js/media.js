@@ -1,4 +1,5 @@
 import { clamp } from './logic.js';
+import { lumaCanvas, readLuma } from './frame-reader.js';
 import { bestLoops, cutAtBoundary, diverseShortlist, pairScore, seamMatch, verifyLimit } from './ranking.js';
 function aborted(signal) { if (signal?.aborted)
     throw new DOMException('Cancelled', 'AbortError'); }
@@ -185,16 +186,12 @@ export async function searchVideo(url, options, fps, signal, onProgress) {
         const ratio = Math.min(1, 160 / Math.max(video.videoWidth, video.videoHeight));
         const width = Math.max(1, Math.round(video.videoWidth * ratio));
         const height = Math.max(1, Math.round(video.videoHeight * ratio));
-        const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const target = lumaCanvas(width, height);
         const firstIndex = Math.round(plan.first * fps), endIndex = Math.round(plan.end * fps);
         const cache = new Map();
         const readFrame = async index => {
             if (cache.has(index)) return cache.get(index);
-            await seekVideo(video, (index + .5) / fps, signal);
-            ctx.drawImage(video, 0, 0, width, height);
-            const rgba = ctx.getImageData(0, 0, width, height).data;
-            const luma = Float32Array.from({ length: width * height }, (_, p) => rgba[p*4]*.2126 + rgba[p*4+1]*.7152 + rgba[p*4+2]*.0722);
+            const luma = await readLuma(video, (index + .5) / fps, target, signal);
             const frame = { ...descriptor(video, index / fps), luma };
             if (cache.size >= 512) cache.delete(cache.keys().next().value);
             cache.set(index, frame); return frame;

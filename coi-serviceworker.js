@@ -10,7 +10,7 @@ const PRECACHE = [
     'js/alignment.js', 'js/app.js', 'js/aspect.js', 'js/auto-repair-core.js',
     'js/auto-repair-dialog.js', 'js/auto-repair.js', 'js/background-patch.js',
     'js/background-repair.js', 'js/color.js', 'js/constants.js', 'js/container-metadata.js',
-    'js/engine-assets.js', 'js/engine.js', 'js/fonts.js', 'js/framing.js', 'js/icons.js',
+    'js/engine-assets.js', 'js/engine.js', 'js/fonts.js', 'js/frame-reader.js', 'js/framing.js', 'js/icons.js',
     'js/layer-export.js', 'js/layer-order.js', 'js/layer-panel.js', 'js/layer-timeline.js',
     'js/layer-timing.js', 'js/layers.js', 'js/live-photo-motion.js', 'js/loop-cache.js', 'js/loop-frames.js', 'js/live-photo.js',
     'js/logic.js', 'js/media.js', 'js/method-comparison.js', 'js/method-fit.js',

@@ -1,4 +1,5 @@
-import { openVideo, seekVideo, releaseVideo } from './media.js';
+import { openVideo, releaseVideo } from './media.js';
+import { lumaCanvas, readLuma } from './frame-reader.js';
 import { framePlan } from './logic.js';
 import { scoreBoundary } from './auto-repair-core.js';
 import { methodContext, methodTrials, methodFit, recommendMethod, localDifference, frameDetail } from './method-fit.js';
@@ -9,16 +10,12 @@ async function reader(result, signal) {
     try {
         video=await openVideo(url,signal);
         const width=result.width,height=result.height,count=result.frames;
-        const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
-        const ctx=canvas.getContext('2d',{willReadFrequently:true}),cache=new Map();
+        const target=lumaCanvas(width,height),cache=new Map();
         const frame=async index=>{
             signal.throwIfAborted();
             index=((index%count)+count)%count;
             if(cache.has(index))return cache.get(index);
-            await seekVideo(video,Math.min(video.duration-.001,(index+.5)/result.fps),signal);
-            ctx.drawImage(video,0,0,width,height);
-            const rgba=ctx.getImageData(0,0,width,height).data;
-            const pixels=Float32Array.from({length:width*height},(_,p)=>rgba[p*4]*.2126+rgba[p*4+1]*.7152+rgba[p*4+2]*.0722);
+            const pixels=await readLuma(video,Math.min(video.duration-.001,(index+.5)/result.fps),target,signal);
             if(cache.size>=96)cache.delete(cache.keys().next().value);
             cache.set(index,pixels);return pixels;
         };
