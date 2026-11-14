@@ -70,3 +70,18 @@ test('Ordinary frame cadence is discounted when measuring excess temporal discon
     const report=scoreBoundary(frames,24,24);
     assert.equal(report.temporal,0);
 });
+
+test('The boundary score prefers a seamless step to a repeated or skipped frame on sharp moving edges', async () => {
+    const { scoreBoundary } = await import('../js/auto-repair-core.js');
+    const W = 160, H = 90, period = 36;
+    const frame = i => {
+        const phase = 2 * Math.PI * (i % period) / period, cx = 80 + 45 * Math.sin(phase), cy = 45 + 25 * Math.cos(phase);
+        return Float32Array.from({ length: W * H }, (_, p) => Math.abs(p % W - cx) < 9 && Math.abs(Math.floor(p / W) - cy) < 9 ? 220 : 40);
+    };
+    const score = (a, b) => scoreBoundary([0, 1, 2, 3].map(k => frame(a + k)).concat([4, 3, 2, 1].map(k => frame(b - k))), W, H).score;
+    for (const a of [3, 10, 20]) {
+        const exact = score(a, a + 2 * period);
+        assert.ok(exact < score(a, a + 2 * period + 1), `a repeated frame scores worse (start ${a})`);
+        assert.ok(exact < score(a, a + 2 * period - 1), `a skipped frame scores worse (start ${a})`);
+    }
+});
