@@ -102,3 +102,14 @@ test('Background preload downloads once, ignores failures, and respects data sav
     }
     assert.equal(loads, 2);
 });
+
+test('Every FFmpeg run bounds both decoder and encoder threads', async () => {
+    const { engine, worker } = fixture();
+    let args;
+    worker.exec = async list => { args = list; return 0; };
+    engine.workerCall = operation => operation();
+    await engine.exec(['-i', 'in.mp4', '-c:v', 'libx264', 'out.mp4'], 1, 0, 1, 'Encoding', () => {});
+    const output = args.indexOf('out.mp4'), input = args.indexOf('-i');
+    assert.equal(args[output - 2], '-threads'); assert.equal(args[output - 1], '1', 'Encoder threads are limited before the output file');
+    assert.ok(args.indexOf('-threads') < input, 'Decoder threads are limited before the input');
+});
