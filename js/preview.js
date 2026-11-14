@@ -1,7 +1,7 @@
 import { clamp, download, timecode, framePlan } from './logic.js';
 import { drawLayers } from './layers.js';
 import { $, icon } from './ui.js';
-import { videoTransform } from './framing.js';
+import { drawFramed } from './frame-reader.js';
 
 export function drawFrame(canvas, video, settings, rendered, layerTime = null) {
   // Keep the last frame while the decoder seeks across the loop boundary.
@@ -10,10 +10,7 @@ export function drawFrame(canvas, video, settings, rendered, layerTime = null) {
   ctx.fillStyle = settings.background; ctx.fillRect(0, 0, w, h);
   if (rendered) { ctx.drawImage(video, 0, 0, w, h); return true; }
   if (layerTime !== null) drawLayers(ctx, (settings.layers || []).filter(layer => layer.placement === 'below'), settings, layerTime, framePlan(settings).duration);
-  const sw = video.videoWidth, sh = video.videoHeight;
-  const { sx, sy, offsetX, offsetY } = videoTransform(settings, sw, sh, w, h);
-  ctx.save(); ctx.translate(w / 2 + offsetX, h / 2 + offsetY); ctx.scale(settings.mirror ? -sx : sx, sy);
-  ctx.rotate(settings.rotate * Math.PI / 180); ctx.drawImage(video, -sw / 2, -sh / 2); ctx.restore();
+  drawFramed(ctx, video, settings, w, h, video.videoWidth, video.videoHeight, false);
   return true;
 }
 

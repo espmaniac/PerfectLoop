@@ -1,6 +1,7 @@
 import { analyzeSeamPause } from './seam-pause-analysis.js';
 import { pauseTrim, assessPauseRepair } from './seam-pause.js';
-import { openVideo, seekVideo, releaseVideo } from './media.js';
+import { openVideo, releaseVideo } from './media.js';
+import { lumaCanvas, readLuma } from './frame-reader.js';
 import { framePlan, validate } from './logic.js';
 import { analyzeLoopRepair } from './repair-analysis.js';
 import { scoreBoundary, defectRegion, assessRepair } from './auto-repair-core.js';
@@ -14,14 +15,10 @@ async function inspectResult(result, signal, reference) {
         video=await openVideo(url,signal);
         const ratio=Math.min(1,160/result.width,240/result.height);
         const width=Math.max(1,Math.round(result.width*ratio)),height=Math.max(1,Math.round(result.height*ratio));
-        const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
-        const ctx=canvas.getContext('2d',{willReadFrequently:true}),frames=[];
+        const target=lumaCanvas(width,height),frames=[];
         const count=Math.max(8,Math.round(result.duration*result.fps));
         for(const index of [0,1,2,3,count-4,count-3,count-2,count-1]) {
-            signal?.throwIfAborted();await seekVideo(video,Math.min(video.duration-.001,(index+.25)/result.fps),signal);
-            ctx.drawImage(video,0,0,width,height);
-            const pixels=ctx.getImageData(0,0,width,height).data;
-            frames.push(Float32Array.from({length:width*height},(_,p)=>pixels[p*4]*.2126+pixels[p*4+1]*.7152+pixels[p*4+2]*.0722));
+            signal?.throwIfAborted();frames.push(await readLuma(video,Math.min(video.duration-.001,(index+.25)/result.fps),target,signal));
         }
         return scoreBoundary(frames,width,height,reference);
     } finally {if(video)releaseVideo(video);URL.revokeObjectURL(url);}
