@@ -150,7 +150,10 @@ export class VideoEngine {
         this.logs = [];
         let code;
         try {
-            code = await this.workerCall(() => this.ff.exec(['-hide_banner', '-y', '-threads', '1', '-filter_complex_threads', '1', ...args]), message);
+            // Before -i, -threads limits decoding; before the output file it limits the
+            // encoder. An unlimited x264 encoder exhausts the multithread core's worker
+            // pool and waits forever, so both are bounded.
+            code = await this.workerCall(() => this.ff.exec(['-hide_banner', '-y', '-threads', '1', '-filter_complex_threads', '1', ...args.slice(0, -1), '-threads', '1', args.at(-1)]), message);
         }
         catch (e) {
             if (this.cancelled)

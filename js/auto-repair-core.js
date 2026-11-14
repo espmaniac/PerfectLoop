@@ -22,7 +22,9 @@ export function scoreBoundary(frames, width, height, reference) {
             count++;
         }
         tiles.push({ x, y, width: Math.min(size,width-x), height: Math.min(size,height-y), jump: jump/count,
-            excess: Math.max(0,(jump-ordinary*1.5)/count), motion: acceleration/count, temporal: temporal/count });
+            excess: Math.max(0,(jump-ordinary*1.5)/count), motion: acceleration/count, temporal: temporal/count,
+            // A seam step much smaller than the motion around it is a held or repeated frame.
+            stall: Math.max(0,(ordinary*.75-jump)/count) });
     }
     const focus=(reference?.tiles || tiles).filter(t=>t.excess>Math.max(2.5,(reference?.excess||topMean(tiles.map(t=>t.excess)))*.6));
     const selected=focus.length?focus:tiles;
@@ -35,7 +37,10 @@ export function scoreBoundary(frames, width, height, reference) {
     const excess = topMean(tiles.map(t=>t.excess));
     const jump = topMean(tiles.map(t=>t.jump)), velocity = topMean(tiles.map(t=>t.motion));
     const temporal = topMean(tiles.map(t=>t.temporal));
-    return { score: excess + velocity*.35 + temporal, temporal, excess, jump, velocity, detail: detail/Math.max(1,samples), motion: motion/6, tiles, width, height };
+    const stall = topMean(tiles.map(t=>t.stall));
+    // Ordinary speed is not a defect: scoring it made a repeated frame (no motion at
+    // the seam) look better than a seamless step. Jumps and stalls are scored instead.
+    return { score: excess + temporal*.5 + stall*2, stall, temporal, excess, jump, velocity, detail: detail/Math.max(1,samples), motion: motion/6, tiles, width, height };
 }
 
 export function defectRegion(report) {

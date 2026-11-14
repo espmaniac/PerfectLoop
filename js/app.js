@@ -748,8 +748,8 @@ async function runSearch() {
     state.candidates = result.candidates; state.selected = new Set(); renderCandidates();
     const seamless = result.candidates.some(candidate => ['perfect', 'good'].includes(candidate.tier));
     notice(!result.candidates.length ? 'No loop candidates in this range. Widen the search range or allow scene cuts.'
-      : seamless ? `Found ${tierSummary(result.candidates)}. Select one to compare loop methods.`
-      : `No seamless repeat in this range. Showing the ${result.candidates.length} closest matches; selecting one compares methods, and Crossfade can hide the remaining seam.`);
+      : seamless ? `Found ${tierSummary(result.candidates)}. Select one to play it on repeat.`
+      : `No seamless repeat in this range. Showing the ${result.candidates.length} closest matches; Compare & choose method can find a blend that hides the seam.`);
   } catch (error) { report(error); }
   finally { finishJob(job); }
 }
@@ -839,9 +839,13 @@ async function chooseCandidate(id) {
   remember();
   const range = { start: candidate.start, end: candidate.end, method: 'natural', shift: 0, repeats: 1, repair: null };
   update({ ...range, ...canvasRepeats({ ...state.s, ...range }) }, false);
-  state.previewChoice = 'result'; state.tab = 'edit'; preview.setMode('composition'); preview.seek(candidate.start); refresh();
+  // Play the loop at once: Original repeats the selected source range with the
+  // current framing, without encoding. Comparing loop methods renders every
+  // method, so it runs only on request (Compare & choose method).
+  state.tab = 'edit'; selectPreview('original'); preview.seek(candidate.start, 'composition'); refresh();
   if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
-  await compareCurrentMethods(false);
+  notice(`Playing ${timecode(candidate.start)}–${timecode(candidate.end)} on repeat. Choose Result to render it, or Compare & choose method to try blends.`);
+  await previewPlayback.play();
 }
 
 async function runAutoRepair() {
