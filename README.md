@@ -12,7 +12,7 @@ Your videos, images, and fonts stay on your device. No installation or account r
 
 ## ✨ What you can do
 
-- **🔍 Find loops** anywhere in a video, or within a range you choose. Compare matches and get a suggested loop method.
+- **🔍 Find loops** anywhere in a video, or within a range you choose. Pick a match and it plays on repeat at once; compare loop methods when you want a suggestion.
 - **🔁 Shape the loop** with a natural cut, dissolve, forward-and-backward playback, or fade.
 - **🩹 Repair small defects** with pause trimming, brightness correction, seam alignment, or static and moving patches.
 - **🎨 Add layers** with text, images, gradients, custom fonts, movement, and rotation.
