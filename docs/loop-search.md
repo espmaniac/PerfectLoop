@@ -27,4 +27,4 @@ Every loop found is listed, including repeats of the same motion and overlapping
 
 The result list has no fixed length. Verification caches up to 512 decoded frames.
 
-Selecting an individual result runs [automatic method comparison](method-comparison.md). The tier describes the unframed source; method-fit estimates include framing and processed transition checks.
+Selecting a result sets the loop range with Natural cut and plays it on repeat at once, without encoding. **Compare & choose method** runs the [method comparison](method-comparison.md) on request; it renders every method, so it takes longer. The tier describes the unframed source; method-fit estimates include framing and processed transition checks.

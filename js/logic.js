@@ -121,6 +121,8 @@ export function geometry(s) {
     return f.join(',');
 }
 function blendWeight(s, overlap) {
+    // The blend filter numbers frames from 1, so the head weighs 0 on the first
+    // blended frame and 1 on the last (loop-frames.js blendWeight is the same curve).
     const u = `(N-1)/${overlap - 1}`;
     return s.curve === 'smooth' ? `(${u})*(${u})*(3-2*(${u}))` : s.curve === 'cosine' ? `(1-cos(PI*(${u})))/2` : u;
 }

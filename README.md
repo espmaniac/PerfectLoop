@@ -12,7 +12,7 @@ Your videos, images, and fonts stay on your device. No installation or account r
 
 ## ✨ What you can do
 
-- **🔍 Find loops** anywhere in a video, or within a range you choose. Compare matches and get a suggested loop method.
+- **🔍 Find loops** anywhere in a video, or within a range you choose. Pick a match and it plays on repeat at once; compare loop methods when you want a suggestion.
 - **🔁 Shape the loop** with a natural cut, dissolve, forward-and-backward playback, or fade.
 - **🩹 Repair small defects** with pause trimming, brightness correction, seam alignment, or static and moving patches.
 - **🎨 Add layers** with text, images, gradients, custom fonts, movement, and rotation.
@@ -24,7 +24,7 @@ Your videos, images, and fonts stay on your device. No installation or account r
 1. **Open a video.** Click **Open media** or drag your file into the editor. A sample is already available when you first open the site.
 2. **Choose a range.** Adjust the timeline, or use **Auto find** and click **Use this loop** on a match.
 3. **Make it yours.** Set dimensions and audio in **Video settings**. Open **Layers** to add text or images, or **Repair loop** to improve a seam.
-4. **Check and download.** Press **Play** in **Result** to update and play the loop. Compare with **Original**, watch a few repeats, then **Export**.
+4. **Check and download.** Press **Play** in **Result** to watch the loop — every loop method plays live in the browser. Compare with **Original**, watch a few repeats, then **Export**.
 
 When moving, scaling, or rotating the video, the viewer stays in **Original**. Choose **Result** when you are ready to check the processed loop.
 

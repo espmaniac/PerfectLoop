@@ -5,6 +5,7 @@ import { compareLoopMethods } from './method-comparison.js';
 import { methodContext } from './method-fit.js';
 import { moveLayerInStack } from './layer-order.js';
 import { SHORTEST_LOOP } from './ranking.js';
+import { needsEncoding } from './loop-frames.js';
 import { alignVideoToFrame } from './framing.js';
 import { autoRepair } from './auto-repair.js';
 import { reviewAutoRepair } from './auto-repair-dialog.js';
@@ -44,7 +45,7 @@ const state = {
   wallpaperScreen: 'editor', wallpaperDownload: supportsPackageSave() ? 'pvt' : 'live-photo', wallpaperPosterURL: '', wallpaperPosterSignature: '',
   opts: { from: 0, to: 18, preferMotion: true, avoidCuts: true },
   pauseDraft: null, pauseAnalysis: null, pauseHighlights: null, candidates: [], selected: new Set(), repairAnalysis: null, methodComparison: null,
-  job: null, error: '', nativeError: '', notice: '', controller: null, fileController: null,
+  job: null, task: null, error: '', nativeError: '', notice: '', fileController: null,
 };
 const history = { past: [], future: [] }, engine = new VideoEngine();
 const methodCache = new Map();
@@ -55,12 +56,14 @@ const pairedWallpaperKind = kind => ['pvt', 'live-photo', 'kit'].includes(kind);
 const downloadSettings = settings => settings.preset === 'iphone' && pairedWallpaperKind(state.wallpaperDownload)
   ? wallpaperExportSettings(settings) : settings;
 const dirty = () => videoSignature(state.s) !== state.renderSignature;
+// Only repairs and interpolation wait for an encoded result; the rest plays live.
+const resultNeedsRender = () => needsEncoding(state.s) && dirty();
 function selectPreview(choice) {
   layerTimeline?.finishGesture();
   previewPlayback?.stop();
   state.previewChoice = choice;
   if (choice === 'original') preview.setMode(state.tab === 'find' ? 'source' : 'composition');
-  else preview.setMode(state.tab === 'layers' || dirty() ? 'composition' : 'loop');
+  else preview.setMode(state.tab === 'layers' || resultNeedsRender() || !needsEncoding(state.s) ? 'composition' : 'loop');
 }
 
 const busy = () => Boolean(state.job);
@@ -302,33 +305,60 @@ function updateActiveRange(partial, saveHistory = true) {
 function clearSeam() { $('#seam-result').replaceChildren(); }
 function notice(message) { state.notice = message; refreshStatus(); }
 function report(error) {
-  if (error?.name === 'AbortError') { notice('Operation cancelled.'); return; }
+  // A task replaced by a newer one ends quietly; the newer one reports for itself.
+  if (error?.name === 'AbortError') { if (!state.job && !state.task) notice('Operation cancelled.'); return; }
   state.error = error instanceof Error ? error.message : String(error); refreshStatus();
 }
+// Background work (analysis, comparisons, preview renders) never blocks the
+// editor: it runs in state.task, and a new job or task replaces it. Foreground
+// jobs (exports, imports) run in state.job and block editing until they finish
+// or are cancelled. Each job is a token, so replaced work cannot finish or
+// report progress for its successor.
+const BACKGROUND_TASKS = new Set(['search', 'methods', 'inspect', 'pause', 'repair', 'auto-repair', 'preview']);
+const TASK_NAMES = { search: 'Search', methods: 'Method comparison', inspect: 'Seam inspection', pause: 'Pause detection', repair: 'Repair analysis', 'auto-repair': 'Automatic repair', preview: 'Result update' };
+function stopTask() {
+  const task = state.task; if (!task) return;
+  state.task = null; task.controller.abort();
+  // Video-only analyses leave the engine running for other work.
+  if (!['search', 'inspect', 'repair'].includes(task.kind)) engine.cancel();
+  return task;
+}
 function startJob(kind, message) {
-  if (busy()) return false;
-  state.error = ''; state.notice = ''; state.controller = new AbortController();
-  state.job = { kind, progress: 0, message }; refreshStatus(); syncDisabled(); return true;
+  if (busy()) { notice(`${state.job.message} Wait for it to finish, or cancel it first.`); return null; }
+  const replaced = stopTask();
+  const job = { kind, progress: 0, message, controller: new AbortController() };
+  state.error = ''; state.notice = replaced ? `${TASK_NAMES[replaced.kind]} stopped.` : '';
+  if (BACKGROUND_TASKS.has(kind)) state.task = job; else state.job = job;
+  refreshStatus(); syncDisabled(); return job;
 }
-function finishJob() { state.job = null; refresh(); }
-function progress(kind) {
-  return (fraction, message, display) => { state.job = { kind, progress: clamp(fraction, 0, 1), displayProgress: display?.progress, message }; refreshStatus(); };
+function finishJob(job) {
+  if (state.job === job) state.job = null;
+  else if (state.task === job) state.task = null;
+  else return;
+  refresh();
 }
-function cancel() { previewPlayback?.stop(); state.controller?.abort(); engine.cancel(); }
+function progress(job) {
+  return (fraction, message, display) => {
+    if (state.job !== job && state.task !== job) return;
+    Object.assign(job, { progress: clamp(fraction, 0, 1), displayProgress: display?.progress, message }); refreshStatus();
+  };
+}
+function cancel() { previewPlayback?.stop(); const job = state.job || stopTask(); if (state.job) { job.controller.abort(); engine.cancel(); } }
 
 function refreshStatus() {
   $('#proxy-alert').hidden = !state.nativeError; $('#proxy-message').textContent = state.nativeError;
   $('#error-alert').hidden = !state.error; $('#error-message').textContent = state.error;
   $('#notice').hidden = !state.notice; $('#notice-message').textContent = state.notice;
-  $('#job-panel').hidden = !state.job;
+  const job = state.job || state.task;
+  $('#job-panel').hidden = !job;
   preview?.syncPlayButton();
-  if (state.job) {
-    const value = state.job.displayProgress === undefined ? state.job.progress : state.job.displayProgress;
-    $('#job-message').textContent = state.job.message;
+  if (job) {
+    const value = job.displayProgress === undefined ? job.progress : job.displayProgress;
+    $('#job-message').textContent = job.message;
     $('#job-percent').textContent = value === null ? '' : `${Math.round(value * 100)}%`;
     if (value === null) $('#job-progress').removeAttribute('value');
     else $('#job-progress').value = value;
-    $('#job-progress').setAttribute('aria-valuetext', value === null ? state.job.message : `${Math.round(value * 100)}%`);
+    $('#job-progress').setAttribute('aria-valuetext', value === null ? job.message : `${Math.round(value * 100)}%`);
   }
 }
 function syncDisabled() {
@@ -467,17 +497,20 @@ function refreshPreviewLabels(plan) {
   const { s, info } = state;
   $$('[data-preview-choice]').forEach(button => { const active = button.dataset.previewChoice === (state.tab === 'find' ? 'original' : state.previewChoice); button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   const liveLayers = state.tab === 'layers' && state.mode !== 'loop';
-  const resultPending = state.previewChoice === 'result' && dirty() && state.tab !== 'find';
+  const resultPending = state.previewChoice === 'result' && resultNeedsRender() && state.tab !== 'find';
+  const live = preview?.live(), preparing = live ? preview.liveProgress() : 1;
   const resultInvalid = validate(s, info).length || validateLayers(s.layers, s).length;
   $('#preview-tag').textContent = state.tab === 'find' ? 'SEARCH RANGE'
     : state.previewChoice === 'original' ? 'ORIGINAL'
     : liveLayers ? 'LIVE LAYER EDITING'
-    : resultPending ? resultInvalid ? 'RESULT UNAVAILABLE' : state.job?.kind === 'preview' ? 'UPDATING RESULT' : 'DRAFT · PRESS PLAY'
+    : resultPending ? resultInvalid ? 'RESULT UNAVAILABLE' : state.task?.kind === 'preview' ? 'UPDATING RESULT' : 'DRAFT · PRESS PLAY'
+    : live ? preparing < 1 ? `PREPARING PREVIEW · ${Math.round(preparing * 100)}%` : 'RESULT · LIVE'
     : 'RESULT';
   $('#preview-foot-message').textContent = state.tab === 'find' ? 'Search the highlighted source range. Choose a match to view its result.'
     : state.previewChoice === 'original' ? 'Original motion with current framing. Loop effects and layers are excluded.'
     : liveLayers ? 'Live layer editing. Press Play in Result to check the processed cycle.'
-    : resultPending ? resultInvalid ? 'Check Video settings to generate the result.' : state.job?.kind === 'preview' ? 'Updating the full selected cycle. The image shown is a draft.' : 'Draft frame. Press Play to update the full result and start playback.'
+    : resultPending ? resultInvalid ? 'Check Video settings to generate the result.' : state.task?.kind === 'preview' ? 'Updating the full selected cycle. The image shown is a draft.' : 'Draft frame. Press Play to update the full result and start playback.'
+    : live ? preparing < 1 ? 'Decoding the selected frames to show this loop method live. Natural motion plays meanwhile.' : `Live result: ${plan.duration.toFixed(3)}s, drawn in the browser. Export encodes the same frames.`
     : `Full result: ${plan.duration.toFixed(3)}s · source range: ${(s.end-s.start).toFixed(3)}s${['crossfade','offset'].includes(s.method) ? ' · shortened by transition overlap' : ''}`;
   $('#inspection-mode').textContent = state.mode === 'loop' ? 'Rendered preview' : 'Selected source range';
 }
@@ -601,7 +634,8 @@ async function loadFile(file, sample = false) {
   // A delayed demo fetch must not replace a video the user has already chosen.
   if (!sample) { sampleController?.abort(); sampleController = undefined; }
   previewPlayback?.stop(); state.previewChoice = 'result';
-  state.fileController?.abort(); state.controller?.abort(); preview.pause();
+  // Work on the previous video is meaningless now.
+  state.fileController?.abort(); stopTask(); preview.pause();
   renderFilmstripController?.abort();
   const controller = new AbortController(); state.fileController = controller;
   notice('Reading the selected video…');
@@ -647,8 +681,9 @@ async function loadInitialSample() {
   finally { if (sampleController === controller) sampleController = undefined; }
 }
 async function openPhoto(file) {
-  if (!file || !startJob('photo', 'Reading your photo…')) return;
-  const controller = state.controller;
+  let job;
+  if (!file || !(job = startJob('photo', 'Reading your photo…'))) return;
+  const controller = job.controller;
   let bitmap, result;
   try {
     if (!/\.(png|jpe?g|webp)$/i.test(file.name) && !/^image\/(png|jpeg|webp)$/i.test(file.type)) throw new Error('Choose a JPEG, PNG, or WebP photo.');
@@ -663,9 +698,9 @@ async function openPhoto(file) {
     if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     if (!blob) throw new Error('The photo could not be decoded.');
     const png = new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.png`, { type: 'image/png' });
-    result = await engine.makePhotoVideo(png, progress('photo'));
+    result = await engine.makePhotoVideo(png, progress(job));
   } catch (error) { report(error); }
-  finally { bitmap?.close(); finishJob(); }
+  finally { bitmap?.close(); finishJob(job); }
   if (!result || controller.signal.aborted) return;
   const converted = new File([result.blob], result.name, { type: 'video/mp4' });
   await loadFile(converted);
@@ -677,12 +712,13 @@ async function openPhoto(file) {
   notice('Photo motion ready: a gentle 2-second zoom cycle. Add text or images in Layers, then render the finished wallpaper.');
 }
 async function makeProxy() {
-  if (!state.file || !startJob('proxy', 'Preparing a compatible proxy…')) return;
+  let job;
+  if (!state.file || !(job = startJob('proxy', 'Preparing a compatible proxy…'))) return;
   let proxyURL;
   try {
-    const result = await engine.makeProxy(state.file, progress('proxy'));
+    const result = await engine.makeProxy(state.file, progress(job));
     proxyURL = URL.createObjectURL(result.blob);
-    const video = await openVideo(proxyURL, state.controller.signal), stream = result.probe.streams.find(item => item.codec_type === 'video');
+    const video = await openVideo(proxyURL, job.controller.signal), stream = result.probe.streams.find(item => item.codec_type === 'video');
     const rate = stream?.avg_frame_rate?.split('/') || ['30', '1'];
     state.info = { ...state.info, width: stream?.width || video.videoWidth, height: stream?.height || video.videoHeight, duration: video.duration,
       fps: Number(rate[0]) / Number(rate[1]) || 30, hasAudio: result.probe.streams.some(item => item.codec_type === 'audio') };
@@ -696,15 +732,16 @@ async function makeProxy() {
     thumbnails(state.sourceURL, 10, controller.signal).then(frames => { if (!controller.signal.aborted) { state.filmstrip = frames; timeline.render(); } }).catch(() => {});
     notice('Compatible proxy ready. Preview is silent; exports use your original video and audio settings.');
   } catch (error) { if (proxyURL) URL.revokeObjectURL(proxyURL); report(error); }
-  finally { finishJob(); }
+  finally { finishJob(job); }
 }
 async function runSearch() {
-  if (!state.file || !state.sourceURL || !startJob('search', 'Preparing search…')) return;
+  let job;
+  if (!state.file || !state.sourceURL || !(job = startJob('search', 'Preparing search…'))) return;
   preview.setMode('source');
   try {
     let rate = state.info.fps;
     if (!rate || !state.info.videoDuration) {
-      const metadata = await engine.inspect(state.file, progress('search'));
+      const metadata = await engine.inspect(state.file, progress(job));
       Object.assign(state.info, metadata); rate = metadata.fps;
       if (metadata.videoDuration) {
         state.info.duration = metadata.videoDuration;
@@ -712,15 +749,15 @@ async function runSearch() {
         state.s.end = Math.min(state.s.end, metadata.videoDuration);
       }
     }
-    if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-    const result = await searchVideo(state.sourceURL, { ...state.opts, min: SHORTEST_LOOP, max: state.opts.to - state.opts.from, videoDuration: state.info.videoDuration }, rate, state.controller.signal, progress('search'));
+    if (job.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    const result = await searchVideo(state.sourceURL, { ...state.opts, min: SHORTEST_LOOP, max: state.opts.to - state.opts.from, videoDuration: state.info.videoDuration }, rate, job.controller.signal, progress(job));
     state.candidates = result.candidates; state.selected = new Set(); renderCandidates();
     const seamless = result.candidates.some(candidate => ['perfect', 'good'].includes(candidate.tier));
     notice(!result.candidates.length ? 'No loop candidates in this range. Widen the search range or allow scene cuts.'
-      : seamless ? `Found ${tierSummary(result.candidates)}. Select one to compare loop methods.`
-      : `No seamless repeat in this range. Showing the ${result.candidates.length} closest matches; selecting one compares methods, and Crossfade can hide the remaining seam.`);
+      : seamless ? `Found ${tierSummary(result.candidates)}. Select one to play it on repeat.`
+      : `No seamless repeat in this range. Showing the ${result.candidates.length} closest matches; Compare & choose method can find a blend that hides the seam.`);
   } catch (error) { report(error); }
-  finally { finishJob(); }
+  finally { finishJob(job); }
 }
 const LOOP_TIERS = {
   perfect: { name: 'Perfect', detail: 'The frame after the seam matches the source within noise.' },
@@ -771,20 +808,21 @@ function refreshMethodComparison() {
   $('#method-scores').innerHTML = comparison ? comparison.rows.map(row => `<div class="method-fit-row"><b>${escapeHTML(row.name)}</b><span>${row.unavailable ? 'Unavailable' : `${Math.round(row.score)} fit`}</span><small>${row.unavailable ? escapeHTML(row.unavailable) : `${row.duration.toFixed(3)}s · ${escapeHTML(row.effect)}<br>Seam ${Math.round(row.seamFit)}/100 · Detail ${Math.round(row.detail)}% · Frame activity ${Math.round(row.motion)}%${['crossfade','offset'].includes(row.id) ? ` · Blend mismatch ${Math.round(row.ghostRisk)}/100` : ''}`}</small></div>`).join('') : '';
 }
 async function compareCurrentMethods(saveHistory = true) {
+  let job;
   if (!state.file || busy()) return;
   const settings = { ...state.s }, context = methodContext(settings), source = state.sourceURL;
   let comparison = methodCache.get(context);
   if (!comparison) {
-    if (!startJob('methods', 'Comparing loop methods…')) return;
-    preview.pause(); const signal = state.controller.signal;
+    if (!(job = startJob('methods', 'Comparing loop methods…'))) return;
+    preview.pause(); const signal = job.controller.signal;
     try {
-      comparison = await compareLoopMethods({ file: state.file, settings, info: state.info, engine, signal, onProgress: progress('methods') });
+      comparison = await compareLoopMethods({ file: state.file, settings, info: state.info, engine, signal, onProgress: progress(job) });
       signal.throwIfAborted();
       if (source !== state.sourceURL || context !== methodContext(state.s)) return;
       if (methodCache.size >= 6) methodCache.delete(methodCache.keys().next().value);
       methodCache.set(context, comparison);
     } catch (error) { report(error); return; }
-    finally { finishJob(); }
+    finally { finishJob(job); }
   }
   state.methodComparison = comparison;
   const recommended = comparison.rows.find(row => row.id === comparison.recommended);
@@ -807,24 +845,29 @@ async function chooseCandidate(id) {
   remember();
   const range = { start: candidate.start, end: candidate.end, method: 'natural', shift: 0, repeats: 1, repair: null };
   update({ ...range, ...canvasRepeats({ ...state.s, ...range }) }, false);
-  state.previewChoice = 'result'; state.tab = 'edit'; preview.setMode('composition'); preview.seek(candidate.start); refresh();
+  // Play the loop at once: Original repeats the selected source range with the
+  // current framing, without encoding. Comparing loop methods renders every
+  // method, so it runs only on request (Compare & choose method).
+  state.tab = 'edit'; selectPreview('original'); preview.seek(candidate.start, 'composition'); refresh();
   if (matchMedia('(max-width: 739px)').matches) $('.preview-panel').scrollIntoView({ block: 'start' });
-  await compareCurrentMethods(false);
+  notice(`Playing ${timecode(candidate.start)}–${timecode(candidate.end)} on repeat. Choose Result to render it, or Compare & choose method to try blends.`);
+  await previewPlayback.play();
 }
 
 async function runAutoRepair() {
+  let job;
   if (!state.file || busy()) return;
   const settings = { ...state.s }, source = state.sourceURL, signature = videoSignature(settings);
   const issues = [...validate(settings, state.info), ...validateLayers(settings.layers, settings)];
   if (issues.length) { report(new Error(issues[0])); return; }
   if (framePlan(settings).outputFrames < 8) { report(new Error('Auto repair needs at least eight output frames.')); return; }
   const mode = $('#auto-repair-mode').value;
-  if (!startJob('auto-repair', 'Preparing automatic repair…')) return;
-  preview.pause(); const signal = state.controller.signal;
+  if (!(job = startJob('auto-repair', 'Preparing automatic repair…'))) return;
+  preview.pause(); const signal = job.controller.signal;
   let result, applied = false;
   try {
-    result = await autoRepair({ file: state.file, url: source, settings, info: state.info, mode, engine, signal, onProgress: progress('auto-repair') });
-    signal.throwIfAborted(); finishJob();
+    result = await autoRepair({ file: state.file, url: source, settings, info: state.info, mode, engine, signal, onProgress: progress(job) });
+    signal.throwIfAborted(); finishJob(job);
     if (!await reviewAutoRepair(result)) return;
     if (source !== state.sourceURL || signature !== videoSignature(state.s)) throw new Error('The project changed. Analyze again before applying this repair.');
     update(result.best.settings);
@@ -836,7 +879,7 @@ async function runAutoRepair() {
   } catch (error) { report(error); }
   finally {
     if (result?.best?.patch && !applied) discardImportedImageLayer(result.best.patch);
-    if (state.job?.kind === 'auto-repair') finishJob();
+    finishJob(job);
   }
 }
 
@@ -897,26 +940,27 @@ function changePause(edge,value) {
   try { const p=pauseProposal(d);preview.seek(edge==='tail'?Math.max(p.start,p.end-1/d.rate):p.start,'composition'); } catch {}
 }
 async function detectSeamPause() {
+  let job;
   if(!state.file||busy())return;
   const issues=validate({...state.s,...pauseDraft().base,repair:null,preset:'custom',method:'natural'},state.info);
   if(issues.length) {report(new Error(issues[0]));return;}
-  if(!startJob('pause','Detecting seam pause…'))return;
+  if(!(job = startJob('pause','Detecting seam pause…')))return;
   preview.pause();previewPlayback.stop();state.previewChoice='original';preview.setMode('composition');
-  const source=state.sourceURL,controller=state.controller,signal=controller.signal;
+  const source=state.sourceURL,controller=job.controller,signal=controller.signal;
   try {
     if(!state.info.videoDuration || !state.info.fps) {
-      const metadata=await engine.inspect(state.file,progress('pause'));signal.throwIfAborted();
+      const metadata=await engine.inspect(state.file,progress(job));signal.throwIfAborted();
       if(source!==state.sourceURL)return;
       state.info={...state.info,...metadata,duration:metadata.videoDuration||state.info.duration};
       if(state.s.end>state.info.duration)state.s={...state.s,end:state.info.duration,seamPause:null,repair:null};
       state.opts.to=Math.min(state.opts.to,state.info.duration);
     }
     const d=pauseDraft(),settings={...state.s,...d.base};
-    const result=await analyzeSeamPause(source,settings,state.info,signal,progress('pause'));signal.throwIfAborted();
+    const result=await analyzeSeamPause(source,settings,state.info,signal,progress(job));signal.throwIfAborted();
     if(result.head||result.tail) {d.rate=result.rate;d.head=result.head;d.tail=result.tail;}
     state.pauseAnalysis={key:pauseAnalysisKey(d),message:result.message};
-  } catch(error) {if(state.controller===controller)report(error);}
-  finally {if(state.controller===controller&&state.job?.kind==='pause')finishJob();}
+  } catch(error) {if(job.controller===controller)report(error);}
+  finally {finishJob(job);}
 }
 function applyPauseTrim() {
   if(busy())return false;
@@ -941,13 +985,14 @@ async function previewPauseSeam() {
   if(!dirty()&&state.renderURL&&!busy())await preview.playSeam();
 }
 async function analyzeRepair() {
+  let job;
   if (!state.file || busy()) return;
   const issues = validate({ ...state.s, repair: null, preset: 'custom', method: 'natural' }, state.info);
   if (issues.length) { report(new Error(issues[0])); return; }
-  if (!startJob('repair', 'Analyzing the selected loop…')) return;
-  preview.pause(); const settings = { ...state.s }, source = state.sourceURL, signal = state.controller.signal;
+  if (!(job = startJob('repair', 'Analyzing the selected loop…'))) return;
+  preview.pause(); const settings = { ...state.s }, source = state.sourceURL, signal = job.controller.signal;
   try {
-    const analysis = await analyzeLoopRepair(source, settings, signal, progress('repair'));
+    const analysis = await analyzeLoopRepair(source, settings, signal, progress(job));
     if (signal.aborted || source !== state.sourceURL) return;
     state.repairAnalysis = { ...analysis, source, signature: repairSignature(settings) };
     $('#repair-flicker').checked = analysis.flickerUseful;
@@ -956,7 +1001,7 @@ async function analyzeRepair() {
     $('#repair-overlap').value = String(Math.min(0.5, settings.transition));
     $('#repair-strength').value = '100';
   } catch (error) { report(error); }
-  finally { finishJob(); }
+  finally { finishJob(job); }
 }
 function applyRepair() {
   const a = currentRepairAnalysis(); if (!a || busy()) return;
@@ -996,12 +1041,13 @@ function refreshRepair() {
 }
 
 async function runRender(isPreview) {
+  let job;
   const directPackage = !isPreview && state.s.preset === 'iphone' && state.wallpaperDownload === 'pvt';
-  if (!state.file || validate(isPreview ? state.s : downloadSettings(state.s), state.info).length || validateLayers(state.s.layers, state.s).length || !startJob(isPreview ? 'preview' : 'export', directPackage ? 'Choose a destination folder…' : 'Preparing render…')) return;
+  if (!state.file || validate(isPreview ? state.s : downloadSettings(state.s), state.info).length || validateLayers(state.s.layers, state.s).length || !(job = startJob(isPreview ? 'preview' : 'export', directPackage ? 'Choose a destination folder…' : 'Preparing render…'))) return;
   preview.pause();
   if (isPreview) refresh();
   const settings = { ...state.s }, wallpaper = settings.preset === 'iphone';
-  const kind = state.wallpaperDownload, controller = state.controller;
+  const kind = state.wallpaperDownload, controller = job.controller;
   try {
     let directory;
     if (directPackage) {
@@ -1021,7 +1067,7 @@ async function runRender(isPreview) {
       return true;
     } else {
       if (directPackage) {
-        progress('export')(0.99, 'Saving the Live Photo package…');
+        progress(job)(0.99, 'Saving the Live Photo package…');
         const saved = await saveWallpaperPackage(result, directory, controller.signal);
         state.lastExport = null;
         notice(`Live Photo saved as ${saved.name}. Import the package into Apple Photos and check wallpaper motion on the target iPhone.`);
@@ -1036,34 +1082,36 @@ async function runRender(isPreview) {
       notice(`Exported ${result.duration.toFixed(3)}s · ${result.width} × ${result.height} · ${result.hasAudio ? 'Audio included' : 'No audio track'}.${settings.format === 'gif' ? settings.gifLoop ? ' GIF loops forever.' : ' GIF plays once.' : settings.targetMB && result.blob.size > settings.targetMB * 1024 ** 2 ? ' The result exceeds the approximate size target; lower the resolution or increase compression.' : ''}`);
     }
   } catch (error) { report(error); }
-  finally { finishJob(); }
+  finally { finishJob(job); }
 }
 async function batchExport() {
-  if (!state.file || !state.selected.size || !startJob('batch', 'Preparing selected loops…')) return;
+  let job;
+  if (!state.file || !state.selected.size || !(job = startJob('batch', 'Preparing selected loops…'))) return;
   try {
     const files = {}, chosen = state.candidates.filter(candidate => state.selected.has(candidate.id));
     for (let i = 0; i < chosen.length; i++) {
-      if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      if (job.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
       const candidate = chosen[i], settings = { ...state.s, repair: null, start: candidate.start, end: candidate.end, method: 'natural', shift: 0, repeats: 1 };
-      const result = await engine.render(state.file, settings, state.info, (fraction, text, display) => progress('batch')((i + fraction) / chosen.length, `Loop ${i + 1}/${chosen.length}: ${text}`, display));
+      const result = await engine.render(state.file, settings, state.info, (fraction, text, display) => progress(job)((i + fraction) / chosen.length, `Loop ${i + 1}/${chosen.length}: ${text}`, display));
       files[`${String(i + 1).padStart(2, '0')}-${result.name}`] = new Uint8Array(await result.blob.arrayBuffer());
       files[`${String(i + 1).padStart(2, '0')}-settings.json`] = new TextEncoder().encode(JSON.stringify({ source: state.file.name, settings, loop: candidate.tier, seamError: candidate.seamError }, null, 2));
     }
-    if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    if (job.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     const zipped = zipSync(files, { level: 0 }); download(new Blob([zipped], { type: 'application/zip' }), 'perfect-loop-candidates.zip');
     notice(`${chosen.length} natural loops exported in one ZIP.`);
   } catch (error) { report(error); }
-  finally { finishJob(); }
+  finally { finishJob(job); }
 }
 async function inspect() {
-  if (!state.sourceURL || !startJob('inspect', 'Reading the boundary frames…')) return;
+  let job;
+  if (!state.sourceURL || !(job = startJob('inspect', 'Reading the boundary frames…'))) return;
   try {
     const rendered = state.mode === 'loop' && state.renderURL;
     const result = await inspectSeam(rendered ? state.renderURL : state.sourceURL, rendered ? state.render.fps : state.info.fps || 30,
-      state.controller.signal, rendered ? 0 : state.s.start, rendered ? undefined : state.s.end);
+      job.controller.signal, rendered ? 0 : state.s.start, rendered ? undefined : state.s.end);
     $('#seam-result').innerHTML = `<div class="seam-images"><figure><img src="${result.last}" alt="Last video frame"><figcaption>Last frame</figcaption></figure><figure><img src="${result.first}" alt="First video frame"><figcaption>First frame</figcaption></figure><figure><img src="${result.diff}" alt="Absolute pixel differences amplified three times"><figcaption>Difference ×3</figcaption></figure></div><div class="seam-stats"><div><span>Image match</span><b>${result.visual.toFixed(1)}<small> /100</small></b></div><div><span>Motion match</span><b>${result.motion.toFixed(1)}<small> /100</small></b></div></div>`;
   } catch (error) { report(error); }
-  finally { finishJob(); }
+  finally { finishJob(job); }
 }
 function setPreset(preset) {
   update(preset === 'iphone' ? wallpaperPreset(state.s, state.info) : preset === 'spotify' ? { preset, aspect: '9:16', width: 576, height: 1024, fps: 30, format: 'mp4', audio: 'strip', repeats: 1 } : preset === 'vertical' ? { preset, aspect: '9:16', width: 720, height: 1280, fps: 30 } : { preset, aspect: 'custom' });
@@ -1139,51 +1187,53 @@ function layerAction(action, id, value) {
   }
 }
 async function addPatch(videoPatch = false) {
+  let job;
   if (!state.file || state.s.layers.length >= MAX_LAYERS || busy()) return;
   const issues = validate({ ...state.s, preset: 'custom' }, state.info);
   if (issues.length) { report(new Error(issues[0])); return; }
   preview.pause();
   const source = state.sourceURL, settings = { ...state.s }, time = preview.source.currentTime;
-  if (!startJob('patch', 'Reading the selected source frame…')) return;
+  if (!(job = startJob('patch', 'Reading the selected source frame…'))) return;
   let video, frame;
   try {
-    video = await openVideo(source, state.controller.signal);
-    await seekVideo(video, time, state.controller.signal);
+    video = await openVideo(source, job.controller.signal);
+    await seekVideo(video, time, job.controller.signal);
     frame = document.createElement('canvas'); frame.width = settings.width; frame.height = settings.height;
     if (!drawFrame(frame, video, settings, false)) throw new Error('This frame is not ready. Choose another source frame.');
   } catch (error) { report(error); return; }
-  finally { if (video) releaseVideo(video); finishJob(); }
+  finally { if (video) releaseVideo(video); finishJob(job); }
   const patch = await selectPatch(frame, time, { video: videoPatch, duration: state.info.duration });
   if (!patch || source !== state.sourceURL) return;
-  if (!startJob('patch', 'Creating the patch layer…')) return;
+  if (!(job = startJob('patch', 'Creating the patch layer…'))) return;
   let layer, added = false;
   try {
-    if (videoPatch) layer = await captureVideoPatch(source, settings, state.info, patch, state.controller.signal, progress('patch'));
+    if (videoPatch) layer = await captureVideoPatch(source, settings, state.info, patch, job.controller.signal, progress(job));
     else layer = await importImageLayer(new File([patch.blob], 'Patch.png', { type: 'image/png' }));
-    if (state.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    if (job.controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     const b = patch.bounds;
     layer = { ...layer, name: videoPatch ? 'Video patch' : 'Patch', patch: true, sourceTime: time,
       width: b.width / settings.width * 100, x: (b.left + b.width / 2) / settings.width * 100,
       y: (b.top + b.height / 2) / settings.height * 100, startTime: 0, endTime: null };
-    finishJob(); added = addLayer(layer);
+    finishJob(job); added = addLayer(layer);
     if (added) notice('Patch added at its original position. Set Show from / Show until in Layers, then render to check the result.');
   } catch (error) { report(error); }
-  finally { frame.width = frame.height = 1; if (layer && !added) discardImportedImageLayer(layer); if (state.job?.kind === 'patch') finishJob(); }
+  finally { frame.width = frame.height = 1; if (layer && !added) discardImportedImageLayer(layer); finishJob(job); }
 }
 
 async function addImage(file) {
+  let job;
   if (state.s.layers.length >= MAX_LAYERS) { report(new Error(`Use no more than ${MAX_LAYERS} layers.`)); return; }
-  if (!file || !startJob('image', 'Opening image…')) return;
-  const controller = state.controller;
+  if (!file || !(job = startJob('image', 'Opening image…'))) return;
+  const controller = job.controller;
   let layer, added = false;
   try {
     layer = await importImageLayer(file, state.s);
     if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-    finishJob(); added = addLayer(layer);
+    finishJob(job); added = addLayer(layer);
   } catch (error) { report(error); }
   finally {
     if (layer && !added) discardImportedImageLayer(layer);
-    if (state.job?.kind === 'image') finishJob();
+    finishJob(job);
   }
 }
 
@@ -1199,25 +1249,27 @@ async function waitForFont(promise, signal) {
 }
 
 async function selectLayerFont(id, fontFamily) {
+  let job;
   const layer = state.s.layers.find(item => item.id === id);
-  if (layer?.type !== 'text' || layer.fontFamily === fontFamily || !startJob('font', 'Loading font…')) return;
-  const controller = state.controller;
+  if (layer?.type !== 'text' || layer.fontFamily === fontFamily || !(job = startJob('font', 'Loading font…'))) return;
+  const controller = job.controller;
   let loaded = false;
   try {
     await waitForFont(loadFont(fontFamily), controller.signal);
     if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     loaded = true;
   } catch (error) { report(error); }
-  finally { finishJob(); }
+  finally { finishJob(job); }
   if (loaded) editLayer(id, { fontFamily });
 }
 
 async function useDeviceFonts() {
+  let job;
   if (busy()) return;
   // Invoke the browser permission request directly from the button's gesture.
   const discovery = discoverDeviceFonts();
-  if (!startJob('fonts', 'Reading device fonts…')) return;
-  const controller = state.controller;
+  if (!(job = startJob('fonts', 'Reading device fonts…'))) return;
+  const controller = job.controller;
   try {
     const fonts = await waitForFont(discovery, controller.signal);
     if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -1225,12 +1277,13 @@ async function useDeviceFonts() {
       ? `${fonts.length} device fonts are available in the Font menu.`
       : 'No device fonts were provided. You can upload font files instead.');
   } catch (error) { report(error); }
-  finally { finishJob(); }
+  finally { finishJob(job); }
 }
 
 async function addFonts(files) {
-  if (!files.length || !startJob('fonts', 'Opening font files…')) return;
-  const controller = state.controller;
+  let job;
+  if (!files.length || !(job = startJob('fonts', 'Opening font files…'))) return;
+  const controller = job.controller;
   const selected = state.s.layers.find(layer => layer.id === state.activeLayerId && layer.type === 'text');
   const imported = [], errors = [];
   try {
@@ -1244,7 +1297,7 @@ async function addFonts(files) {
     }
     if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
   } catch (error) { report(error); }
-  finally { finishJob(); }
+  finally { finishJob(job); }
   if (controller.signal.aborted) return;
   if (imported.length) {
     if (selected) editLayer(selected.id, { fontFamily: imported[0].id });
@@ -1269,7 +1322,7 @@ preview = new Preview(() => state, mode => { state.mode = mode; if (mode === 'so
     const key = `${videoSignature(state.s)}:${preview?.lastFrame}`;
     if (key !== wallpaperDraftFrame) { wallpaperDraftFrame = key; wallpaperPreview?.captureStill(); }
   }
-}, {needsRender: dirty});
+}, {needsRender: resultNeedsRender, onLive: () => refreshPreviewLabels(framePlan(state.s))});
 previewPlayback = new PreviewPlayback({getState: () => state, preview, render: () => runRender(true), needsRender: dirty});
 timeline = new Timeline(() => state, updateActiveRange, time => {
   previewEditor?.finish();
@@ -1474,7 +1527,7 @@ window.addEventListener('beforeunload', () => {
   renderFilmstripController?.abort();
   clearLayerAssets();
   clearFonts();
-  state.fileController?.abort(); state.controller?.abort(); engine.cancel(); preview.destroy();
+  state.fileController?.abort(); state.task?.controller.abort(); state.job?.controller.abort(); engine.cancel(); preview.destroy();
   if (state.sourceURL) URL.revokeObjectURL(state.sourceURL); if (state.renderURL) URL.revokeObjectURL(state.renderURL);
 });
 decorateIcons(); renderCandidates(); refresh(); void loadInitialSample();
