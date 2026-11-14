@@ -115,7 +115,7 @@ export class Preview {
     this.syncPlayButton();
   }
   syncPlayButton() {
-    const st = this.getState(), rendering = st.job?.kind === 'preview';
+    const st = this.getState(), rendering = st.task?.kind === 'preview';
     const playing = !this.active().paused;
     const pending = st.previewChoice === 'result' && st.tab !== 'find' && this.needsRender();
     const label = rendering ? 'Updating result' : playing ? 'Pause preview' : pending ? 'Update and play result' : 'Play preview';

@@ -23,3 +23,7 @@ When opening a video, the editor checks a small readable prefix before replacing
 ## Licenses
 
 Application source: **GPL-3.0-or-later**. Bundled dependencies retain their own licenses. See [LICENSE](../LICENSE) and [THIRD-PARTY-NOTICES.txt](../THIRD-PARTY-NOTICES.txt).
+
+## Background work
+
+Analyses run in the background and never block editing: Auto find, method comparison, seam inspection, pause detection, repair analysis, automatic repair, and Result updates. Starting another analysis, a Result update, or an export stops the running one and says so. Exports, batch exports, proxies, and imports run in the foreground; editing is disabled until they finish or are cancelled. Cancel stops whichever is running.

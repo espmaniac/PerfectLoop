@@ -147,10 +147,10 @@ test('Play describes updating the result and encoding progress even while playba
     const f=fixture(t);Object.assign(f.state,{previewChoice:'result',tab:'edit',needsRender:true});
     f.preview.refresh();assert.equal(f.playButton.getAttribute('aria-label'),'Update and play result');
     assert.equal(f.playButton.getAttribute('aria-busy'),'false');
-    f.state.job={kind:'preview'};f.preview.syncPlayButton();
+    f.state.task={kind:'preview'};f.preview.syncPlayButton();
     assert.equal(f.playButton.getAttribute('aria-label'),'Updating result');
     assert.equal(f.playButton.getAttribute('aria-busy'),'true');
-    f.state.job=null;f.preview.refresh();
+    f.state.task=null;f.preview.refresh();
     assert.equal(f.playButton.getAttribute('aria-label'),'Update and play result');
     f.state.previewChoice='original';f.preview.refresh();
     assert.equal(f.playButton.getAttribute('aria-label'),'Play preview');
