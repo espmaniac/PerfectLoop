@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SEAM_LIMITS, bestLoops, cutAtBoundary, diverseShortlist, isCut, loopTier, seamError } from '../js/ranking.js';
+import { SEAM_LIMITS, bestPerScene, cutAtBoundary, diverseShortlist, isCut, loopTier, seamError } from '../js/ranking.js';
 
 const seamless = error => ['perfect', 'good'].includes(loopTier(error));
 import { searchSamplePlan, searchVideo } from '../js/media.js';
@@ -60,12 +60,12 @@ test('Without a neighboring frame a loop is at most good', () => {
     assert.equal(loopTier(SEAM_LIMITS.good + .01, false), 'fair');
 });
 
-test('Every loop found is listed cleanest first; rough loops are hidden only beside perfect or good ones', () => {
+test('One loop per scene: the cleanest of each, in order through the range', () => {
     const clip = (id, start, seamError, score = 50) => ({ id, start, end: start + 3, seamError, score, tier: loopTier(seamError) });
-    const found = [clip('rough', 1, 2), clip('good', 5, .3, 40), clip('perfect', 9, .01, 30), clip('fair', 9.1, .8), clip('repeat', 20, .01, 20)];
-    assert.deepEqual(bestLoops(found).map(c => c.id), ['perfect', 'repeat', 'good', 'fair'], 'Repeats and overlaps stay; tiers come first');
-    assert.deepEqual(bestLoops([clip('a', 1, 3), clip('b', 4, 1.5), clip('a again', 1, 3)]).map(c => c.id), ['b', 'a'], 'Without better loops every rough loop is listed once');
-    assert.deepEqual(bestLoops([clip('rough', 1, 2), clip('fair', 4, .8)]).map(c => c.id), ['fair', 'rough'], 'A fair loop does not hide rough ones');
+    const found = [clip('late rough', 41, 2), clip('copy', 6, .01, 20), clip('best', 2, .01, 30), clip('good', 12, .3), clip('later', 44, .8), clip('middle', 22, 3)];
+    assert.deepEqual(bestPerScene(found, [0, 10, 20, 40]).map(c => c.id), ['best', 'good', 'middle', 'later'],
+        'Copies of a scene\'s loop are dropped, every scene is listed however weak, and the list follows the range');
+    assert.deepEqual(bestPerScene([], [0, 10]), []);
 });
 
 test('Verification covers different moments before near-duplicates of the strongest match', () => {
@@ -147,7 +147,8 @@ test('Search finds the exact period of a repeating video and never a frame more 
 
 // Descriptors of a figure that moves in a cycle; its 8 x 8 "head" tile can be recolored.
 function figure(time, head = 0.8) {
-    const pixels = new Float32Array(32 * 32 * 3).fill(0.2), x = Math.round(12 + 6 * Math.sin(time * Math.PI / 1.8));
+    // Constant speed, one pixel per sample, back and forth.
+    const step = Math.round(time * 10) % 24, pixels = new Float32Array(32 * 32 * 3).fill(0.2), x = 6 + (step < 12 ? step : 24 - step);
     for (let y = 8; y < 30; y++) for (let i = x; i < x + 8; i++) pixels.fill(0.6, (y * 32 + i) * 3, (y * 32 + i) * 3 + 3);
     for (let y = 0; y < 8; y++) for (let i = 16; i < 24; i++) pixels.fill(head, (y * 32 + i) * 3, (y * 32 + i) * 3 + 3);
     return { time, pixels };
